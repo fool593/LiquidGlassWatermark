@@ -1,0 +1,60 @@
+LiquidGlassWatermark v15.16 源码（仅修复字体切换，未改动其它逻辑）
+================================================================
+
+【版本信息】
+versionName 15.16 / versionCode 1516
+applicationId com.liquidglass.watermark
+minSdk 26 / targetSdk 34 / compileSdk 34
+Kotlin 1.9.24 + AGP 8.5.2 + Compose (BOM 2024.10.01)
+
+【这次改了什么】
+改动文件只有 1 个：
+  app/src/main/java/com/liquidglass/watermark/WatermarkRenderer.kt
+
+新增资源文件 2 个（内置中文字体，随包打包）：
+  app/src/main/assets/fonts/NotoSansSC-Regular.otf
+  app/src/main/assets/fonts/NotoSansSC-Bold.otf
+
+其余源码、资源、Manifest、图标与原始快照完全一致，一个字节没动。
+
+【为什么原来切换无效】
+切换按钮本身没坏，是两个模式取到的是同一个字体：
+  默认模式 -> Typeface.SANS_SERIF
+  系统模式 -> Typeface.DEFAULT
+在 Android 上这两个都指向同一个字体族 sans-serif，
+字形完全一样，所以点下去状态变了、画面却纹丝不动。
+
+【现在的实现】
+默认字体：从 assets 加载内置思源黑体 Noto Sans SC（常规 + 粗体），
+          任何设备、任何系统主题下字形都一致。
+系统字体：解析 /system/etc/fonts.xml 里 sans-serif 族、weight=400、非斜体的字体文件，
+          直接按文件路径加载。厂商主题字体替换过字体文件后，这里拿到的就是主题字形；
+          解析不到则回退 Typeface.DEFAULT，再不行回退 sans-serif，全程不抛异常。
+
+两种模式来自不同字体文件，切换后字形必然不同。
+渲染上下文在字体模式变化时重建，预览与导出走同一套 resolveTypeface(mode, bold)，
+不会出现"预览变了、导出还是旧字体"。
+
+失败兜底：内置字体加载失败 -> sans-serif；系统字体解析失败 -> 系统默认族 -> sans-serif。
+异常一律 runCatching 吞掉，绝不中断渲染。
+
+【怎么编译】
+方式一（Android Studio）
+  直接 Open 本目录，等 Gradle Sync 完成，Build > Generate Signed Bundle/APK 或直接运行。
+  Android Studio 会自动生成 local.properties 指向本机 SDK。
+
+方式二（命令行）
+  1) 在工程根目录新建 local.properties，内容一行（路径换成你的 SDK 实际位置）：
+       sdk.dir=/path/to/Android/Sdk
+     Windows 例：sdk.dir=C\:\\Users\\you\\AppData\\Local\\Android\\Sdk
+  2) ./gradlew assembleRelease        (Windows 用 gradlew.bat assembleRelease)
+     产物：app/build/outputs/apk/release/app-release.apk
+
+注意：
+- 需要 JDK 17。
+- 首次构建会联网拉 Gradle 8.9 与 AndroidX / Compose 依赖。
+- release 沿用 debug 签名（与原工程配置一致）。若与旧包签名不同，安装前先卸载旧版本。
+
+【验证建议】
+装好后在设置里切换「默认中文字体 / 系统中文体」，预览水印的字形应当明显不同：
+默认模式笔画固定、跨机型一致；系统模式跟随手机当前主题字体。

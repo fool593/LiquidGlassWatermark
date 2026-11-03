@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 液态玻璃胶囊外框 -->
+    <path
+        android:pathData="M30,44 h48 a10,10 0 0 1 10,10 v0 a10,10 0 0 1 -10,10 h-48 a10,10 0 0 1 -10,-10 v0 a10,10 0 0 1 10,-10 z"
+        android:fillColor="#33FFFFFF"
+        android:strokeColor="#F2FFFFFF"
+        android:strokeWidth="2.4" />
+    <!-- 顶部高光 -->
+    <path
+        android:pathData="M32,47 h44 a7,7 0 0 1 6,4 h-56 a7,7 0 0 1 6,-4 z"
+        android:fillColor="#66FFFFFF" />
+    <!-- 镜头圆点 -->
+    <path android:pathData="M40,54 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0 z"
+        android:fillColor="#FFFFFFFF" />
+    <!-- 文字线 -->
+    <path android:pathData="M50,51 h22 v3 h-22 z" android:fillColor="#E6FFFFFF" />
+    <path android:pathData="M50,56.5 h16 v2.6 h-16 z" android:fillColor="#99FFFFFF" />
+</vector>

@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">液态玻璃水印</string>
+
+    <!-- 顶部栏 -->
+    <string name="open_photo">照片/动图</string>
+    <string name="pick_photo">选图</string>
+    <string name="pick_video">视频</string>
+    <string name="save_btn">保存</string>
+    <string name="theme_light_short">浅</string>
+    <string name="theme_dark_short">深</string>
+    <string name="app_title">液态玻璃水印</string>
+    <string name="exporting">导出中 %1$d%%</string>
+    <string name="export_cancel">取消导出</string>
+    <string name="export_cancelled">导出已取消</string>
+
+    <!-- 参数分组 Tab -->
+    <string name="tab_shape">形状</string>
+    <string name="tab_glass">玻璃</string>
+    <string name="tab_gloss">光泽</string>
+    <string name="tab_text">文字</string>
+    <string name="tab_pos">位置</string>
+    <string name="tab_settings">设置</string>
+
+    <!-- 形状 -->
+    <string name="shape_section">形状</string>
+    <string name="shape_capsule">胶囊</string>
+    <string name="shape_ellipse">椭圆</string>
+    <string name="shape_rect">直角</string>
+    <string name="shape_rounded_short">圆角</string>
+    <string name="corner_only_rounded">圆角(仅圆角形状生效)</string>
+    <string name="pad_h_short">水平内边距</string>
+    <string name="pad_v_short">垂直内边距</string>
+    <string name="wm_scale_short">整体缩放</string>
+    <string name="wm_rotation">水印旋转</string>
+    <string name="rotate_photo_90">旋转照片90°</string>
+
+    <!-- 玻璃 -->
+    <string name="glass_section">玻璃</string>
+    <string name="blur_short">模糊强度</string>
+    <string name="glass_contrast">玻璃对比度</string>
+    <string name="refract_a_short">折射强度</string>
+    <string name="refract_h_short">折射高度</string>
+    <string name="warp_strength">扭曲强度</string>
+    <string name="chromatic">色散（彩虹边）</string>
+    <string name="chromatic_short">色散</string>
+    <string name="vibrancy_short">玻璃质感(鲜活度)</string>
+    <string name="software_blur">软件模糊（低版本兼容）</string>
+    <!-- v15.15 字体模式 -->
+    <string name="font_mode_section">字体</string>
+    <string name="font_mode_default">默认字体</string>
+    <string name="font_mode_system">系统字体</string>
+    <string name="font_mode_hint">系统字体不可用时自动回退默认字体</string>
+    <string name="opacity">不透明度</string>
+    <string name="opacity_clear">不透明度(0=纯通透)</string>
+    <string name="dispersion">色散扩散</string>
+    <string name="tint_strength_lens">乳白浓度(0=纯透镜)</string>
+    <string name="border_width">边框宽度</string>
+    <string name="border_alpha">边框透明度</string>
+
+    <!-- 光泽 -->
+    <string name="gloss_section">光泽</string>
+    <string name="specular_short">高光强度</string>
+    <string name="inner_shadow">内阴影</string>
+    <string name="shadow_short">外投影</string>
+    <string name="edge_light">边缘光</string>
+    <string name="highlight_style">高光类型(0默认/1环境/2定向)</string>
+
+    <!-- 文字 -->
+    <string name="text_section">文字</string>
+    <string name="model">机型文字</string>
+    <string name="device_name_label">第一行·手机名称（可自定义）</string>
+    <string name="model_code_label">第二行·型号（可自定义）</string>
+    <string name="datetime_label">第三行·时间日期（实时走秒开启时自动刷新）</string>
+    <string name="reset_btn">还原</string>
+    <string name="live_seconds">实时走秒</string>
+    <string name="title_size_short">主字号</string>
+    <string name="sub_size_short">副字号</string>
+    <string name="text_color">文字颜色</string>
+    <string name="layout_classic">经典双行</string>
+    <string name="show_device_name">显示机型名称</string>
+    <string name="show_time_sec">显示时间(到秒)</string>
+    <string name="font_contrast">字体对比度增强</string>
+    <string name="brand_size">品牌大小</string>
+    <string name="logo_stretch">LOGO 加长</string>
+    <string name="logo_align">Logo位置</string>
+    <string name="logo_align_front">前</string>
+    <string name="logo_align_back">后</string>
+    <string name="logo_align_center">居中</string>
+
+    <!-- 颜色 -->
+    <string name="color_white">白</string>
+    <string name="color_black">黑</string>
+    <string name="color_red">赤</string>
+    <string name="color_orange">橙</string>
+    <string name="color_yellow">黄</string>
+    <string name="color_green">绿</string>
+    <string name="color_cyan">青</string>
+    <string name="color_blue">蓝</string>
+    <string name="color_purple">紫</string>
+
+    <!-- 位置 -->
+    <string name="pos_section">位置</string>
+    <string name="drag_hint_short">可直接在预览区拖动水印</string>
+    <string name="pos_x">水平位置</string>
+    <string name="pos_y">垂直位置</string>
+    <string name="preset_section">预设风格</string>
+    <string name="preset_ios_short">iOS</string>
+    <string name="preset_vivo_short">vivo</string>
+    <string name="preset_xiaomi_short">小米</string>
+    <string name="preset_huawei_short">华为</string>
+    <string name="preset_leica_short">徕卡</string>
+    <string name="preset_crystal_short">水晶</string>
+    <string name="preset_vitremark_short">vitremark</string>
+    <string name="user_preset_section">我的预设</string>
+    <string name="preset_save">保存预设</string>
+    <string name="preset_save_confirm">保存</string>
+    <string name="preset_cancel">取消</string>
+    <string name="preset_name_hint">预设名称</string>
+    <string name="preset_share_btn">分享预设</string>
+    <string name="preset_share">分享水印预设</string>
+    <string name="preset_share_fail">分享失败</string>
+    <string name="preset_import">导入预设</string>
+    <string name="preset_import_ok">预设已导入</string>
+    <string name="preset_import_fail">预设文件无效</string>
+    <string name="preset_apply_ok">已应用预设：%1$s</string>
+    <string name="preset_delete">删除</string>
+
+    <!-- 设置 -->    <string name="settings_section">设置</string>
+    <string name="plan_section">水印方案</string>
+    <string name="plan_classic">方案1 经典</string>
+    <string name="plan_light">方案2 新款浅色</string>
+    <string name="reset_plan1">重置方案1</string>
+    <string name="reset_plan2">重置方案2</string>
+    <string name="api_mode">水印 API 模式</string>
+    <string name="api_auto">自动</string>
+    <string name="api_high">高版本API</string>
+    <string name="api_low">低版本API</string>
+    <string name="dark_mode">深色模式</string>
+    <string name="language">语言</string>
+    <string name="lang_zh">中文</string>
+    <string name="lang_en">English</string>
+    <string name="lang_hi">हिन्दी</string>
+    <string name="version_info">版本 v%1$s · Android %2$s (API %3$d)</string>
+    <string name="export_log">导出日志</string>
+    <string name="export_log_title">导出日志（截图发开发者）</string>
+    <string name="export_log_close">关闭</string>
+    <string name="export_to_download">导出完整日志到 Download</string>
+    <string name="export_log_done">完整日志已导出：%1$s</string>
+    <string name="delete_logs">删除日志</string>
+    <string name="delete_logs_done">已删除 %1$d 个日志文件</string>
+    <string name="motion_format_label">输出格式</string>
+    <string name="motion_format_vivo">vivo-style 双文件</string>
+    <string name="motion_format_google">单文件 · XMP + MP4</string>
+
+    <!-- 保存流程 -->
+    <string name="saved_ok">已保存到系统相册：%1$s</string>
+    <string name="save_fail">保存失败：%1$s</string>
+    <string name="need_permission">需要存储权限才能保存到相册</string>
+    <string name="gif_loaded">动图已载入，点「保存到相册」即导出带水印动图</string>
+    <string name="anim_webp_hint">该动图为动态 WebP，目前仅支持 GIF 动图，已按静态图处理</string>
+    <string name="motion_loaded">检测到动态照片，已载入动态片段，点「保存到相册」即导出会动的水印图</string>
+    <string name="video_loaded">视频已载入，预览循环前 5 秒；MP4 导出保留完整时长，GIF 最长 5 秒</string>
+    <string name="motion_paired">已与当前照片配对为动态照片，点「保存到相册」导出带水印动图</string>
+    <string name="vivo_pair_hint">封面已载入，但未找到配套视频（vivo 动态照片在图库里是图+视频两张）。请点右上角「选视频」选择同一张动图的视频条目，会自动配对</string>
+    <string name="video_decode_fail">视频读取失败，请换一个短视频试试（或先在相册里把动态照片导出为视频）</string>
+    <string name="motion_decode_fail">动态片段解码失败</string>
+    <string name="motion_decode_fail_hint">动态片段解码失败，当前仅显示静态图，保存时会提示</string>
+    <string name="gif_truncated">视频较长，已导出前 40 秒（GIF 有帧数上限）</string>
+    <string name="motion_decode_fail_saved_static">动态片段解码失败，已保存为静态照片：%1$s</string>
+    <string name="vivo_hint">vivo/iQOO 的动态照片是“照片+视频”两个文件：要会动的效果，请在选择器里选与照片配套的那个视频</string>
+    <string name="brand_section">品牌标识</string>
+    <string name="brand_none">无</string>
+    <string name="pick_custom_logo">选择自定义品牌 Logo（建议透明底图片）</string>
+    <string name="custom_logo_set">已设置自定义品牌 Logo</string>
+    <string name="custom_logo_fail">Logo 读取失败，请换一张图片</string>
+    <string name="pick_failed">没有选到文件，请重试</string>
+    <string name="preview_custom_clear">清除预览背景</string>
+    <string name="preview_custom_set">预览背景已更新</string>
+    <string name="preview_custom_title">选择预览背景图</string>
+    <string name="webp_loaded">动态 WebP 已载入</string>
+    <string name="webp_decode_fail">动态 WebP 解码失败，请换一张试试</string>
+    <string name="export_fmt">导出</string>
+    <string name="mp_title">动照</string>
+    <string name="cleaning">清理中…</string>
+    <string name="clean_done">已清理 %1$s</string>
+    <string name="clean_auto_short">导出后自动清理</string>
+    <string name="auto_clean_short">清理缓存</string>
+    <string name="mp_subtitle">封面图片 + 小视频 → 系统动态照片</string>
+    <string name="mp_pick_image">选封面图片</string>
+    <string name="mp_pick_video">选视频片段</string>
+    <string name="mp_image_ok">封面已选</string>
+    <string name="mp_video_ok">视频已选</string>
+    <string name="mp_compose">合成并保存</string>
+    <string name="mp_close">关闭</string>
+    <string name="mp_missing">请先选择封面图片和视频</string>
+    <string name="mp_saved">动态照片已保存：%1$s</string>
+    <string name="mp_fail">动态照片合成失败</string>
+    <string name="wm_length_short">水印长度</string>
+    <string name="export_busy">正在导出，请稍候…</string>
+    <string name="mp_delete">删除</string>
+    <string name="pick_video_delete">删视频</string>
+    <string name="cover_cleared">封面已清除</string>
+    <string name="video_cleared">视频已清除</string>
+    <string name="video_deleted">视频已删除</string>
+    <string name="no_video_to_delete">当前没有视频可删除</string>
+    <string name="pick_image_delete">删图</string>
+    <string name="image_deleted">图片已删除</string>
+    <string name="no_image_to_delete">当前没有图片可删除</string>
+    <string name="gif_long_video_hint">视频时长 %1$d 秒，GIF 已自动截取前 5 秒</string>
+    <string name="motion_cut_5s">视频时长 %1$d 秒，已自动截取前 5 秒生成动态照片</string>
+    <string name="fluid_effect">流体效果（液态玻璃）</string>
+    <string name="fluid_speed">流体速度（快慢频率）</string>
+    <string name="fluid_reload">流体效果已开启，正在重载应用…</string>
+    <string name="breath_effect">呼吸效果（扭曲起伏）</string>
+    <string name="breath_strength">呼吸强度（起伏深浅）</string>
+    <string name="adv_opt_title">高级光学调节</string>
+    <string name="adv_expand">展开</string>
+    <string name="adv_collapse">收起</string>
+    <string name="adv_lens">边缘透镜（边缘折射率）</string>
+    <string name="adv_edgeglow">边缘高光（菲涅尔）</string>
+    <string name="adv_ca">色散程度（边缘紫边/蓝边）</string>
+    <string name="adv_elevation">悬浮高度（柔和投影）</string>
+    <string name="adv_flow">流光速度（0=静止）</string>
+    <string name="logo_name_title">自定义 Logo 命名</string>
+    <string name="logo_name_hint">给这个 Logo 起个名字（显示在品牌选择器）</string>
+    <string name="custom_logo_default_name">我的Logo</string>
+    <string name="ok_btn">确定</string>
+    <string name="cancel_btn">取消</string>
+    <string name="delete_btn">删除</string>
+    <string name="logo_delete_title">删除自定义 Logo</string>
+    <string name="logo_delete_confirm">确定删除这个自定义 Logo 吗？删除后需重新导入。</string>
+    <string name="logo_deleted">自定义 Logo 已删除</string>
+    <string name="custom_logo_saved">自定义 Logo 已保存</string>
+    <string name="logo_shape_title">选择 Logo 形状</string>
+    <string name="logo_shape_square">正方形（居中裁剪）</string>
+    <string name="logo_shape_rect">长方形（保留内容）</string>
+    <string name="logo_shape_circle">圆形（圆角裁切）</string>
+    <string name="logo_shape_none">原图（不裁剪）</string>
+    <string name="mp_pick_whole">整段动图导入（封面+视频自动填满）</string>
+    <string name="mp_import_ok_both">封面+视频已自动配对</string>
+    <string name="export_mode_title">导出模式（三选一）</string>
+    <string name="export_mode_fast">快速</string>
+    <string name="export_mode_hybrid">混合</string>
+    <string name="export_mode_cpu2">CPU</string>
+    <string name="gif_entry">视频转动图</string>
+    <string name="custom_logo_import_new">导入新的自定义 Logo</string>
+    <string name="custom_logo_delete_active">删除当前自定义 Logo</string>
+    <string name="glass_tier">画质档位（high/low）</string>
+    <string name="glass_tier_high">high（全量色散+菲涅尔）</string>
+    <string name="glass_tier_low">low（保留折射+扭曲）</string>
+    <string name="scale_comp">缩小补偿</string>
+</resources>
