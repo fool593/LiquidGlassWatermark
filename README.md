@@ -7,6 +7,24 @@
 
 ---
 
+## 语言 / Language
+
+**中文** — 本软件内置**中英文切换**（另含印地语资源）。默认语言为中文；在「设置」页切换语言后立即生效并记住选择，
+重启 / 切换主题 / 切换方案后保持不变。语言通过 `prefs` 键 `lang` 持久化，`attachBaseContext` 按所选语言加载资源。
+
+**English** — This app supports **built-in Chinese / English language switching** (Hindi resources included as well).
+Default language is Chinese; switch it on the **Settings** page and the change applies immediately and is remembered —
+it survives app restart, theme switches and plan switches. Language preference is persisted under the `lang` key in
+`SharedPreferences`, and resources are loaded per selected language via `attachBaseContext`.
+
+| Resource | Locale | 说明 / Notes |
+|---|---|---|
+| `values/strings.xml` | 中文（默认） | 简体中文 |
+| `values-en/strings.xml` | English | 英文界面 |
+| `values-hi/strings.xml` | हिन्दी | 印地语资源 |
+
+---
+
 ## 这是什么
 
 本应用把玻璃光学效果作为**照片水印 / 视频水印**使用：
