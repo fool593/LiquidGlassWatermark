@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Liquid Glass Watermark 液态玻璃水印</title>
+  <meta name="description" content="液态玻璃水印——带真实折射光学效果的照片/视频水印编辑器" />
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0; padding: 0; line-height: 1.7; color: #1c1e21;
+      background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(100,180,255,.18), transparent 60%),
+        radial-gradient(1000px 500px at 110% 20%, rgba(160,120,255,.14), transparent 60%),
+        #f7f8fa;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e8eaed; background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(80,150,255,.16), transparent 60%),
+        radial-gradient(1000px 500px at 110% 20%, rgba(150,110,255,.13), transparent 60%),
+        #16181c; }
+      a { color: #8ab4ff; }
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 64px 24px 96px; }
+    .glass {
+      background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.7);
+      border-radius: 24px; padding: 40px 40px 32px; backdrop-filter: blur(14px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.10);
+    }
+    @supports not (backdrop-filter: blur(14px)) {
+      .glass { background: rgba(248,249,251,.92); }
+    }
+    @media (prefers-color-scheme: dark) {
+      .glass { background: rgba(30,33,38,.62); border-color: rgba(255,255,255,.10); }
+    }
+    h1 { margin: 0 0 8px; font-size: 2.1rem; letter-spacing: .01em; }
+    .badge {
+      display: inline-block; padding: 3px 12px; margin: 4px 6px 4px 0;
+      border-radius: 999px; font-size: .78rem; color: #fff;
+      background: linear-gradient(120deg, #4f7df0, #7a4ff0);
+    }
+    .badge.min { background: linear-gradient(120deg, #2fa8a0, #2f7fa8); }
+    .desc { font-size: 1.05rem; opacity: .85; margin: 12px 0 20px; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 24px 0; }
+    .feat { background: rgba(127,127,127,.07); border-radius: 16px; padding: 14px 16px; }
+    .feat b { display: block; margin-bottom: 4px; }
+    .feat span { font-size: .9rem; opacity: .78; }
+    .btns a {
+      display: inline-block; text-decoration: none; margin: 6px 10px 6px 0; padding: 11px 22px;
+      border-radius: 999px; color: #fff !important; font-weight: 600;
+      background: linear-gradient(120deg, #4f7df0, #7a4ff0);
+    }
+    .btns a.alt { background: linear-gradient(120deg, #2fa8a0, #2f7fa8); }
+    .btns a.gh { background: transparent; border: 1px solid currentColor; color: inherit !important; }
+    .notice {
+      margin-top: 26px; padding: 14px 16px; border-radius: 14px; font-size: .86rem;
+      background: rgba(255,190,80,.14); border: 1px solid rgba(255,190,80,.4);
+    }
+    footer { margin-top: 32px; font-size: .82rem; opacity: .6; text-align: center; }
+    code { background: rgba(127,127,127,.15); padding: 2px 6px; border-radius: 6px; font-size: .9em; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="glass">
+      <span class="badge">v15.16</span><span class="badge min">minSdk 26 · SDK 34</span>
+      <h1>液态玻璃水印 Liquid Glass Watermark</h1>
+      <p class="desc">在照片 / 视频上叠加带有<strong>真实折射光学</strong>的液态玻璃水印：UV 折射位移、内部放大、色散、菲涅尔边缘光与高光——不是 alpha 混合，而是真的透过玻璃看世界。</p>
+
+      <div class="features">
+        <div class="feat"><b>🧊 玻璃光学</b><span>折射 / 色散 / 菲涅尔 / 高光全参数可调，HIGH / LOW 两档画质</span></div>
+        <div class="feat"><b>🖼 照片水印</b><span>4 种布局 · 14 种品牌 Logo · 自定义 Logo · 中英印三语</span></div>
+        <div class="feat"><b>🎬 视频水印</b><span>GPU 硬编快路径 · 逐帧兜底 · 动态照片 5s 自动截断（vivo/Google 双格式）</span></div>
+        <div class="feat"><b>⚡ 性能</b><span>离屏层缓存 · 重组收敛 · 6 项任务实测修复</span></div>
+      </div>
+
+      <div class="btns">
+        <a href="https://github.com/fool593/LiquidGlassWatermark/releases/latest/download/LiquidGlassWatermark-v15.16-export-speed-restored.apk">下载 APK（光线恢复版）</a>
+        <a class="alt" href="https://github.com/fool593/LiquidGlassWatermark/releases/latest/download/LiquidGlassWatermark-v15.16-UI-performance.apk">下载 APK（UI 优化版）</a>
+        <a class="gh" href="https://github.com/fool593/LiquidGlassWatermark">GitHub 仓库</a>
+      </div>
+
+      <div class="notice">
+        <b>使用知会：</b>本项目无标准软件许可证，不引用任何第三方开源库；凡拉取 / 使用 / 集成 / 商用
+        本仓库或其水印能力者，请先<a href="https://github.com/fool593/LiquidGlassWatermark/issues/new?template=notice.yml">知会作者一声</a>。详见
+        <a href="https://github.com/fool593/LiquidGlassWatermark/blob/main/NOTICE.md">NOTICE.md</a>。
+      </div>
+
+      <footer>© 2026 fool593 · 液态玻璃水印 Liquid Glass Watermark · 构建于 Android 14 实测验证</footer>
+    </div>
+  </div>
+</body>
+</html>
