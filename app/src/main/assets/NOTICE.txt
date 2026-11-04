@@ -1,0 +1,24 @@
+Liquid Glass Watermark v15.16 — 使用知会 / Notice of Use
+
+本 App 不附带任何标准软件许可证（MIT / Apache-2.0 / GPL 均不适用）。
+本项目仅依赖 Google 官方 AndroidX / JetBrains Kotlin 生态组件与构建插件，
+未引用任何第三方 GitHub 开源库。
+
+唯一使用条款：
+凡拉取（clone / fork / download）本仓库源码，或在本项目基础上修改、分发、
+集成、商用该水印能力者，请在开始使用前知会作者一声
+（GitHub issue / discussion / 邮件 / 私信均可）。作者保留署名权与最终解释权，
+除此之外不设任何使用限制。
+
+---
+This app is NOT licensed under any standard open-source license
+(MIT / Apache-2.0 / GPL do NOT apply). It depends only on Google's official
+AndroidX, JetBrains Kotlin components and build plugins, and references no
+third-party GitHub open-source library.
+
+The only term of use:
+Anyone who pulls (clones / forks / downloads) this repository, or who modifies,
+distributes, integrates or commercializes the watermark capability built on
+this project, is kindly asked to notify the author first (GitHub issue /
+discussion / email / message all work). The author retains attribution and
+final interpretation rights; apart from that, there are no usage restrictions.
