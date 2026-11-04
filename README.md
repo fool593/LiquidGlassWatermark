@@ -70,14 +70,16 @@ it survives app restart, theme switches and plan switches. Language preference i
 | `font:0\|1` / `planswitch:0\|1` | 字体模式切换 / 方案切换（验证字体持久化） |
 | `glassperf` | 玻璃渲染层录制/跳过计数器（40s 采样窗口） |
 
-## 使用知会 / Notice of Use
+## 许可证 / License
 
-本仓库**无标准软件许可证**——项目不引用任何第三方 GitHub 开源库，仅依赖 Google AndroidX / JetBrains 生态。
-唯一条款：拉取或使用前**知会作者一声**即可。详见 [NOTICE.md](NOTICE.md)。
+本仓库源码以 **MIT 许可证**发布（[LICENSE](LICENSE)）。项目不引用任何第三方 GitHub 开源库，
+仅依赖 Google AndroidX / JetBrains 生态。MIT 许可之外，作者保留一条**非强制**的礼貌请求：
+拉取或使用前知会作者一声（详见 [NOTICE.md](NOTICE.md)）。
 
-This repository is **not licensed** under any standard license — it references no third-party
-GitHub open-source libraries (only Google AndroidX / JetBrains components). The only term: kindly
-**notify the author** before pulling or using it. See [NOTICE.md](NOTICE.md).
+This repository is released under the **MIT License** ([LICENSE](LICENSE)). It references no
+third-party GitHub open-source libraries (only Google AndroidX / JetBrains components). Beyond the
+MIT license, the author keeps one **non-binding** courtesy request: kindly notify the author when
+you pull or use it. See [NOTICE.md](NOTICE.md).
 
 ## 目录结构
 
