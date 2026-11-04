@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>更新日志 · Changelog — Liquid Glass Watermark</title>
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://fool593.github.io/LiquidGlassWatermark/changelog.html" />
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 780px; margin: 0 auto; padding: 32px 20px 56px;
+    line-height: 1.65; background: #f4f6fc; color: #1b2140;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0b0f1e; color: #dfe4ff; }
+    .entry { background: #161c33; border-color: rgba(140,160,255,.16); }
+    .ver { color: #9db4ff; }
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .back { font-size: .88rem; opacity: .7; margin-bottom: 24px; display: block; }
+  h2 { font-size: 1.05rem; margin: 28px 0 8px; color: #555fd0; }
+  .entry { background: #fff; border: 1px solid #e2e7f5; border-radius: 14px; padding: 14px 18px; margin: 10px 0; }
+  .ver { font-weight: 800; font-family: ui-monospace, Menlo, Consolas, monospace; color: #3b46b8; font-size: 1.02rem; }
+  .date { font-size: .78rem; opacity: .55; margin-left: 8px; }
+  ul { margin: 8px 0 2px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .en { opacity: .82; font-size: .95em; }
+  footer { margin-top: 34px; font-size: .8rem; opacity: .6; }
+</style>
+</head>
+<body>
+<h1>📜 更新日志 · Changelog</h1>
+<a class="back" href="./">← 返回首页 Back to home</a>
+
+<h2>v15.16</h2>
+<div class="entry">
+  <span class="ver">v15.16</span><span class="date">2026-11-04</span>
+  <ul>
+    <li>导出性能：光线管线恢复 v15.15 光学系数，长视频导出速度回到历史水平（不再因任务 2 的光学放大而变慢）。</li>
+    <li>UI 性能：9 处布局/绘制优化，Android 14 实测帧中位耗时 −46%、Missed Vsync −65%。</li>
+    <li>导出管线：YUV 转换定点优化（逐字节等价），消除每像素重复取模分支。</li>
+    <li>液态玻璃：参数范围放大、缩小自动补偿、LOW 档保留法线折射与扭曲（不降级磨砂）。</li>
+    <li>动态照片：自动截取前 5 秒固化。</li>
+    <li>字体：切换后主题切换/方案切换不再覆盖用户选择。</li>
+    <li class="en">Export speed restored to the v15.15 optics profile; UI jank reduced (−46% median frame on Android 14); motion-photo 5s auto-cut; font choice survives theme switching.</li>
+  </ul>
+</div>
+
+<h2>v15.15</h2>
+<div class="entry">
+  <span class="ver">v15.15</span>
+  <ul>
+    <li>液态玻璃参数全面放大：边缘厚度、折射幅度、内部放大、色散系数均提高量程与上限。</li>
+    <li>缩小补偿（scaleCompensation）：小视口/低分辨率下效果保持清晰。</li>
+    <li>LOW 画质档：软件折射路径，法线 UV 偏移 + 内部放大，不退化为 alpha 混合。</li>
+    <li class="en">Amplified glass optics, tiny-size compensation, LOW-tier software refraction instead of frosted-white fallback.</li>
+  </ul>
+</div>
+
+<footer>
+  Liquid Glass Watermark · GitHub Pages 托管 · <a href="./">首页</a>
+</footer>
+</body>
+</html>
