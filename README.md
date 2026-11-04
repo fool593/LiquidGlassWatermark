@@ -7,6 +7,27 @@
 
 ---
 
+## 官方网站与下载 / Official Site & Download
+
+> 🔗 官方网站（效果图 / 更新日志 / 扫码下载）：**https://fool593.github.io/LiquidGlassWatermark/**
+
+> 🧊 **一句话介绍** — 这层玻璃是真的：背景透过水印会弯曲，像透过一块真正的水滴透镜看世界，不是贴图。
+
+> 🎯 **项目目标** — 每一台安卓手机都能摸到真正的「液态玻璃」：低版本不降级成磨砂，高版本用满光学。
+
+> 🔒 **隐私承诺** — 不联网 · 照片不上传 · 免注册 · 无广告，水印全在本机处理。
+
+| Release 包（v15.16） | 说明 | 适合谁 |
+|---|---|---|
+| **光线恢复版（推荐）** — `LiquidGlassWatermark-v15.16-export-speed-restored.apk` | 视频导出速度最顺滑（恢复旧版光线管线后） | 经常导出长视频 |
+| **UI 优化版** — `LiquidGlassWatermark-v15.16-UI-performance.apk` | 编辑界面滑动更跟手（UI 渲染层优化） | 更在意编辑手感 |
+
+两个 APK 功能一致，均内置使用知会条款（`NOTICE.txt`）；直链下载见上方官方网站。
+
+**更新日志**：[changelog.html](https://fool593.github.io/LiquidGlassWatermark/changelog.html)（v15.16 光线恢复 / UI 优化 / YUV 定点优化 / 液态玻璃参数 / 动照片 5s 截断 / 字体持久化等）
+
+---
+
 ## 语言 / Language
 
 **中文** — 本软件内置**中英文切换**（另含印地语资源）。默认语言为中文；在「设置」页切换语言后立即生效并记住选择，

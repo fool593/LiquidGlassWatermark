@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="index, follow">
+<title>项目说明 · Liquid Glass Watermark（液态玻璃水印）— README</title>
+<meta name="description" content="Liquid Glass Watermark（液态玻璃水印）项目说明：真实折射光学水印 Android 编辑器，MIT 许可证，官方下载。">
+<link rel="canonical" href="https://fool593.github.io/LiquidGlassWatermark/readme.html">
+<style>
+  :root{
+    --bg:#0b0f1e; --card:rgba(255,255,255,.05); --line:rgba(140,160,255,.18);
+    --ink:#e8ecf8; --ink-2:#aab3cc; --acc:#7eb0ff; --acc-2:#2e6bff;
+    --code-bg:#0d1226; --code-ink:#c9d4ff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.75 system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background-image:radial-gradient(1200px 600px at 15% -10%, rgba(46,107,255,.18), transparent 60%),
+                     radial-gradient(900px 500px at 85% 110%, rgba(126,176,255,.12), transparent 60%);
+    background-attachment:fixed; min-height:100vh;
+  }
+  .topbar{position:sticky;top:0;z-index:10;padding:.7rem 1.2rem;
+    display:flex;align-items:center;gap:.8rem;justify-content:space-between;
+    background:rgba(11,15,30,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .topbar .brand{display:flex;align-items:center;gap:.6rem;font-weight:700}
+  .topbar img{width:28px;height:28px;border-radius:7px}
+  .topbar a{color:var(--acc);text-decoration:none;font-size:.92rem}
+  .topbar a:hover{text-decoration:underline}
+  main{max-width:860px;margin:0 auto;padding:2rem 1.2rem 4rem}
+  article{
+    background:var(--card);border:1px solid var(--line);border-radius:18px;
+    padding:2rem 2.2rem;backdrop-filter:blur(14px);box-shadow:0 18px 60px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  article h1{font-size:1.7rem;margin:.2rem 0 1.2rem;line-height:1.3}
+  article h1:first-child{margin-top:0}
+  article h2{font-size:1.22rem;margin:1.8rem 0 .8rem;padding-bottom:.35rem;border-bottom:1px solid var(--line);color:#fff}
+  article h3{font-size:1.02rem;margin:1.3rem 0 .5rem;color:#dbe5ff}
+  article p,article li{color:var(--ink-2)}
+  article a{color:var(--acc)}
+  article strong{color:var(--ink)}
+  article blockquote{
+    margin:.6rem 0 1rem;padding:.5rem 1rem;border-left:3px solid var(--acc-2);
+    background:rgba(46,107,255,.07);border-radius:0 10px 10px 0;color:var(--ink-2)
+  }
+  article blockquote p{margin:.2rem 0}
+  article code{
+    font:14px/1.6 ui-monospace,"JetBrains Mono","Roboto Mono",Menlo,Consolas,monospace;
+    background:rgba(126,176,255,.12);color:var(--code-ink);padding:.12em .4em;border-radius:5px
+  }
+  article pre{
+    background:var(--code-bg);border:1px solid var(--line);border-radius:12px;
+    padding:1rem 1.2rem;overflow-x:auto
+  }
+  article pre code{background:none;padding:0}
+  article table{
+    width:100%;border-collapse:collapse;margin:1rem 0;font-size:.92rem;display:block;overflow-x:auto
+  }
+  article th,article td{border:1px solid var(--line);padding:.5rem .75rem;text-align:left;white-space:nowrap}
+  article th{background:rgba(126,176,255,.08);color:#dbe5ff}
+  article hr{border:none;border-top:1px solid var(--line);margin:1.6rem 0}
+  article img{max-width:100%;border-radius:8px}
+  .back{display:inline-flex;align-items:center;gap:.4rem;margin-bottom:1rem;color:var(--acc);text-decoration:none;font-size:.9rem}
+  .back:hover{text-decoration:underline}
+  @media (max-width:600px){ article{padding:1.3rem 1rem} article pre{padding:.8rem} }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><img src="./favicon.svg" alt="Liquid Glass Watermark"> Liquid Glass Watermark</div>
+    <a href="./index.html">← 返回官网 / Home</a>
+  </div>
+  <main>
+    <a class="back" href="./index.html">← 返回官网首页</a>
+    <article><h1>Liquid Glass Watermark（液态玻璃水印）</h1>
+<p>在照片 / 视频上叠加带有真实光线折射与扭曲的「液态玻璃」水印的 Android 编辑器。</p>
+<blockquote>
+<p>版本：15.16（<code>versionCode 1516</code>） · 包名：<code>com.liquidglass.watermark</code>
+环境：minSdk 26 / target &amp; compile SDK 34 · Kotlin + Jetpack Compose + AGSL（Android 13+）</p>
+</blockquote>
+<hr>
+<h2>官方网站与下载 / Official Site &amp; Download</h2>
+<blockquote>
+<p>🔗 官方网站（效果图 / 更新日志 / 扫码下载）：<strong><a href="https://fool593.github.io/LiquidGlassWatermark/">https://fool593.github.io/LiquidGlassWatermark/</a></strong></p>
+</blockquote>
+<blockquote>
+<p>🧊 <strong>一句话介绍</strong> — 这层玻璃是真的：背景透过水印会弯曲，像透过一块真正的水滴透镜看世界，不是贴图。</p>
+</blockquote>
+<blockquote>
+<p>🎯 <strong>项目目标</strong> — 每一台安卓手机都能摸到真正的「液态玻璃」：低版本不降级成磨砂，高版本用满光学。</p>
+</blockquote>
+<blockquote>
+<p>🔒 <strong>隐私承诺</strong> — 不联网 · 照片不上传 · 免注册 · 无广告，水印全在本机处理。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Release 包（v15.16）</th>
+<th>说明</th>
+<th>适合谁</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>光线恢复版（推荐）</strong> — <code>LiquidGlassWatermark-v15.16-export-speed-restored.apk</code></td>
+<td>视频导出速度最顺滑（恢复旧版光线管线后）</td>
+<td>经常导出长视频</td>
+</tr>
+<tr>
+<td><strong>UI 优化版</strong> — <code>LiquidGlassWatermark-v15.16-UI-performance.apk</code></td>
+<td>编辑界面滑动更跟手（UI 渲染层优化）</td>
+<td>更在意编辑手感</td>
+</tr>
+</tbody></table>
+<p>两个 APK 功能一致，均内置使用知会条款（<code>NOTICE.txt</code>）；直链下载见上方官方网站。</p>
+<p><strong>更新日志</strong>：<a href="https://fool593.github.io/LiquidGlassWatermark/changelog.html">changelog.html</a>（v15.16 光线恢复 / UI 优化 / YUV 定点优化 / 液态玻璃参数 / 动照片 5s 截断 / 字体持久化等）</p>
+<hr>
+<h2>语言 / Language</h2>
+<p><strong>中文</strong> — 本软件内置<strong>中英文切换</strong>（另含印地语资源）。默认语言为中文；在「设置」页切换语言后立即生效并记住选择，
+重启 / 切换主题 / 切换方案后保持不变。语言通过 <code>prefs</code> 键 <code>lang</code> 持久化，<code>attachBaseContext</code> 按所选语言加载资源。</p>
+<p><strong>English</strong> — This app supports <strong>built-in Chinese / English language switching</strong> (Hindi resources included as well).
+Default language is Chinese; switch it on the <strong>Settings</strong> page and the change applies immediately and is remembered —
+it survives app restart, theme switches and plan switches. Language preference is persisted under the <code>lang</code> key in
+<code>SharedPreferences</code>, and resources are loaded per selected language via <code>attachBaseContext</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Locale</th>
+<th>说明 / Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>values/strings.xml</code></td>
+<td>中文（默认）</td>
+<td>简体中文</td>
+</tr>
+<tr>
+<td><code>values-en/strings.xml</code></td>
+<td>English</td>
+<td>英文界面</td>
+</tr>
+<tr>
+<td><code>values-hi/strings.xml</code></td>
+<td>हिन्दी</td>
+<td>印地语资源</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>这是什么</h2>
+<p>本应用把玻璃光学效果作为<strong>照片水印 / 视频水印</strong>使用：</p>
+<ul>
+<li><strong>液态玻璃透镜效果</strong> —— 水印区域不是一个平面贴图，而是一块会<strong>折射背景</strong>的玻璃：
+边缘有真正的 UV 折射位移、内部放大扭曲、色散（chromatic aberration）、菲涅尔边缘光与高光，
+背后内容透过玻璃变形，而不是简单的 alpha 混合。</li>
+<li><strong>照片水印</strong> —— 文字 / 机型标识 / 品牌 Logo / 自定义 Logo / 布局排版，一行行像印在玻璃片上。</li>
+<li><strong>视频水印</strong> —— 把静态水印渲染并烧录进视频（支持 MP4 硬编），或让水印随时间缓慢流动。</li>
+<li><strong>动态照片（Motion Photo）</strong> —— 生成 vivo 双文件 / Google XMP 两种动照片格式，
+视频部分超过 5 秒时自动截取前 5 秒。</li>
+<li><strong>玻璃参数全开放</strong> —— 折射强度、边缘厚度、色散、景深、高光、阴影、明暗、缩放补偿、画质档位全部可调。</li>
+</ul>
+<h2>快速预览</h2>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>水印布局</td>
+<td>经典（机型+时间双行）、单行胶囊、双行无标识、左右分栏 4 种</td>
+</tr>
+<tr>
+<td>品牌 Logo</td>
+<td>Leica / Zeiss / Hasselblad / Huawei / Xiaomi / vivo / XMAGE / ARRI / Sony / Samsung / Apple / Google / OPPO / OnePlus / 自定义 14 种</td>
+</tr>
+<tr>
+<td>照片支持</td>
+<td>单张编辑 + 批量保存（JPEG / PNG）</td>
+</tr>
+<tr>
+<td>视频支持</td>
+<td>导入 / 编辑 / 导出 MP4（H.264 / H.265 硬编），GPU 快路径 + 逐帧兜底</td>
+</tr>
+<tr>
+<td>动照片</td>
+<td>vivo 双文件（<code>.MP.jpg</code>）/ Google XMP 双格式输出</td>
+</tr>
+<tr>
+<td>画质档</td>
+<td>High：3 抽样色散 + pow 菲涅尔 + 逐像素 bevel；Low：保留法线 UV 折射，色散/菲涅尔走廉价近似</td>
+</tr>
+<tr>
+<td>缩放补偿</td>
+<td>水印缩小时光学尺度自动反比补偿（参考 220px），小视口 / 低分辨率下效果不消失</td>
+</tr>
+</tbody></table>
+<h2>构建</h2>
+<pre><code class="language-bash"># Android Studio：打开仓库根目录，等待 Gradle 同步后 Run（或 assembleDebug）
+# 命令行：
+./gradlew :app:assembleDebug
+</code></pre>
+<p>首次构建需联网拉取依赖；离线环境请对齐 <code>app/build.gradle.kts</code> 中的依赖版本到本地缓存。</p>
+<h2>验证 / 自动化钩子（debug 构建，<code>am start --es ljgAutoTest ...</code>）</h2>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>bench:5,14,15,16,30,60,300</code></td>
+<td>视频导出性能基准（7 档时长 × gpu/gpuraw/cpu 三路径，CSV 落盘）</td>
+</tr>
+<tr>
+<td><code>exportgpu</code> / <code>exportgpu_cut</code></td>
+<td>GPU 路径导出 <code>auto_test.mp4</code>（第二个带 5 秒截断）</td>
+</tr>
+<tr>
+<td><code>motioncut</code></td>
+<td>手动面板动照片全链路（5 秒截断 + 落盘 <code>.MP.jpg</code>）</td>
+</tr>
+<tr>
+<td><code>font:0|1</code> / <code>planswitch:0|1</code></td>
+<td>字体模式切换 / 方案切换（验证字体持久化）</td>
+</tr>
+<tr>
+<td><code>glassperf</code></td>
+<td>玻璃渲染层录制/跳过计数器（40s 采样窗口）</td>
+</tr>
+</tbody></table>
+<h2>许可证 / License</h2>
+<p>本仓库源码以 <strong>MIT 许可证</strong>发布（<a href="LICENSE">LICENSE</a>）。项目不引用任何第三方 GitHub 开源库，
+仅依赖 Google AndroidX / JetBrains 生态。MIT 许可之外，作者保留一条<strong>非强制</strong>的礼貌请求：
+拉取或使用前知会作者一声（详见 <a href="NOTICE.md">NOTICE.md</a>）。</p>
+<p>This repository is released under the <strong>MIT License</strong> (<a href="LICENSE">LICENSE</a>). It references no
+third-party GitHub open-source libraries (only Google AndroidX / JetBrains components). Beyond the
+MIT license, the author keeps one <strong>non-binding</strong> courtesy request: kindly notify the author when
+you pull or use it. See <a href="NOTICE.md">NOTICE.md</a>.</p>
+<h2>目录结构</h2>
+<pre><code>app/src/main/java/com/liquidglass/watermark/
+├── MainActivity.kt            # 入口：编辑/导出/自动测试钩子
+├── EditorState.kt             # 全局状态 + Params（所有可调参数与方案）
+├── LiquidGlassEngine.kt       # 玻璃光学核心（逐像素物理：折射/色散/菲涅尔/高光）
+├── WatermarkRenderer.kt       # 水印渲染（文字/Logo/玻璃合成/缓存）
+├── GpuMp4Exporter.kt          # GPU 视频导出快路径（帧截图→水印→硬编）
+├── Mp4Exporter.kt             # 视频导出（含逐帧兜底/动态照片 5s 截断）
+├── MotionDecoder.kt           # 视频解码（双 worker 帧队列）
+├── MotionPhotoWriter.kt       # vivo 双文件 / Google XMP 动照片封装
+├── glass/                     # Compose 玻璃 UI 层（离屏层/阴影/高光/backdrop）
+└── ui/                        # 编辑器界面（参数面板/滑块/开关/底栏）
+</code></pre>
+</article>
+  </main>
+</body>
+</html>
