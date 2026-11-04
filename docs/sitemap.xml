@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://fool593.github.io/LiquidGlassWatermark/</loc>
+    <lastmod>2026-11-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg</image:loc>
+      <image:title>液态玻璃水印效果图 1</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261031_221939.jpg</image:loc>
+      <image:title>液态玻璃水印效果图 2</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://fool593.github.io/LiquidGlassWatermark/images/img_20261103_142059.jpg</image:loc>
+      <image:title>液态玻璃水印效果图 3</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://fool593.github.io/LiquidGlassWatermark/images/screenshot_2026_1031_133824.jpg</image:loc>
+      <image:title>液态玻璃水印应用截图 1</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://fool593.github.io/LiquidGlassWatermark/images/screenshot_2026_1101_202406.jpg</image:loc>
+      <image:title>液态玻璃水印应用截图 2</image:title>
+    </image:image>
+  </url>
+</urlset>

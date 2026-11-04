@@ -3,12 +3,45 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>液态玻璃水印 Liquid Glass Watermark — 官方下载站</title>
-  <meta name="description" content="液态玻璃水印 Android 应用官方下载站：真实折射光学水印，照片/视频通用，支持动态照片。" />
+  <title>液态玻璃水印 Liquid Glass Watermark — 官方下载站（低版本安卓同样可用）</title>
+  <meta name="description" content="液态玻璃水印 Android 应用官方下载站：真实折射光学水印，低版本安卓也能体验玻璃折射效果而非白色磨砂，高版本安卓同样可用。照片/视频/动态照片通用。" />
+  <meta name="keywords" content="液态玻璃水印,水印,Android,折射,玻璃效果,照片水印,视频水印,动态照片,liquid glass watermark,refraction watermark" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="author" content="fool593" />
+  <link rel="canonical" href="https://fool593.github.io/LiquidGlassWatermark/" />
   <meta property="og:title" content="液态玻璃水印 Liquid Glass Watermark — 官方下载站" />
-  <meta property="og:description" content="带真实折射光学效果的照片/视频水印编辑器，官方 Android APK 下载。" />
+  <meta property="og:description" content="带真实折射光学效果的照片/视频水印编辑器：低版本安卓同样体验玻璃折射，高版本安卓同样可用。官方 Android APK 直链下载。" />
   <meta property="og:url" content="https://fool593.github.io/LiquidGlassWatermark/" />
   <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="液态玻璃水印 Liquid Glass Watermark — 官方下载站" />
+  <meta name="twitter:description" content="真实折射光学水印：低版本安卓同样体验玻璃折射，高版本安卓同样可用。照片/视频/动态照片。" />
+  <meta name="twitter:image" content="https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "液态玻璃水印 Liquid Glass Watermark",
+    "alternateName": "Liquid Glass Watermark",
+    "operatingSystem": "Android 8.0+",
+    "applicationCategory": "MultimediaApplication",
+    "applicationSubCategory": "PhotoAndVideoWatermark",
+    "description": "带真实折射光学效果的照片/视频水印编辑器。项目目标：让低版本安卓用户也能体验到液态玻璃水印的真实折射与光学效果，而不是降级成白色磨砂质感（无任何光学与折射效果）；高版本安卓用户同样可以使用该水印。",
+    "inLanguage": ["zh", "en", "hi"],
+    "author": { "@type": "Person", "name": "fool593" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY", "availability": "https://schema.org/InStock" },
+    "datePublished": "2026-11-04",
+    "softwareVersion": "15.16",
+    "downloadUrl": "https://fool593.github.io/LiquidGlassWatermark/downloads/LiquidGlassWatermark-v15.16-export-speed-restored.apk",
+    "fileSize": "27.28MB",
+    "screenshot": [
+      "https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg",
+      "https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261031_221939.jpg",
+      "https://fool593.github.io/LiquidGlassWatermark/images/img_20261103_142059.jpg"
+    ]
+  }
+  </script>
   <style>
     :root { color-scheme: light; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19,7 +52,6 @@
       background: #eef2f7;
       overflow-x: hidden;
     }
-    /* 背景：大色块渐晕 + 轻微液态玻璃光斑 */
     .bg {
       position: fixed; inset: 0; z-index: -2; overflow: hidden;
       background:
@@ -29,7 +61,6 @@
         radial-gradient(700px 400px at 92% 88%, rgba(251,146,60,.14), transparent 58%),
         linear-gradient(160deg, #f6f8fc 0%, #e9eef6 55%, #f0f2f8 100%);
     }
-    /* 缓慢漂浮的玻璃气泡 */
     .bubble { position: absolute; border-radius: 50%; filter: blur(2px); opacity: .5; background: radial-gradient(circle at 30% 28%, rgba(255,255,255,.92), rgba(255,255,255,.18) 46%, rgba(255,255,255,.05) 70%); box-shadow: inset 0 0 24px rgba(255,255,255,.55); animation: drift 26s ease-in-out infinite alternate; }
     .b1 { width: 340px; height: 340px; left: -90px; top: 8%; }
     .b2 { width: 210px; height: 210px; right: -50px; top: 34%; animation-delay: -8s; animation-duration: 32s; }
@@ -38,7 +69,6 @@
 
     .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 22px 90px; position: relative; }
 
-    /* 玻璃容器 */
     .glass {
       background: rgba(255,255,255,.5);
       border: 1px solid rgba(255,255,255,.75);
@@ -49,7 +79,7 @@
       position: relative;
       overflow: hidden;
     }
-    .glass::before { /* 顶部高光带 */
+    .glass::before {
       content: ""; position: absolute; top: 0; left: 8%; right: 8%; height: 1px;
       background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent);
     }
@@ -57,7 +87,6 @@
       .glass { background: rgba(248,250,253,.94); }
     }
 
-    /* 页头 */
     header.glass { padding: 34px 36px 30px; margin-top: 8px; }
     .logo-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
     .logo {
@@ -79,7 +108,16 @@
 
     .intro { margin-top: 18px; font-size: 1.02rem; line-height: 1.85; opacity: .92; }
 
-    /* 下载区 */
+    /* 项目目标横幅（低版本/高版本水印目标） */
+    .goal {
+      margin-top: 22px; padding: 18px 22px; border-radius: 20px; font-size: .97rem; line-height: 1.85;
+      background: linear-gradient(120deg, rgba(79,125,240,.10), rgba(122,79,240,.10));
+      border: 1px solid rgba(99,102,241,.35);
+    }
+    .goal b { color: #4338ca; }
+    .goal .tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .goal .tag { font-size: .78rem; padding: 3px 12px; border-radius: 999px; background: rgba(79,125,240,.14); border: 1px solid rgba(79,125,240,.35); }
+
     .download { margin-top: 26px; display: flex; flex-direction: column; gap: 12px; }
     .dl-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .dl-btn {
@@ -94,7 +132,6 @@
     .dl-btn.small { padding: 9px 18px; font-size: .86rem; background: rgba(31,41,55,.6); box-shadow: none; }
     .dl-meta { font-size: .8rem; opacity: .62; }
 
-    /* 特性网格 */
     .features { margin-top: 26px; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
     .feat {
       background: rgba(255,255,255,.4); border: 1px solid rgba(255,255,255,.7); border-radius: 20px; padding: 18px 18px 16px;
@@ -104,31 +141,26 @@
     .feat b { display: block; margin-bottom: 6px; font-size: 1rem; }
     .feat span { font-size: .88rem; opacity: .75; line-height: 1.6; }
 
-    /* 截图展示 */
     .shots { margin-top: 34px; }
     .shots h2 { font-size: 1.35rem; margin-bottom: 4px; }
     .shots .lead { font-size: .92rem; opacity: .68; margin-bottom: 18px; }
-    .grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 16px;
-    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 16px; }
     .shot-card {
       border-radius: 22px; overflow: hidden; position: relative;
       background: rgba(255,255,255,.5); border: 1px solid rgba(255,255,255,.78);
       box-shadow: 0 14px 34px rgba(31,48,84,.14), inset 0 1px 0 rgba(255,255,255,.9);
       backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     }
-    .shot-card img { display: block; width: 100%; height: auto; max-height: 520px; object-fit: contain; background: #101216; }
+    .shot-card img { display: block; width: 100%; height: auto; max-height: 560px; object-fit: contain; background: #101216; }
     .shot-cap { padding: 12px 16px 14px; font-size: .88rem; font-weight: 600; opacity: .85; }
     .shot-cap small { display: block; font-weight: 400; opacity: .6; margin-top: 2px; }
 
-    /* 说明区 */
     .howto { margin-top: 34px; }
     .howto h2 { font-size: 1.35rem; margin-bottom: 14px; }
     .howto ol { padding-left: 22px; display: flex; flex-direction: column; gap: 10px; line-height: 1.8; }
     .howto li { font-size: .95rem; opacity: .9; }
     .howto code { background: rgba(31,41,55,.08); padding: 2px 8px; border-radius: 8px; font-size: .88em; }
 
-    /* NOTICE */
     .notice { margin-top: 30px; padding: 18px 20px; border-radius: 18px; font-size: .87rem; line-height: 1.75;
       background: rgba(255,190,80,.16); border: 1px solid rgba(255,190,80,.5); }
     .notice b { font-size: .95rem; }
@@ -140,7 +172,7 @@
     @media (max-width: 620px) {
       header.glass { padding: 24px 20px 22px; }
       .dl-btn { width: 100%; justify-content: center; }
-      .shot-card img { max-height: 420px; }
+      .shot-card img { max-height: 440px; }
     }
   </style>
 </head>
@@ -174,16 +206,30 @@
         支持 4 种布局、14 种品牌 Logo、自定义 Logo，以及 <strong>vivo / Google 双格式动态照片</strong>。
       </p>
 
+      <div class="goal">
+        <b>🎯 项目目标：让每一台安卓手机都能摸到真正的「液态玻璃」</b><br />
+        本应用的核心目标，是让<strong>低版本安卓用户也能体验到液态玻璃水印的真实光学与折射效果</strong>——
+        在低画质档位（LOW）下，水印依然基于法线做 UV 折射偏移与扭曲近似，呈现玻璃的内部放大与光线弯曲，
+        <strong>而不是降级成没有任何光学与折射效果的「白色磨砂」质感</strong>；同时，<strong>高版本安卓用户同样可以使用该水印</strong>，
+        在 HIGH 档位获得完整的色散、菲涅尔边缘光与高光。无论你的系统版本高低，得到的水印都是「能透过它看世界的玻璃」。
+        <div class="tags">
+          <span class="tag">Android 8.0+ 全部支持</span>
+          <span class="tag">LOW 档保留法线折射 + 扭曲</span>
+          <span class="tag">不高版本专用 · 低版本不降级成磨砂</span>
+          <span class="tag">HIGH 档完整光学（AGSL 运行时着色器）</span>
+        </div>
+      </div>
+
       <div class="download">
         <div class="dl-row">
-          <a class="dl-btn" href="https://github.com/fool593/LiquidGlassWatermark/releases/latest/download/LiquidGlassWatermark-v15.16-export-speed-restored.apk">⬇ 下载 APK · 光线恢复版（推荐）</a>
-          <a class="dl-btn green" href="https://github.com/fool593/LiquidGlassWatermark/releases/latest/download/LiquidGlassWatermark-v15.16-UI-performance.apk">⬇ 下载 APK · UI 优化版</a>
+          <a class="dl-btn" href="downloads/LiquidGlassWatermark-v15.16-export-speed-restored.apk" download>⬇ 直链下载 APK · 光线恢复版（推荐）</a>
+          <a class="dl-btn green" href="downloads/LiquidGlassWatermark-v15.16-UI-performance.apk" download>⬇ 直链下载 APK · UI 优化版</a>
         </div>
         <div class="dl-row">
-          <a class="dl-btn small" href="https://github.com/fool593/LiquidGlassWatermark/releases/latest/download/LiquidGlassWatermark-v15.16-original-source.zip">源码 ZIP（原始版）</a>
+          <a class="dl-btn small" href="downloads/LiquidGlassWatermark-v15.16-original-source.zip" download>源码 ZIP（原始版）</a>
           <a class="dl-btn small" href="https://github.com/fool593/LiquidGlassWatermark">GitHub 仓库 ↗</a>
         </div>
-        <p class="dl-meta">两个 APK 均内置使用知会条款（NOTICE.txt）· 附安装说明见下</p>
+        <p class="dl-meta">APK 均内置使用知会条款（NOTICE.txt）· 直链下载，无需跳转 GitHub Release 页 · 安装说明见下</p>
       </div>
     </header>
 
@@ -197,20 +243,32 @@
     </section>
 
     <section class="shots">
-      <h2>应用截图</h2>
-      <p class="lead">以下为 Android 14 模拟器实机运行截图。</p>
+      <h2>应用效果展示</h2>
+      <p class="lead">真实设备 / 应用内生成的效果图（点击可查看大图）。</p>
       <div class="grid">
         <div class="shot-card">
-          <img src="images/shot_main.png" alt="液态玻璃水印主界面（照片加水印预览）" loading="lazy" />
-          <div class="shot-cap">主界面 · 照片预览与工具栏<small>选择照片 / 视频后即时预览水印效果</small></div>
+          <a href="images/lgm_20261101_202432.jpg" target="_blank"><img src="images/lgm_20261101_202432.jpg" alt="液态玻璃水印效果大图 1：玻璃折射水印叠加在照片上" loading="lazy" /></a>
+          <div class="shot-cap">液态玻璃效果图 1<small>折射 + 高光 + 边缘光（点击查看原图）</small></div>
         </div>
         <div class="shot-card">
-          <img src="images/shot_panel.png" alt="液态玻璃水印参数面板（玻璃光学参数）" loading="lazy" />
-          <div class="shot-cap">玻璃参数面板<small>折射高度 / 强度 / 色散 / 高光等全部可调</small></div>
+          <a href="images/lgm_20261031_221939.jpg" target="_blank"><img src="images/lgm_20261031_221939.jpg" alt="液态玻璃水印效果大图 2：玻璃折射水印叠加在照片上" loading="lazy" /></a>
+          <div class="shot-cap">液态玻璃效果图 2<small>不同色彩下的玻璃折射（点击查看原图）</small></div>
         </div>
         <div class="shot-card">
-          <img src="images/shot_preview.png" alt="液态玻璃水印视频预览（导出前）" loading="lazy" />
-          <div class="shot-cap">视频预览<small>GPU 实时预览，导出前后视觉一致</small></div>
+          <a href="images/img_20261103_142059.jpg" target="_blank"><img src="images/img_20261103_142059.jpg" alt="液态玻璃水印效果大图 3：玻璃折射水印叠加在照片上" loading="lazy" /></a>
+          <div class="shot-cap">液态玻璃效果图 3<small>实拍场景水印效果（点击查看原图）</small></div>
+        </div>
+        <div class="shot-card">
+          <a href="images/screenshot_2026_1031_133824.jpg" target="_blank"><img src="images/screenshot_2026_1031_133824.jpg" alt="液态玻璃水印应用手机截图 1" loading="lazy" /></a>
+          <div class="shot-cap">应用界面截图 1<small>手机界面实拍（点击查看原图）</small></div>
+        </div>
+        <div class="shot-card">
+          <a href="images/screenshot_2026_1101_202406.jpg" target="_blank"><img src="images/screenshot_2026_1101_202406.jpg" alt="液态玻璃水印应用手机截图 2" loading="lazy" /></a>
+          <div class="shot-cap">应用界面截图 2<small>手机界面实拍（点击查看原图）</small></div>
+        </div>
+        <div class="shot-card">
+          <a href="images/shot_main.png" target="_blank"><img src="images/shot_main.png" alt="液态玻璃水印主界面：照片加水印预览" loading="lazy" /></a>
+          <div class="shot-cap">主界面 · 照片预览与工具栏<small>Android 14 模拟器运行截图</small></div>
         </div>
       </div>
     </section>
@@ -218,9 +276,9 @@
     <section class="howto">
       <h2>安装与使用</h2>
       <ol>
-        <li>点击上方下载按钮获取 <code>.apk</code>，在手机文件管理器中打开即可安装（需允许「安装未知来源应用」）。</li>
+        <li>点击上方<strong>直链下载</strong>按钮获取 <code>.apk</code>，在手机文件管理器中打开即可安装（需允许「安装未知来源应用」）。</li>
         <li>首次进入选择照片或视频（支持系统相册、文件管理器、手动面板导入）。</li>
-        <li>在「玻璃 / 高光 / 文本 / 位置」等标签页调整水印效果；<strong>LOW 画质档</strong>保留法线折射与扭曲，不会退化成纯透明叠加。</li>
+        <li>在「玻璃 / 高光 / 文本 / 位置」等标签页调整水印效果；<strong>LOW 画质档保留法线折射与扭曲</strong>，不会退化成纯白色磨砂叠加。</li>
         <li>导出照片为 PNG/JPEG；导出视频走 GPU 硬编；动态照片自动按 5 秒规范截取并落盘到相册。</li>
         <li>字体在「设置」页切换默认 / 系统字体，切换后全局立即生效。</li>
       </ol>
@@ -236,6 +294,7 @@
       © 2026 fool593 · Liquid Glass Watermark · 本站托管于 GitHub Pages（免费公网 HTTPS）<br />
       <a href="https://github.com/fool593/LiquidGlassWatermark">GitHub 仓库</a> ·
       <a href="https://fool593.github.io/LiquidGlassWatermark/">本站首页</a> ·
+      <a href="https://fool593.github.io/LiquidGlassWatermark/sitemap.xml">站点地图</a> ·
       <a href="https://github.com/fool593/LiquidGlassWatermark/releases">Release 发布页</a>
     </footer>
   </div>
