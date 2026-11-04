@@ -61,8 +61,8 @@
       } catch (e) {}
     })();
   </script>
-  <script type="module" crossorigin src="./assets/site-index-D0eWnWKR.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/site-style-uDY3mm1M.css">
+  <script type="module" crossorigin src="./assets/site-index-CkEWWiNO.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/site-style-CY_CYzIS.css">
 </head>
 <body>
   <!-- 背景：静态底 canvas（网格+线条+雾）+ 动态光斑层由 JS 注入 -->
@@ -234,6 +234,62 @@
         <li data-i18n="howto.4">导出照片为 PNG/JPEG；导出视频走 GPU 硬编；动态照片自动按 5 秒规范截取并落盘到相册。</li>
         <li data-i18n="howto.5">字体在「设置」页切换默认 / 系统字体，切换后全局立即生效。</li>
       </ol>
+    </section>
+
+    <!-- ================= 反馈与讨论 ================= -->
+    <section class="wrap feedback" aria-label="Feedback">
+      <h2 data-i18n="feedback.title">遇到问题？报告 Bug</h2>
+      <p class="sub" data-i18n="feedback.sub">使用中遇到闪退 / 导出异常 / 界面问题？请尽量带上手机型号、安卓版本与操作步骤，作者才能定位。</p>
+      <div class="feedback-btns">
+        <a class="dl-btn green rise r-4" href="https://github.com/fool593/LiquidGlassWatermark/issues/new?template=bug_report.yml" target="_blank" rel="noopener">
+          🐛 <span data-i18n="feedback.btn.bug">报告 Bug（GitHub Issue）</span>
+        </a>
+        <a class="dl-btn small rise r-5" href="https://github.com/fool593/LiquidGlassWatermark/issues/new" target="_blank" rel="noopener">
+          💡 <span data-i18n="feedback.btn.idea">提建议 / 其他反馈</span>
+        </a>
+      </div>
+      <p class="dl-meta" data-i18n="feedback.note">提交 Issue 需要 GitHub 账号（免费）；若方便，把 App 内“最近一次崩溃”的提示内容（app_crash/last.txt）也粘贴上，能最快定位。</p>
+    </section>
+
+    <section class="wrap comments" aria-label="Comments">
+      <h2 data-i18n="comments.title">留言讨论</h2>
+      <p class="sub" data-i18n="comments.sub">评论区由 GitHub Discussions 承载（无需单独注册，使用你的 GitHub 账号即可）——反馈、建议、使用心得都欢迎。</p>
+      <div class="giscus-wrap">
+        <script src="https://giscus.app/client.js"
+                data-repo="fool593/LiquidGlassWatermark"
+                data-repo-id="R_kgDOVhNeIg"
+                data-category="General"
+                data-category-id="DIC_kwDOVhNeIs4DKYVn"
+                data-mapping="pathname"
+                data-strict="0"
+                data-reactions-enabled="1"
+                data-emit-metadata="0"
+                data-input-position="top"
+                data-theme="preferred_color_scheme"
+                data-lang="zh-CN"
+                data-loading="lazy"
+                crossorigin="anonymous"
+                async>
+        </script>
+        <script>
+        /* giscus 主题跟随站点深浅色切换（lg:theme 事件由 main.js 派发） */
+        (function () {
+          function currentGiscusTheme() {
+            return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+          }
+          function syncGiscus() {
+            var f = document.querySelector('.giscus-wrap iframe.giscus-frame');
+            if (!f) return;
+            try {
+              f.contentWindow.postMessage({ giscus: { setConfig: { theme: currentGiscusTheme() } } }, 'https://giscus.app');
+            } catch (e) { /* iframe 未就绪时忽略 */ }
+          }
+          window.addEventListener('lg:theme', syncGiscus);
+          var iv = setInterval(function () { if (document.querySelector('.giscus-wrap iframe.giscus-frame')) { clearInterval(iv); syncGiscus(); } }, 1500);
+          setTimeout(function () { clearInterval(iv); }, 30000);
+        })();
+        </script>
+      </div>
     </section>
 
     <footer class="wrap">
