@@ -839,6 +839,8 @@ private fun GlassTab(act: MainActivity) {
         IntSlider(stringResource(R.string.glass_tier), p.glassTier, 0..1, "%.0f", b) { v ->
             p.glassTier = v.coerceIn(EditorState.GLASS_TIER_HIGH, EditorState.GLASS_TIER_LOW)
             com.liquidglass.watermark.glass.GlassQuality.tier = p.glassTier
+            // v15.17：用户显式调整过画质档位 → ROM 兼容防护不再自动覆盖（尊重用户选择）
+            act.markGlassTierUserSet()
             act.bump()
         }
         // scaleComp：0=关闭，100=小尺寸下光学带最多放大 3.2×（按渲染短边反比补偿）

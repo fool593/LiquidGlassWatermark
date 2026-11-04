@@ -94,6 +94,9 @@ class MainActivity : ComponentActivity() {
         setDarkMode(com.liquidglass.watermark.darkModeState)
         // 应用 API 模式（高/低/自动），同步软件模糊状态
         applyApiMode()
+        // v15.17 ROM 兼容防护：按 ROM 家族（澎湃/鸿蒙/ColorOS/OriginOS/One UI 等）适配渲染策略，
+        // 防止 AGSL RuntimeShader 在部分厂商驱动上 native 崩溃（RenderThread SIGSEGV，Java catch 拦不住）
+        applyRomGuard()
         // 品牌自动匹配应用到全部方案（方案1/方案2 都要有机型/logo/时间，否则切方案2 内容空、看起来"跟以前一样"）
         for (pi in 0 until EditorState.PLAN_COUNT) {
             val pp = EditorState.planParamsAt(pi)
@@ -168,6 +171,36 @@ class MainActivity : ComponentActivity() {
                         EditorState.switchPlan(this, idx)
                         val after = EditorState.params.fontMode
                         DebugLog.log("AUTOTEST", "方案切换 idx=$idx 前fontMode=$before 后fontMode=$after")
+                    }
+                    // v15.17 ROM 防护验证钩子：romtest:<market> 模拟指定 ROM 家族（xiaomi/huawei/oppo/
+                    // vivo/samsung/google/other），打印防护决策（真实 Build 只读，用参数模拟家族判定）
+                    spec.startsWith("romtest:") -> {
+                        val market = spec.substringAfter("romtest:").trim().lowercase()
+                        val sdkSim = if (market.endsWith(":sdk<33")) 32 else 34
+                        val m = market.substringBefore(":")
+                        val fam = when (m) {
+                            "xiaomi", "redmi", "poco" -> com.liquidglass.watermark.RomGuard.XIAOMI
+                            "huawei", "honor" -> com.liquidglass.watermark.RomGuard.HUAWEI
+                            "oppo", "oneplus", "realme" -> com.liquidglass.watermark.RomGuard.OPPO
+                            "vivo", "iqoo" -> com.liquidglass.watermark.RomGuard.VIVO
+                            "samsung" -> com.liquidglass.watermark.RomGuard.SAMSUNG
+                            "google" -> com.liquidglass.watermark.RomGuard.GOOGLE
+                            else -> com.liquidglass.watermark.RomGuard.OTHER
+                        }
+                        val name = when (fam) {
+                            com.liquidglass.watermark.RomGuard.XIAOMI -> "小米/红米/POCO（澎湃/MIUI）"
+                            com.liquidglass.watermark.RomGuard.HUAWEI -> "华为/荣耀（鸿蒙/EMUI/MagicOS）"
+                            com.liquidglass.watermark.RomGuard.OPPO -> "OPPO/一加/真我（ColorOS）"
+                            com.liquidglass.watermark.RomGuard.VIVO -> "vivo/iQOO（OriginOS）"
+                            com.liquidglass.watermark.RomGuard.SAMSUNG -> "三星（One UI）"
+                            com.liquidglass.watermark.RomGuard.GOOGLE -> "Google（Pixel 原生）"
+                            else -> "其他"
+                        }
+                        val defaultLow = com.liquidglass.watermark.RomGuard.defaultTierLowFor(fam, sdkSim)
+                        val userSet = prefs.getBoolean("glassTierUserSet", false)
+                        val cur = EditorState.params.glassTier
+                        DebugLog.log("ROMTEST",
+                            "模拟ROM=$m($name) sdk=$sdkSim defaultTierLow=$defaultLow 当前glassTier=$cur userSet=$userSet")
                     }
                     spec.startsWith("logo2:") -> {
                         // v14.75 验证钩子：第二次导入不同文件（auto_logo2.png）→ 实证隔离
@@ -459,6 +492,59 @@ class MainActivity : ComponentActivity() {
         }
         com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled = useSw
         EditorState.params.softwareBlur = useSw
+    }
+
+    /**
+     * v15.17 ROM 兼容防护（按 ROM 家族而非仅按 Android 版本适配）：
+     * 1) 小米/红米/POCO 澎湃（HyperOS）+ API33+：AGSL RuntimeShader 在高通 Adreno/联发科 Mali
+     *    驱动上编译/执行可能触发 RenderThread 层 native 崩溃（SIGSEGV，Java catch 拦不住），
+     *    表现即"进入 App 即闪退"。默认强制 LOW 档（软件法线 UV 折射 + 扭曲，色散/菲涅尔廉价近似，
+     *    不退化 alpha），用户仍可在参数面板手动切回 HIGH。
+     * 2) 崩溃自愈：上次崩溃日志（app_crash/last.txt）含渲染/GL 关键字时自动降 LOW 并记录。
+     * 3) 用户显式在面板调过画质档位（markGlassTierUserSet）→ 尊重用户选择，不覆盖。
+     */
+    private fun applyRomGuard() {
+        try {
+            val sdk = android.os.Build.VERSION.SDK_INT
+            val fam = com.liquidglass.watermark.RomGuard.family()
+            val p = EditorState.params
+            val userSet = prefs.getBoolean("glassTierUserSet", false)
+            var forcedLow = false
+            var reason = ""
+            if (!userSet && p.glassTier == EditorState.GLASS_TIER_HIGH && RomGuard.defaultTierLow(sdk)) {
+                forcedLow = true
+                reason = "ROM=${RomGuard.familyName()} API$sdk 澎湃/AGSL 驱动风险→默认 LOW 档（软件折射保留）"
+            }
+            // 崩溃自愈：上次闪退若与渲染/GL 相关，本次启动强制 LOW（避免再闪退）
+            if (p.glassTier == EditorState.GLASS_TIER_HIGH) {
+                runCatching {
+                    val f = File(getDir("crash", MODE_PRIVATE), "last.txt")
+                    if (f.exists()) {
+                        val t = f.readText()
+                        if (t.contains("RuntimeShader") || t.contains("RenderThread") ||
+                            t.contains("RenderEffect") || t.contains("GrGL") || t.contains("GLES") ||
+                            t.contains("HWUI") || t.contains("SIGSEGV") || t.contains("Fatal signal")) {
+                            forcedLow = true
+                            reason = "上次崩溃含渲染/GL 关键字→自愈降 LOW 档（可在面板手动切回 HIGH）"
+                        }
+                    }
+                }
+            }
+            if (forcedLow) {
+                p.glassTier = EditorState.GLASS_TIER_LOW
+                com.liquidglass.watermark.glass.GlassQuality.tier = p.glassTier
+                DebugLog.log("ROMGUARD", "防护生效：$reason 设备=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} sdk=$sdk")
+            } else {
+                DebugLog.log("ROMGUARD", "无需防护：ROM=${RomGuard.familyName()} sdk=$sdk glassTier=${p.glassTier} userSet=$userSet")
+            }
+        } catch (_: Throwable) {
+            // 防护逻辑自身失败绝不影响启动
+        }
+    }
+
+    /** v15.17 用户在参数面板显式调整过画质档位（ROM 防护不再自动覆盖） */
+    fun markGlassTierUserSet() {
+        prefs.edit().putBoolean("glassTierUserSet", true).apply()
     }
 
     /** 应用内语言切换：写 prefs 并重建 Activity，attachBaseContext 下次按新语言加载资源 */

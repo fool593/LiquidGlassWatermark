@@ -11,8 +11,8 @@ android {
         applicationId = "com.liquidglass.watermark"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1516
-        versionName = "15.16"
+        versionCode = 1517
+        versionName = "15.17"
     }
 
     buildTypes {
