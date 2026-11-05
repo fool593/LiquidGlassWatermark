@@ -61,13 +61,15 @@
       } catch (e) {}
     })();
   </script>
-  <script type="module" crossorigin src="./assets/site-index-DCXW-Jm4.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/site-style-CCwGJMzm.css">
+  <script type="module" crossorigin src="./assets/site-index-pl1zuzm6.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/site-style-DCEBJ29c.css">
 </head>
 <body>
   <!-- 背景：静态底 canvas（网格+线条+雾）+ 动态光斑层由 JS 注入 -->
   <!-- 自定义壁纸层（若设置）：fixed 最底，不遮挡任何内容；玻璃折射源随壁纸同步 -->
   <div id="wallpaper" aria-hidden="true"></div>
+  <!-- 动态壁纸全屏背景（启用时替代 #wallpaper 并驱动玻璃折射，见 dynamic-wallpaper.js） -->
+  <canvas id="dw-bg" width="1080" height="2340" aria-hidden="true"></canvas>
   <canvas id="bg-layer" aria-hidden="true"></canvas>
   <div id="bg-blobs" aria-hidden="true"></div>
 
@@ -337,6 +339,34 @@
       <div class="wp-section">
         <div class="wp-label" data-i18n="wall.preset">预设纯色</div>
         <div class="wp-colors" id="wp-colors"></div>
+      </div>
+
+      <div class="wp-section" id="dw-section">
+        <div class="wp-label" data-i18n="wall.dyn.title">动态壁纸</div>
+        <p class="wp-hint" data-i18n="wall.dyn.sub">基于当前壁纸照片生成动态效果：缓慢缩放、光影漂移与随时间变化的色调。</p>
+        <div class="dw-canvas-wrap">
+          <canvas id="dw-canvas" width="480" height="854" aria-label="动态壁纸预览"></canvas>
+          <div id="dw-empty" class="dw-empty" data-i18n="wall.dyn.empty">先在上方上传照片或输入图片 URL，即可生成动态壁纸。</div>
+        </div>
+        <div class="dw-controls">
+          <span class="dw-label" data-i18n="wall.dyn.speed">速度</span>
+          <div class="dw-seg" id="dw-speed" role="group" aria-label="Speed">
+            <button type="button" data-v="slow" data-i18n="wall.dyn.slow">慢</button>
+            <button type="button" data-v="normal" class="on" data-i18n="wall.dyn.normal">标准</button>
+            <button type="button" data-v="fast" data-i18n="wall.dyn.fast">快</button>
+          </div>
+          <span class="dw-label" data-i18n="wall.dyn.light">光影</span>
+          <div class="dw-seg" id="dw-light" role="group" aria-label="Lighting">
+            <button type="button" data-v="soft" data-i18n="wall.dyn.soft">柔和</button>
+            <button type="button" data-v="strong" class="on" data-i18n="wall.dyn.strong">增强</button>
+          </div>
+        </div>
+        <div class="dw-btns">
+          <button id="dw-apply" class="dl-btn green dw-apply" type="button" data-i18n="wall.dyn.apply">应用为壁纸</button>
+          <button id="dw-png" class="dl-btn small" type="button" data-i18n="wall.dyn.png">保存静态壁纸 PNG</button>
+          <button id="dw-video" class="dl-btn small ghost" type="button" data-i18n="wall.dyn.video">导出动态视频</button>
+        </div>
+        <p id="dw-hint" class="dw-hint" data-i18n="wall.dyn.note" hidden></p>
       </div>
 
       <div class="wp-foot">
