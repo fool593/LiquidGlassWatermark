@@ -61,11 +61,13 @@
       } catch (e) {}
     })();
   </script>
-  <script type="module" crossorigin src="./assets/site-index-CkEWWiNO.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/site-style-DektQokS.css">
+  <script type="module" crossorigin src="./assets/site-index-CD6wMpFR.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/site-style-CCwGJMzm.css">
 </head>
 <body>
   <!-- 背景：静态底 canvas（网格+线条+雾）+ 动态光斑层由 JS 注入 -->
+  <!-- 自定义壁纸层（若设置）：fixed 最底，不遮挡任何内容；玻璃折射源随壁纸同步 -->
+  <div id="wallpaper" aria-hidden="true"></div>
   <canvas id="bg-layer" aria-hidden="true"></canvas>
   <div id="bg-blobs" aria-hidden="true"></div>
 
@@ -80,6 +82,10 @@
         <span>Liquid Glass Watermark</span>
       </a>
       <div class="top-actions">
+        <button class="chip" id="wallpaper-toggle" type="button" aria-label="Custom wallpaper">
+          <span aria-hidden="true">🖼</span>
+          <span id="wallpaper-label" data-i18n="wall.toggle">壁纸</span>
+        </button>
         <button class="chip" id="lang-toggle" type="button" aria-label="Switch language">
           <span id="lang-label">中 / EN</span>
         </button>
@@ -299,6 +305,45 @@
         <a href="./sitemap.xml" data-i18n="footer.sitemap">站点地图</a>
       </p>
     </footer>
+  </div>
+
+  <!-- 自定义壁纸设置面板（浅层浮层，z-index 低于 Lightbox；点击遮罩/✕/Esc 关闭） -->
+  <div id="wallpaper-panel" class="wp-panel" hidden role="dialog" aria-modal="false" aria-label="Custom wallpaper">
+    <div class="wp-card glass">
+      <div class="wp-head">
+        <h3 data-i18n="wall.title">自定义壁纸</h3>
+        <button id="wp-close" class="wp-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <p class="wp-sub" data-i18n="wall.sub">壁纸仅作为页面背景，不影响任何功能；刷新后仍保留，可随时恢复默认。</p>
+
+      <div class="wp-section">
+        <div class="wp-label" data-i18n="wall.upload">上传本地图片</div>
+        <div class="wp-row">
+          <input id="wp-file" type="file" accept="image/*" />
+          <label class="dl-btn small wp-file-btn" for="wp-file" data-i18n="wall.upload.btn">选择图片…</label>
+          <span class="wp-hint" data-i18n="wall.upload.hint">自动压缩后保存（最长边 ≤1600px）</span>
+        </div>
+      </div>
+
+      <div class="wp-section">
+        <div class="wp-label" data-i18n="wall.url">图片链接（URL）</div>
+        <div class="wp-row">
+          <input id="wp-url" class="wp-input" type="url" placeholder="https://example.com/bg.jpg" data-i18n="wall.url.placeholder" />
+          <button id="wp-url-apply" class="dl-btn small wp-apply" type="button" data-i18n="wall.url.apply">应用</button>
+        </div>
+        <div class="wp-hint" data-i18n="wall.url.hint">需为可公开访问的图片直链（http/https）</div>
+      </div>
+
+      <div class="wp-section">
+        <div class="wp-label" data-i18n="wall.preset">预设纯色</div>
+        <div class="wp-colors" id="wp-colors"></div>
+      </div>
+
+      <div class="wp-foot">
+        <button id="wp-reset" class="dl-btn ghost" type="button" data-i18n="wall.reset">恢复默认壁纸</button>
+        <span id="wp-status" class="wp-status" role="status" aria-live="polite"></span>
+      </div>
+    </div>
   </div>
 
   <!-- 站内 Lightbox（点击图片放大，不跳转外链） -->
