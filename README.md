@@ -21,9 +21,9 @@
 |---|---|---|
 | **修复版（推荐）** — `LiquidGlassWatermark-v15.17-romguard.apk` | 新增 ROM 兼容防护：修复小米/红米/POCO 澎湃系统（Android 13+）打开即闪退的问题（已在澎湃真机验证不再闪退）；其余手机默认全量光学，体验不变 | 所有新装用户（尤其澎湃/HyperOS 用户） |
 | 上一版本 v15.16 · `*export-speed-restored.apk` | 视频导出速度最顺滑（恢复旧版光线管线后） | 经常导出长视频 |
-| 上一版本 v15.16 · `*UI-performance.apk` | 编辑界面滑动更跟手（UI 渲染层优化） | 更在意编辑手感 |
+| 上一版本 v15.15 · `*UI-performance.apk` | 编辑界面滑动更跟手（UI 渲染层优化） | 更在意编辑手感 |
 
-v15.17 与 v15.16 各 APK 功能一致，均内置使用知会条款（`NOTICE.txt`）；直链下载见上方官方网站。
+v15.17 与 v15.16、v15.15 各 APK 均内置使用知会条款（`NOTICE.txt`）；直链下载见上方官方网站。
 
 **更新日志**：[changelog.html](https://fool593.github.io/LiquidGlassWatermark/changelog.html)（v15.17 澎湃闪退修复 / v15.16 光线恢复 / UI 优化 / YUV 定点优化 / 液态玻璃参数 / 动照片 5s 截断 / 字体持久化等）
 
