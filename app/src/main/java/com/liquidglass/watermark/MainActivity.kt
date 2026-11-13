@@ -447,11 +447,13 @@ class MainActivity : ComponentActivity() {
         // v15.18：立即写全局键，避免只靠 bump() 延迟落盘导致重启回落自动档、玻璃观感变淡
         EditorState.saveApiModeGlobal(mode)
         val sdk = android.os.Build.VERSION.SDK_INT
-        // 高版本API：强制走硬件合成路径（组件内部会按 SDK 门限自动跳过不存在的 RenderEffect 类，不会崩）
+        // 模拟器全局已由 glass.Platform.isEmulator() 把 RenderEffect/RuntimeShader 门控置否、
+        // 强制软件路径（与档位无关）；这里再同步软件模糊开关做冗余保险。
+        val emulator = com.liquidglass.watermark.glass.isEmulator()
         val useSw = when (mode) {
             API_HIGH -> false
             API_LOW -> true
-            else -> sdk < 31
+            else -> sdk < 31 || emulator
         }
         com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled = useSw
         EditorState.params.softwareBlur = useSw

@@ -199,8 +199,10 @@ class WatermarkEditorView @JvmOverloads constructor(
 
     fun captureExportSnapshot() {
         runCatching {
+            val onEmulator = com.liquidglass.watermark.glass.isEmulator()
             val movie = if (EditorState.isGif) EditorState.gifMovie else null
-            val motion = if (movie == null) EditorState.motionFrames else null
+            // 同 onDraw：模拟器上动态照片预览用静态封面，避免解码帧闪绿
+            val motion = if (movie == null && !onEmulator) EditorState.motionFrames else null
             val photo = when {
                 movie != null -> ensureGifFrame(movie)
                 motion != null && motion.isNotEmpty() -> motion[pickMotionIndex()]
@@ -298,8 +300,12 @@ class WatermarkEditorView @JvmOverloads constructor(
             if (cur != want) setBackgroundColor(want)
         }
         try {
+            // 模拟器（SwiftShader/软解码器）对视频帧解码异常，逐帧播放会整片闪绿幕；
+            // 故模拟器上预览不播放动态照片视频帧，改显示静态封面（currentPhoto=封面），避免闪绿。
+            // 真机走正常逐帧预览；导出仍用 motionMp4 独立重新解码，不受此限制。
+            val onEmulator = com.liquidglass.watermark.glass.isEmulator()
             val movie = if (EditorState.isGif) EditorState.gifMovie else null
-            val motion = if (movie == null) EditorState.motionFrames else null
+            val motion = if (movie == null && !onEmulator) EditorState.motionFrames else null
             val animated = movie != null || (motion != null && motion.size >= 2)
             val photo = when {
                 movie != null -> ensureGifFrame(movie)

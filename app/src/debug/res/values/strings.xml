@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 测试版专属名称：与稳定版（液态玻璃水印）区分 -->
+    <string name="app_name">液态玻璃水印·测试</string>
+</resources>

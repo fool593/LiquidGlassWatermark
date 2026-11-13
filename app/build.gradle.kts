@@ -22,8 +22,8 @@ android {
         applicationId = "com.liquidglass.watermark"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1518
-        versionName = "15.18"
+        versionCode = 1519
+        versionName = "15.19"
 
         vectorDrawables { useSupportLibrary = true }
     }

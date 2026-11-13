@@ -34,6 +34,19 @@
 <h1>📜 更新日志 · Changelog</h1>
 <a class="back" href="./">← 返回首页 Back to home</a>
 
+<h2>v15.19 模拟器闪绿修复版</h2>
+<div class="entry">
+  <span class="ver">v15.19</span><span class="date">2026-11-16</span>
+  <ul>
+    <li>修复模拟器（WHPX / SwiftShader 等软件 GPU）上预览动态照片时整屏闪绿的问题：根因是模拟器软解码器对动态照片视频帧解码异常，逐帧播放即出现绿幕。</li>
+    <li>全局 AGSL 守卫：模拟器上所有玻璃硬件加速路径（背景折射、高光、镜头、内阴影、模糊 / 色彩滤镜）统一强制回退软件，与用户所选 API 档位（自动 / 高 / 低）无关；真机行为完全不变。</li>
+    <li>动态照片预览守卫：模拟器上预览改显示静态封面（不逐帧播放解码异常的视频帧），导出仍走 motionMp4 独立重新解码，画质不受影响。</li>
+    <li>测试版（debug）专属识别：新增橙色图标 + 名称「液态玻璃水印·测试」，与稳定版（蓝色图标）一眼区分，避免虚拟机里两个包混淆。</li>
+    <li class="en">Emulator-only fix for the green flash on motion-photo preview: the software GPU decoded motion frames incorrectly. Added a global AGSL guard that forces software fallback on emulators regardless of API tier, a motion-photo preview guard that shows a static cover on emulators, and a distinct amber "·测试" debug icon to tell test vs stable builds apart. Real devices are unchanged.</li>
+    <li>下载：<a href="https://github.com/fool593/LiquidGlassWatermark/releases/tag/v15.19" target="_blank" rel="noopener">GitHub Release <code>v15.19</code></a>（稳定版 / 测试版 / 源码 ZIP）。</li>
+  </ul>
+</div>
+
 <h2>v15.18 最小修复版</h2>
 <div class="entry">
   <span class="ver">v15.18</span><span class="date">2026-11-13</span>
