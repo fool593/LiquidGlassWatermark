@@ -24,7 +24,7 @@
   <meta name="twitter:title" content="液态玻璃水印 Liquid Glass Watermark — 官方下载站" />
   <meta name="twitter:description" content="真实折射光学水印：低版本安卓同样体验玻璃折射，高版本安卓同样可用。照片/视频/动态照片。" />
   <meta name="twitter:image" content="https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg" />
-  <script type="application/ld+json">
+  <script type="application/ld+json" id="jsonld">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -111,7 +111,7 @@
           </div>
         </div>
         <div class="badges">
-          <span class="badge mono">v15.19</span>
+          <span class="badge mono" id="hero-ver">v15.19</span>
           <span class="badge green mono" data-i18n="hero.badge.sdk">minSdk 26 · targetSdk 34</span>
           <span class="badge plain mono" data-i18n="hero.badge.tested">Android 9 ~ 14 实测 · 8.0+ 全系支持</span>
           <span class="badge plain mono">GPU 硬编快路径</span>
@@ -138,12 +138,12 @@
 
         <div class="download">
           <div class="dl-row">
-            <a class="dl-btn rise r-3" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.19/app-release.apk" target="_blank" rel="noopener">
+            <a class="dl-btn rise r-3" id="hero-dl" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.19/app-release.apk" target="_blank" rel="noopener">
               ⬇ <span data-i18n="hero.dl.v1519">直链下载 APK · v15.19（推荐）</span>
             </a>
           </div>
-          <p class="dl-note" data-i18n="hero.dl.v1519.note"><b>v15.19 更新：</b>动态照片预览稳定性优化——修复部分运行环境下预览动态照片时画面偶发绿色闪烁的异常，预览更干净；预览渲染兼容性增强，在更多机型与环境下玻璃折射 / 高光 / 镜头自动选择更稳的渲染路径，避免偶发花屏；测试版（橙图标「·测试」）与正式版（蓝图标）现已通过图标颜色与名称一眼区分，多包场景不再混淆。</p>
-          <p class="dl-note"><b>本次更新（2026-11-16）：</b>v15.19 已发布；动态照片预览稳定性与渲染兼容性优化，测试版 / 正式版图标区分；源码与站点已同步至 GitHub main，详见更新日志。</p>
+          <p class="dl-note" id="hero-update-detail" data-i18n="hero.dl.v1519.note"><b>v15.19 更新：</b>动态照片预览稳定性优化——修复部分运行环境下预览动态照片时画面偶发绿色闪烁的异常，预览更干净；预览渲染兼容性增强，在更多机型与环境下玻璃折射 / 高光 / 镜头自动选择更稳的渲染路径，避免偶发花屏；测试版（橙图标「·测试」）与正式版（蓝图标）现已通过图标颜色与名称一眼区分，多包场景不再混淆。</p>
+          <p class="dl-note" id="hero-update"><b>本次更新（2026-11-16）：</b>v15.19 已发布；动态照片预览稳定性与渲染兼容性优化，测试版 / 正式版图标区分；源码与站点已同步至 GitHub main，详见更新日志。</p>
           <p class="dl-note legacy" data-i18n="hero.dl.legacy">上一版本（v15.16）</p>
           <div class="dl-row">
             <a class="dl-btn green rise r-4" href="./downloads/LiquidGlassWatermark-v15.16-export-speed-restored.apk" download>
@@ -153,7 +153,7 @@
               ⬇ <span data-i18n="hero.dl.alt">直链下载 APK · v15.15 UI 优化版</span>
             </a>
           </div>
-          <div class="dl-row">
+          <div class="dl-row" id="hero-dl-extra">
             <a class="dl-btn small rise r-6" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.19/LiquidGlassWatermark_v15.19_source.zip" target="_blank" rel="noopener">
               <span data-i18n="hero.dl.src">源码 ZIP（v15.19）</span>
             </a>
@@ -260,6 +260,14 @@
         </a>
       </div>
       <p class="dl-meta" data-i18n="feedback.note">提交 Issue 需要 GitHub 账号（免费）；若方便，把 App 内“最近一次崩溃”的提示内容（app_crash/last.txt）也粘贴上，能最快定位。</p>
+    </section>
+
+    <style>.ann-card{background:var(--card,#fff);border:1px solid var(--line-2,#e2e7f5);border-radius:14px;padding:12px 16px;margin:10px 0}.ann-date{font-size:.78rem;opacity:.55;display:block;margin-bottom:4px}</style>
+
+    <section class="wrap ann" id="ann-section" hidden aria-label="Announcements">
+      <h2>📢 公告 / 动态</h2>
+      <p class="sub">来自开发者的更新与说明，由管理后端实时推送。</p>
+      <div id="ann-feed"></div>
     </section>
 
     <section class="wrap comments" aria-label="Comments">
@@ -397,5 +405,33 @@
   </div>
 
   <script src="./assets/tips.js" defer></script>
+  <script>
+  (function(){
+    function esc(s){return (s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    function applyVersion(v){
+      if(!v||!v.versionName) return;
+      var ver=v.versionName;
+      var b=document.getElementById('hero-ver'); if(b) b.textContent='v'+ver;
+      var dl=document.getElementById('hero-dl');
+      if(dl){ var u=(v.downloads&&v.downloads[0]&&v.downloads[0].url)||dl.getAttribute('href'); if(u) dl.setAttribute('href',u);
+        dl.innerHTML='⬇ <span id="dyn-dl-label"></span>'; var lab=dl.querySelector('#dyn-dl-label'); if(lab) lab.textContent='直链下载 APK · v'+ver+'（推荐）'; }
+      var ex=document.getElementById('hero-dl-extra');
+      if(ex){ var html=''; (v.downloads||[]).forEach(function(d){ if(d.kind==='source'||d.kind==='debug'){ html+='<a class="dl-btn small '+(d.kind==='debug'?'ghost ':'')+'rise r-'+(d.kind==='debug'?8:6)+'" href="'+esc(d.url)+'" target="_blank" rel="noopener"><span>'+esc(d.label)+'（v'+ver+'）</span></a>'; }});
+        html+='<a class="dl-btn small ghost rise r-7" href="https://github.com/fool593/LiquidGlassWatermark" target="_blank" rel="noopener"><span>GitHub 仓库 ↗</span></a>'; ex.innerHTML=html; }
+      var ud=document.getElementById('hero-update-detail'); if(ud){ ud.removeAttribute('data-i18n'); ud.innerHTML='<b>v'+ver+' 更新：</b>'+esc(v.whatsnew||''); }
+      var up=document.getElementById('hero-update'); if(up){ up.innerHTML='<b>本次更新（'+(v.date||'')+'）：</b>v'+ver+' 已发布；详情见更新日志。'; }
+      var ld=document.getElementById('jsonld'); if(ld){ try{ var o=JSON.parse(ld.textContent); o.softwareVersion=ver; if(v.downloads&&v.downloads[0]){ o.downloadUrl=v.downloads[0].url; if(v.downloads[0].sizeMB) o.fileSize=v.downloads[0].sizeMB+'MB'; } ld.textContent=JSON.stringify(o,null,2); }catch(e){} }
+    }
+    function applyAnn(j){
+      if(!j||!j.announcements||!j.announcements.length) return;
+      var sec=document.getElementById('ann-section'); var feed=document.getElementById('ann-feed'); if(!sec||!feed) return;
+      sec.removeAttribute('hidden'); var html='';
+      j.announcements.forEach(function(a){ html+='<div class="ann-card"><span class="ann-date">'+esc(a.date)+'</span><p>'+esc(a.text)+'</p></div>'; });
+      feed.innerHTML=html;
+    }
+    fetch('./version.json').then(function(r){return r.ok?r.json():null;}).then(applyVersion).catch(function(){});
+    fetch('./announcements.json').then(function(r){return r.ok?r.json():null;}).then(applyAnn).catch(function(){});
+  })();
+  </script>
 </body>
 </html>
