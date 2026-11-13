@@ -63,6 +63,7 @@
   </script>
   <script type="module" crossorigin src="./assets/site-index-pl1zuzm6.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/site-style-DCEBJ29c.css">
+  <link rel="stylesheet" href="./assets/visual-boost.css">
 </head>
 <body>
   <!-- 背景：静态底 canvas（网格+线条+雾）+ 动态光斑层由 JS 注入 -->
@@ -72,6 +73,7 @@
   <canvas id="dw-bg" width="1080" height="2340" aria-hidden="true"></canvas>
   <canvas id="bg-layer" aria-hidden="true"></canvas>
   <div id="bg-blobs" aria-hidden="true"></div>
+  <div id="bg-grain" aria-hidden="true"></div>
 
   <!-- 入场描边线条（由 JS 创建并驱动） -->
   <div id="intro-lines" aria-hidden="true"></div>
@@ -391,5 +393,6 @@
     <span id="perf-fps">--</span><small> FPS</small>
   </div>
 
+  <script src="./assets/tips.js" defer></script>
 </body>
 </html>
