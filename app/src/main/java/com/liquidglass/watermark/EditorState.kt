@@ -28,6 +28,12 @@ const val API_DEFAULT = 0
 const val FONT_MODE_DEFAULT = 0
 /** 系统字体：读取设备系统字体族（Android: Typeface.DEFAULT 走系统 Roboto/厂商定制字体） */
 const val FONT_MODE_SYSTEM = 1
+/** v15.17 衬线字体：Android 恒定存在且与 sans-serif 明显不同，用于让"字体切换"真正可见 */
+const val FONT_MODE_SERIF = 2
+/** v15.17 等宽字体：同上 */
+const val FONT_MODE_MONO = 3
+/** 字体模式取值上界（含），sanitizeInPlace 用 */
+const val FONT_MODE_MAX = FONT_MODE_MONO
 const val API_HIGH = 1
 const val API_LOW = 2
 /**
@@ -41,6 +47,9 @@ const val API_LOW = 2
  */
 object EditorState {
     const val PREFS = "lgw_prefs"
+    // v15.18：机型文字「用户自定义」标记（按方案落盘）。为 true 时 EXIF/设备探测不得覆盖。
+    @JvmField var modelCustom: Boolean = false
+    @JvmField var modelCodeCustom: Boolean = false
     // 应用 Context：供无 Context 的全局设置（深浅模式）即时落盘；启动时绑定一次
     @Volatile private var appCtx: Context? = null
     fun attach(ctx: Context) { if (appCtx == null) appCtx = ctx.applicationContext }
@@ -60,6 +69,12 @@ object EditorState {
         val c = appCtx ?: return
         runCatching { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean("globalDark", v).apply() }
+    }
+    /** v15.18：API 模式是设备级设置，独立全局键落盘（切方案/重启都保持，避免玻璃观感变淡） */
+    fun saveApiModeGlobal(v: Int) {
+        val c = appCtx ?: return
+        runCatching { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt("apiModeGlobal", v).apply() }
     }
     // 玻璃观感默认值版本：升级后 shape/blur/opacity 等观感项重置为新默认（用户自定义文字/位置保留）
     // v6：v15.5 修复"水印纯黑"——用户设备保存的旧 blur=0（纯通透）在 v15.4 未升级版本号时被读回，
@@ -309,12 +324,12 @@ object EditorState {
             cornerPct = cornerPct.coerceIn(0, 100)
             scalePct = scalePct.coerceIn(WatermarkScale.MIN_PERCENT, WatermarkScale.MAX_PERCENT)
             rotation = ((rotation % 360) + 360) % 360
-            blur = blur.coerceIn(0, 60)
+            blur = blur.coerceIn(0, 100)
             refractH = refractH.coerceIn(0, 100); refractA = refractA.coerceIn(0, 100)
             warp = warp.coerceIn(0, 100); deriveWarp()
             chromatic = chromatic.coerceIn(0, 100); vibrancy = vibrancy.coerceIn(0, 100)
             specular = specular.coerceIn(0, 100); highlightStyle = highlightStyle.coerceIn(0, 2)
-            tintStrength = tintStrength.coerceIn(0, 40); innerShadow = innerShadow.coerceIn(0, 100)
+            tintStrength = tintStrength.coerceIn(0, 100); innerShadow = innerShadow.coerceIn(0, 100)
             shadow = shadow.coerceIn(0, 100); dispersion = dispersion.coerceIn(0, 100)
             edgeLight = edgeLight.coerceIn(0, 100); opacity = opacity.coerceIn(0, 100)
             borderAlpha = borderAlpha.coerceIn(0, 255); layoutMode = layoutMode.coerceIn(0, 3)
@@ -322,7 +337,7 @@ object EditorState {
             logoShape = logoShape.coerceIn(0, 3); logoBrand = logoBrand.coerceIn(-1, BRAND_ASSETS.lastIndex)
             refractionModel = refractionModel.coerceIn(0, 1); exportMode = exportMode.coerceIn(0, 2)
             glassTier = glassTier.coerceIn(GLASS_TIER_HIGH, GLASS_TIER_LOW); scaleComp = scaleComp.coerceIn(0, 100)
-            fontMode = fontMode.coerceIn(FONT_MODE_DEFAULT, FONT_MODE_SYSTEM)   // v15.17：非法值钳回默认
+            fontMode = fontMode.coerceIn(FONT_MODE_DEFAULT, FONT_MODE_MAX)   // v15.17：非法值钳回合法范围
             fluidSpeed = fluidSpeed.coerceIn(1, 100); breathStrength = breathStrength.coerceIn(0, 100)
         }
 
@@ -396,7 +411,38 @@ object EditorState {
         return t * t * (3f - 2f * t)
     }
     // 运动/动图状态由后台解码线程写入、主线程读取：必须 @Volatile 保证跨线程可见（此前缺内存屏障，极端情况下主线程读到旧值导致"选了视频导出却是静态图"）
-    @Volatile @JvmField var previewBitmap: Bitmap? = null
+    @Volatile private var previewBitmapField: Bitmap? = null
+    /**
+     * v15.17 预览位图（导入的图片 / 视频首帧 / 动图首帧）。
+     *
+     * 写入时自增 [mediaRev]。原因：`params` 与这些素材字段都是普通字段，不是 Compose State，
+     * 顶栏「选图 / 视频 / 删除图片 / 删除视频」那一行读不到任何可观察变化 → 导入后不重组 →
+     * 删除按钮永远不出现（用户反馈"没有删除视频跟图片的功能，必须完全退出软件"）。
+     * 这里用单一写入点保证"只要预览图变了，素材行一定刷新"，不依赖调用方记得调 bump。
+     */
+    var previewBitmap: Bitmap?
+        get() = previewBitmapField
+        set(value) {
+            if (previewBitmapField === value) return
+            previewBitmapField = value
+            mediaRev++
+        }
+    /**
+     * 素材版本号（Compose State）：导入/删除图片或视频时自增，驱动素材行重组。
+     * 与 MainActivity.rev 刻意分离——拖动滑块时 rev 每帧自增，素材行没必要跟着每帧重组。
+     */
+    var mediaRev by mutableStateOf(0)
+        private set
+    fun bumpMedia() { mediaRev++ }
+    /**
+     * v15.17 导出栏版本号（Compose State）：导出模式（快速/混合/CPU）等"只存在于导出栏"的选择项
+     * 变化时自增。导出栏同样是 `only-act` 参数的可跳过 composable，不订阅任何 State 就会一直
+     * 显示旧选中色；但它不能订阅 [MainActivity.rev]（拖动滑块每帧自增，会把 8 个玻璃按钮
+     * 每帧重录一遍），所以单独给一个只在真正变化时才动的信号。
+     */
+    var exportBarRev by mutableStateOf(0)
+        private set
+    fun bumpExportBar() { exportBarRev++ }
     /** 自定义预览衬底图：无用户照片时用作预览背景（独立于水印对象，更换才变） */
     @Volatile @JvmField var previewCustomBitmap: Bitmap? = null
     fun setPreviewCustom(b: Bitmap?) {
@@ -457,11 +503,16 @@ object EditorState {
         motionForceVideoRot = -1
         runCatching { motionCoverBitmap?.let { if (!it.isRecycled) it.recycle() } }
         motionCoverBitmap = null
+        // v15.17：视频/动图源被清空 → 素材行必须重组，否则「删除视频」按钮不会消失
+        bumpMedia()
     }
     fun nowString(): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
     fun defaultModelName(): String = DeviceNames.marketName()
-    fun defaultModelCode(): String = DeviceNames.modelCode()
+    // v15.18：Build.MODEL 为空时给可见兜底，避免型号行空白
+    fun defaultModelCode(): String = DeviceNames.modelCode().ifBlank {
+        DeviceNames.brand().ifBlank { "My Phone" }
+    }
     // ---------- 参数持久化（位置 / 质感 / 机型，退出重进不丢；方案独立存储） ----------
     /** 方案前缀：同一 key 按 activePlan 分开存储，方案间互不影响 */
     private fun planKey(k: String): String = "plan${activePlan}_$k"
@@ -538,6 +589,8 @@ object EditorState {
             e.putInt(pk("apiMode"), d.apiMode)
             e.putBoolean(pk("breathEnabled"), d.breathEnabled); e.putInt(pk("breathStrength"), d.breathStrength)
             e.putString(pk("model"), d.model); e.putString(pk("modelCode"), d.modelCode)
+            e.putBoolean(pk("modelCustom"), false); e.putBoolean(pk("modelCodeCustom"), false)
+            if (pi == activePlan) { modelCustom = false; modelCodeCustom = false }
             e.putBoolean(pk("autoClean"), d.autoClean)
             e.apply()
         } catch (_: Throwable) {}
@@ -589,8 +642,11 @@ object EditorState {
             // v15.17：字体模式是用户全局偏好（同 globalDark），不随方案分开存、不随方案切换覆盖
             e.putInt("fontMode", p.fontMode)
             e.putInt(planKey("apiMode"), p.apiMode)
+            e.putInt("apiModeGlobal", p.apiMode)
             e.putString(planKey("model"), p.model)
             e.putString(planKey("modelCode"), p.modelCode)
+            e.putBoolean(planKey("modelCustom"), modelCustom)
+            e.putBoolean(planKey("modelCodeCustom"), modelCodeCustom)
             e.putBoolean(planKey("autoClean"), p.autoClean)
             e.putBoolean(planKey("fluidEnabled"), p.fluidEnabled)
             e.putInt(planKey("fluidSpeed"), p.fluidSpeed)
@@ -608,11 +664,17 @@ object EditorState {
     fun restore(ctx: Context): Boolean {
         return try {
             val sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            if (sp.getInt("saved", 0) < 9) return false
+            // L10：记录启动版本，便于区分"全新安装（saved<9 用默认值）"与"旧版本升级（读旧值）"。
+            val savedVer = sp.getInt("saved", 0)
+            DebugLog.log("BOOT", "restore saved=$savedVer pver=${sp.getInt("pver", 0)} " +
+                "activePlan=${sp.getInt("activePlan", PLAN_LIGHT)}")
+            if (savedVer < 9) return false
             // 方案：读全局 activePlan → 当前 params 指向该方案实例 → 读该方案前缀数据
             activePlan = sp.getInt("activePlan", PLAN_LIGHT).coerceIn(0, PLAN_COUNT - 1)
             params = planParams[activePlan]
             appCtx = ctx.applicationContext
+            modelCustom = sp.getBoolean(planKey("modelCustom"), false)
+            modelCodeCustom = sp.getBoolean(planKey("modelCodeCustom"), false)
             // 深浅模式为全局设置：从独立键恢复（首次升级从旧方案值迁移），不随方案切换改变
             darkModeState = sp.getBoolean("globalDark", sp.getBoolean(planKey("darkMode"), true))
             // 观感默认升级：旧版本不读 shape/blur/opacity，用代码新默认（修复透镜被压淡、形状非胶囊）
@@ -650,7 +712,7 @@ object EditorState {
                 }.coerceIn(0, 100)
                 p.vibrancy = sp.getInt(planKey("vibrancy"), p.vibrancy)
                 p.specular = sp.getInt(planKey("specular"), p.specular)
-                p.tintStrength = sp.getInt(planKey("tintStrength"), p.tintStrength).coerceIn(0, 40)
+                p.tintStrength = sp.getInt(planKey("tintStrength"), p.tintStrength).coerceIn(0, 100)
                 p.innerShadow = sp.getInt(planKey("innerShadow"), p.innerShadow)
                 p.shadow = sp.getInt(planKey("shadow"), p.shadow)
                 p.dispersion = sp.getInt(planKey("dispersion"), p.dispersion)
@@ -717,9 +779,9 @@ object EditorState {
             p.darkMode = darkModeState
             // v15.17：字体模式是用户全局偏好（同 darkMode/globalDark），从全局键无条件读回，
             // 切换方案（switchPlan→restore）不会把用户所选字体重置成默认。
-            p.fontMode = sp.getInt("fontMode", p.fontMode).coerceIn(FONT_MODE_DEFAULT, FONT_MODE_SYSTEM)
+            p.fontMode = sp.getInt("fontMode", p.fontMode).coerceIn(FONT_MODE_DEFAULT, FONT_MODE_MAX)
             p.softwareBlur = sp.getBoolean(planKey("softwareBlur"), p.softwareBlur)
-            p.apiMode = sp.getInt(planKey("apiMode"), p.apiMode)
+            p.apiMode = sp.getInt("apiModeGlobal", sp.getInt(planKey("apiMode"), p.apiMode)).coerceIn(0, 2)
             sp.getString(planKey("model"), null)?.let { p.model = it }
             sp.getString(planKey("modelCode"), null)?.let { p.modelCode = it }
             p.autoClean = sp.getBoolean(planKey("autoClean"), p.autoClean)
@@ -728,8 +790,8 @@ object EditorState {
             p.breathEnabled = sp.getBoolean(planKey("breathEnabled"), p.breathEnabled)
             p.breathStrength = sp.getInt(planKey("breathStrength"), p.breathStrength).coerceIn(0, 100)
             p.exportMode = sp.getInt(planKey("exportMode"), p.exportMode).coerceIn(0, 2)
-            if (p.model.isBlank()) p.model = defaultModelName()
-            if (p.modelCode.isBlank()) p.modelCode = defaultModelCode()
+            if (!modelCustom && p.model.isBlank()) p.model = defaultModelName()
+            if (!modelCodeCustom && p.modelCode.isBlank()) p.modelCode = defaultModelCode()
             if (p.dateText.isBlank()) p.dateText = nowString()
             liveSeconds = sp.getBoolean("live", false)
             motionExportFormat = sp.getString("motionExportFormat", "mp4") ?: "mp4"

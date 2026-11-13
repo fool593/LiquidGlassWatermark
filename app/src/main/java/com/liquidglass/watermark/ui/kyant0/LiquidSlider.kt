@@ -76,8 +76,12 @@ fun LiquidSlider(
 
     // local drag value: thumb follows finger instantly, no wait for external recomposition
     var localVal by remember { mutableFloatStateOf(value()) }
+    // v15.17：拖动期间禁止外部值回写 localVal。
+    // 之前 LaunchedEffect(value()) 在拖动中每帧都会被外部重组触发，把手指位置覆盖成外部（尚未
+    // 提交/量化）的值，松手时又 localVal = valueState() 再回读一次 → 视觉上"滑块一拖就弹回原值"。
+    var dragging by remember { androidx.compose.runtime.mutableStateOf(false) }
     // sync from external when not dragging (preset/reset/programmatic change)
-    LaunchedEffect(value()) { localVal = value() }
+    LaunchedEffect(value()) { if (!dragging) localVal = value() }
 
     val pressAnim = remember { Animatable(0f) }
     val scaleXAnim = remember { Animatable(1f) }
@@ -106,13 +110,14 @@ fun LiquidSlider(
                 awaitPointerEventScope {
                     // try/finally 兜底：无论松手、协程取消还是重组移除此滑块，
                     // 都保证执行 onDragEnd（复位轻量渲染标志），绝不把滑块拖成"卡死轻量渲染"
-                    var dragging = false
+                    var active = false
                     try {
                         while (true) {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             down.consume()
                             press()
                             onDragStart()
+                            active = true
                             dragging = true
                             val lo = valueRange.start
                             val hi = valueRange.endInclusive
@@ -137,14 +142,17 @@ fun LiquidSlider(
                                 onChangeState(cur)
                             }
                             // after release, resync local to external (in case of rounding)
+                            // v15.17：先清 dragging 再回读，保证读到的是本次拖动已提交的外部值
+                            dragging = false
                             localVal = valueState()
                             release()
                             onDragEnd(localVal)
-                            dragging = false
+                            active = false
                         }
                     } finally {
                         // 协程被取消/异常时也复位（同值回调幂等，重复触发无害）
-                        if (dragging) runCatching { onDragEnd(valueState()) }
+                        dragging = false
+                        if (active) runCatching { onDragEnd(valueState()) }
                     }
                 }
             },

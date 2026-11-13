@@ -101,7 +101,7 @@ object LiquidGlassEngine {
         val shapeW = if (localW > 0) localW.toFloat() else gW.toFloat()
         val shapeH = if (localH > 0) localH.toFloat() else gH.toFloat()
         // Cap relative to the shape, never to a fixed number of device pixels.
-        val blur = blurRadiusPx.coerceIn(0, max(1, (min(shapeW, shapeH) * 0.16f).toInt()))
+        val blur = blurRadiusPx.coerceIn(0, max(1, (min(shapeW, shapeH) * 0.26f).toInt()))
         if (blur > 0) FastBlur.blur(base, w, h, blur)
         val options = Optics(
             gL + gW / 2f, gT + gH / 2f, shapeW, shapeH,
@@ -205,12 +205,12 @@ object LiquidGlassEngine {
         val low = tier == TIER_LOW
         val comp = if (p.effectScale.isFinite()) p.effectScale.coerceIn(0.5f, 4f) else 1f
 
-        // Refraction band (edge thickness). Restored to the v15.15 pipeline profile
-        // (.035 + .085*H, floor 1.5 px) so the same band pixels are rasterised as before;
-        // the caller's scale compensation still multiplies for shrunken renders.
-        val band = max(1.5f * comp, shortSide * (.035f + unit(p.refractHeight) * .085f) * comp)
-        // Refraction displacement amplitude: restored to the v15.15 coefficient (0.78).
-        val lensAmplitude = band * refract * .78f * breath
+        // Refraction band (edge thickness). Widened vs v15.15 (.035 + .085*H) -> (.055 + .155*H)
+        // so a saturated slider produces a visibly thicker glass rim, and multiplied by the
+        // caller's scale compensation so a shrunken watermark keeps a real rim.
+        val band = max(2.5f * comp, shortSide * (.055f + unit(p.refractHeight) * .155f) * comp)
+        // Refraction displacement amplitude: band * amount * 1.15 (was 0.78).
+        val lensAmplitude = band * refract * 1.15f * breath
         val lightX = -cos(finite(p.lightAngle, .7853982f))
         val lightY = -sin(finite(p.lightAngle, .7853982f))
         val exponent = finite(p.falloff, 1f).coerceIn(.5f, 3f)
@@ -279,9 +279,9 @@ object LiquidGlassEngine {
                 val profile = if (p.refractionModel == 1) sqrt(max(edge, 0f)) * edge else edge * (2f - edge)
                 val displacement = lensAmplitude * profile * flow
                 val interior = smoothstep(0f, band, inward)
-                // Interior magnification: restored to the v15.15 coefficients (.065 / .018).
+                // Interior magnification: normal-based pull toward the centre (UV refraction).
                 val magnification =
-                    (innerWarp * .065f + if (p.depth) refract * .018f else 0f) * breath * interior
+                    (innerWarp * .095f + if (p.depth) refract * .030f else 0f) * breath * interior
                 val pullX = -lx * magnification
                 val pullY = -ly * magnification
                 val rx = x + displacement * gx + pullX * cr - pullY * sr
@@ -292,13 +292,13 @@ object LiquidGlassEngine {
                 var bb = sample[2]
                 // Dispersion is confined to the bevel; clear interiors use just one sample.
                 if (chromatic > .001f && edge > .01f) {
-                    // Dispersion: restored to the v15.15 chromatic spread (0.009).
-                    val dispersion = shortSide * .009f * chromatic * edge * breath
+                    val dispersion = shortSide * .014f * chromatic * edge * breath
                     if (low) {
                         // Low tier: one extra tap per channel axis folded into the same
                         // normal-based UV offset instead of two full bilinear fetches.
                         val dr = dispersion * edge
-                        rr += (rr - sample[0]) * 0f + dr * 0.35f
+                        // M1：原 `(rr - sample[0]) * 0f` 恒为 0，是死代码；等价化简为直接叠加色散偏移。
+                        rr += dr * 0.35f
                         bb -= dr * 0.35f
                     } else {
                         sample(source, w, h, rx + gx * dispersion, ry + gy * dispersion, sampleR)

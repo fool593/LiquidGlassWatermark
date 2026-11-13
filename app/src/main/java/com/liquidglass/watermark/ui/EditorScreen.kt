@@ -259,8 +259,18 @@ private fun EditorContent(act: MainActivity) {
                         }
                     }
             ) {
-                // v15.16 任务3：rev 读取下沉到此——参数变化时只重组参数面板本身。
-                act.rev
+                // v15.16 任务3：rev 的读取下沉到面板，拖动滑块时只有参数面板重组。
+                //
+                // v15.17 修正：下沉的落点原来是【这里】（面板容器），实际必须落到【每个面板函数内部】。
+                // 面板函数（ShapeTab/GlassTab/…）的参数只有 act —— MainActivity 是 unstable 类，但实例
+                // 从头到尾是同一个，Compose 生成的跳过判断是 Composer.changed(act) → 走 equals → 恒等，
+                // 于是容器重组时面板被整体跳过，函数体根本不执行。结果面板里对 EditorState.params
+                // （普通字段，不是 Compose State）的读取全部失效：
+                //   · 滑块松手后 localVal 回读外部值拿到拖动前的旧值 → 弹回默认数值
+                //   · 字体 / 形状 / 文字色 / 导出模式等按钮的选中 tint 永远不变蓝
+                //   · 导入素材后素材行不刷新 → 「删除图片 / 删除视频」按钮不出现
+                // 现在 6 个面板函数各自在函数体首行读 act.rev，自己的重组作用域记录该依赖，
+                // rev 一变作用域即失效，跳过被绕过。容器这里无需再读（避免整块重组）。
                 when (tab) {
                     0 -> ShapeTab(act)
                     1 -> GlassTab(act)
@@ -286,6 +296,12 @@ private fun EditorContent(act: MainActivity) {
 private fun ExportBar(act: MainActivity) {
     val b = LocalGlassBackdrop.current
     val cur = EditorState.motionExportFormat
+    // v15.17：订阅导出栏自己的信号 + 素材版本号。
+    // 「快速/混合/CPU」的选中色读的是 EditorState.params.exportMode（普通字段），
+    // 「动照」的可用色读的是 mpImageSet/mpVideoSet（普通字段）—— 不订阅 State 时整条导出栏
+    // 会被 Compose 跳过，点了不变蓝。这里刻意不订阅 act.rev，避免拖动滑块时每帧重录整排按钮。
+    EditorState.exportBarRev
+    EditorState.mediaRev
     // 导出中冻结格式切换/合成/清缓存（清缓存可能删除正在写入的临时文件）；底部导航在本栏之外，不受影响
     val locked = act.progressPct >= 0
     Row(
@@ -320,6 +336,7 @@ private fun ExportBar(act: MainActivity) {
             LiquidButton(onClick = {
                 EditorState.params.exportMode = mode
                 EditorState.persist(act)
+                EditorState.bumpExportBar()
                 act.bump()
             }, backdrop = b, modifier = Modifier.height(30.dp),
                 tint = if (EditorState.params.exportMode == mode) Color(0xFF0091FF) else Color.Unspecified)
@@ -591,6 +608,10 @@ private fun TopBar(act: MainActivity) {    val b = LocalGlassBackdrop.current
 @Composable
 private fun MaterialRow(act: MainActivity) {
     val b = LocalGlassBackdrop.current
+    // v15.17：素材行必须订阅「素材版本号」。原来这里读的全是普通字段（previewBitmap/isDemo/
+    // motionMp4…），导入图片或视频后 Compose 收不到任何可观察变化 → 整行被跳过 →
+    // 「删除图片 / 删除视频」按钮永远不出现（用户反馈"没有删除功能，必须完全退出软件"）。
+    EditorState.mediaRev
     val hasStillPhoto = EditorState.previewBitmap != null && !EditorState.isDemo &&
         !EditorState.isGif && EditorState.motionMp4 == null &&
         EditorState.motionUri == null && (EditorState.motionFrames?.size ?: 0) < 2
@@ -666,6 +687,11 @@ private fun BottomNav(tab: Int, onSelect: (Int) -> Unit) {
 
 @Composable
 private fun ShapeTab(act: MainActivity) {
+    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
+    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
+    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
+    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+    act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     val shapeNames = listOf(
@@ -738,6 +764,11 @@ private fun ShapeTab(act: MainActivity) {
 
 @Composable
 private fun GlassTab(act: MainActivity) {
+    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
+    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
+    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
+    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+    act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -816,7 +847,7 @@ private fun GlassTab(act: MainActivity) {
                 act.bump()
             }
         }
-        IntSlider(stringResource(R.string.blur_short), p.blur, 0..60, "%.0f", b, gamma = 1.8f) { p.blur = it; act.bump() }
+        IntSlider(stringResource(R.string.blur_short), p.blur, 0..100, "%.0f", b, gamma = 1.8f) { p.blur = it; act.bump() }
         FloatSlider(stringResource(R.string.glass_contrast), p.glassContrast, 0.5f..2f, "%.2fx", b, gamma = 1.3f) { p.glassContrast = it; act.bump() }
         IntSlider(stringResource(R.string.opacity_clear), p.opacity, 0..100, "%.0f", b) { p.opacity = it; act.bump() }
         IntSlider(stringResource(R.string.refract_a_short), p.refractA, 0..100, "%.0f", b, gamma = 1.5f) { p.refractA = it; act.bump() }
@@ -830,7 +861,7 @@ private fun GlassTab(act: MainActivity) {
         }
         IntSlider(stringResource(R.string.chromatic_short), p.chromatic, 0..100, "%.0f", b, gamma = 1.8f) { p.chromatic = it; act.bump() }
         IntSlider(stringResource(R.string.dispersion), p.dispersion, 0..100, "%.0f", b, gamma = 1.8f) { p.dispersion = it; act.bump() }
-        IntSlider(stringResource(R.string.tint_strength_lens), p.tintStrength, 0..40, "%.0f", b, gamma = 1.5f) { p.tintStrength = it; act.bump() }
+        IntSlider(stringResource(R.string.tint_strength_lens), p.tintStrength, 0..100, "%.0f", b, gamma = 1.5f) { p.tintStrength = it; act.bump() }
         FloatSlider(stringResource(R.string.border_width), p.borderWidth, 0f..10f, "%.1fdp", b) { p.borderWidth = it; act.bump() }
         IntSlider(stringResource(R.string.border_alpha), p.borderAlpha, 0..255, "%.0f", b) { p.borderAlpha = it; act.bump() }
         // ---- v15.16 任务2：画质档位 + 缩小补偿 ----
@@ -839,19 +870,29 @@ private fun GlassTab(act: MainActivity) {
         IntSlider(stringResource(R.string.glass_tier), p.glassTier, 0..1, "%.0f", b) { v ->
             p.glassTier = v.coerceIn(EditorState.GLASS_TIER_HIGH, EditorState.GLASS_TIER_LOW)
             com.liquidglass.watermark.glass.GlassQuality.tier = p.glassTier
-            // v15.17：用户显式调整过画质档位 → ROM 兼容防护不再自动覆盖（尊重用户选择）
-            act.markGlassTierUserSet()
             act.bump()
         }
         // scaleComp：0=关闭，100=小尺寸下光学带最多放大 3.2×（按渲染短边反比补偿）
         IntSlider(stringResource(R.string.scale_comp), p.scaleComp, 0..100, "%.0f", b) { v ->
             p.scaleComp = v; act.bump()
         }
+        // ---- v15.18：此前只能靠预设改的两个光学参数，开放为滑块（纯新增，不影响既有控件） ----
+        FloatSlider(stringResource(R.string.hl_angle), p.hlAngle, -180f..180f, "%.0f°", b) {
+            p.hlAngle = it; act.bump()
+        }
+        FloatSlider(stringResource(R.string.hl_falloff), p.falloff, 0.5f..3f, "%.2f", b) {
+            p.falloff = it; act.bump()
+        }
     }
 }
 
 @Composable
 private fun GlossTab(act: MainActivity) {
+    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
+    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
+    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
+    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+    act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -867,6 +908,11 @@ private fun GlossTab(act: MainActivity) {
 
 @Composable
 private fun TextTab(act: MainActivity) {
+    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
+    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
+    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
+    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+    act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     val resetStr = stringResource(R.string.reset_btn)
@@ -892,24 +938,24 @@ private fun TextTab(act: MainActivity) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlassTextField(
                 value = p.model,
-                onValueChange = { p.model = it; act.bumpLight() },
+                onValueChange = { p.model = it; EditorState.modelCustom = true; act.bumpLight() },
                 label = stringResource(R.string.device_name_label),
                 backdrop = b,
                 modifier = Modifier.weight(1f).padding(vertical = 3.dp)
             )
-            LiquidButton(onClick = { p.model = EditorState.defaultModelName(); act.bump() },
+            LiquidButton(onClick = { p.model = EditorState.defaultModelName(); EditorState.modelCustom = false; act.bump() },
                 backdrop = b, modifier = Modifier.width(58.dp).height(48.dp))
             { Text(resetStr, color = tMain(), fontSize = 10.sp) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlassTextField(
                 value = p.modelCode,
-                onValueChange = { p.modelCode = it; act.bumpLight() },
+                onValueChange = { p.modelCode = it; EditorState.modelCodeCustom = true; act.bumpLight() },
                 label = stringResource(R.string.model_code_label),
                 backdrop = b,
                 modifier = Modifier.weight(1f).padding(vertical = 3.dp)
             )
-            LiquidButton(onClick = { p.modelCode = EditorState.defaultModelCode(); act.bump() },
+            LiquidButton(onClick = { p.modelCode = EditorState.defaultModelCode(); EditorState.modelCodeCustom = false; act.bump() },
                 backdrop = b, modifier = Modifier.width(58.dp).height(48.dp))
             { Text(resetStr, color = tMain(), fontSize = 10.sp) }
         }
@@ -1059,6 +1105,11 @@ private fun BrandChip(label: String, selected: Boolean, onLongClick: (() -> Unit
 
 @Composable
 private fun PosTab(act: MainActivity) {
+    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
+    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
+    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
+    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+    act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -1072,6 +1123,11 @@ private fun PosTab(act: MainActivity) {
 
 @Composable
 private fun SettingsTab(act: MainActivity) {
+    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
+    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
+    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
+    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+    act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     val ctx = LocalContext.current
@@ -1106,26 +1162,28 @@ private fun SettingsTab(act: MainActivity) {
                 tint = if (!darkModeState) Color(0xFF0091FF) else Color.Unspecified)
             { Text(stringResource(R.string.theme_light_short), color = tMain(), fontSize = 11.sp) }
         }
-        // ── v15.15 字体模式：默认字体 / 系统字体（切换后即时生效，无需重启）──
+        // ── v15.15 字体模式：默认 / 系统 / 衬线 / 等宽（切换后即时生效，无需重启）──
+        // v15.17：原来只有「默认=sans-serif」和「系统=Typeface.DEFAULT」两项，二者在绝大多数设备
+        // 解析到同一字族 → 切换后画面零变化（用户反馈"字体切换切换不了"）。补两种字形差异明显的字族。
         Spacer(Modifier.height(8.dp))
         Text(stringResource(R.string.font_mode_section), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LiquidButton(onClick = {
-                    p.fontMode = com.liquidglass.watermark.FONT_MODE_DEFAULT
-                    act.bump()
-                },
-                backdrop = b, modifier = Modifier.height(36.dp),
-                tint = if (p.fontMode == com.liquidglass.watermark.FONT_MODE_DEFAULT) Color(0xFF0091FF) else Color.Unspecified)
-            { Text(stringResource(R.string.font_mode_default), color = tMain(), fontSize = 11.sp) }
-            LiquidButton(onClick = {
-                    p.fontMode = com.liquidglass.watermark.FONT_MODE_SYSTEM
-                    act.bump()
-                },
-                backdrop = b, modifier = Modifier.height(36.dp),
-                tint = if (p.fontMode == com.liquidglass.watermark.FONT_MODE_SYSTEM) Color(0xFF0091FF) else Color.Unspecified)
-            { Text(stringResource(R.string.font_mode_system), color = tMain(), fontSize = 11.sp) }
+            listOf(
+                com.liquidglass.watermark.FONT_MODE_DEFAULT to R.string.font_mode_default,
+                com.liquidglass.watermark.FONT_MODE_SYSTEM to R.string.font_mode_system,
+                com.liquidglass.watermark.FONT_MODE_SERIF to R.string.font_mode_serif,
+                com.liquidglass.watermark.FONT_MODE_MONO to R.string.font_mode_mono
+            ).forEach { (mode, labelRes) ->
+                LiquidButton(onClick = {
+                        p.fontMode = mode
+                        act.bump()
+                    },
+                    backdrop = b, modifier = Modifier.height(36.dp),
+                    tint = if (p.fontMode == mode) Color(0xFF0091FF) else Color.Unspecified)
+                { Text(stringResource(labelRes), color = tMain(), fontSize = 11.sp) }
+            }
         }
         Text(stringResource(R.string.font_mode_hint), color = tSub(0.55f), fontSize = 10.sp)
         Spacer(Modifier.height(6.dp))
@@ -1178,25 +1236,25 @@ private fun SettingsTab(act: MainActivity) {
             { Text(stringResource(R.string.reset_plan2), color = tSub(0.8f), fontSize = 10.sp) }
         }
         Spacer(Modifier.height(10.dp))
-                    // v14.49 导出模式三段胶囊（快速/混合/CPU，单选一个）
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                listOf(
-                    stringResource(R.string.export_mode_fast) to 0,
-                    stringResource(R.string.export_mode_hybrid) to 1,
-                    stringResource(R.string.export_mode_cpu2) to 2
-                ).forEach { (label, mode) ->
-                    LiquidButton(onClick = {
-                        p.exportMode = mode
-                        EditorState.persist(act)
-                        act.bump()
-                    }, backdrop = b, modifier = Modifier.weight(1f).height(36.dp),
-                        tint = if (p.exportMode == mode) Color(0xFF0091FF) else Color.Unspecified)
-                    { Text(label, color = tMain(), fontSize = 11.sp, fontWeight = FontWeight.Medium) }
-                }
+        // v14.49 导出模式三段胶囊（快速/混合/CPU，单选一个）
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                stringResource(R.string.export_mode_fast) to 0,
+                stringResource(R.string.export_mode_hybrid) to 1,
+                stringResource(R.string.export_mode_cpu2) to 2
+            ).forEach { (label, mode) ->
+                LiquidButton(onClick = {
+                    p.exportMode = mode
+                    EditorState.persist(act)
+                    act.bump()
+                }, backdrop = b, modifier = Modifier.weight(1f).height(36.dp),
+                    tint = if (p.exportMode == mode) Color(0xFF0091FF) else Color.Unspecified)
+                { Text(label, color = tMain(), fontSize = 11.sp, fontWeight = FontWeight.Medium) }
             }
+        }
             Text(stringResource(R.string.api_mode), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),

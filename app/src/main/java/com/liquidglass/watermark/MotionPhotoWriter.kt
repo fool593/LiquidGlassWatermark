@@ -36,6 +36,8 @@ object MotionPhotoWriter {
     // Besides the Google namespace, this template carries observed Oplus/Xiaomi namespace fields as
     // compatibility hints. Their presence is not a statement that any current OEM gallery accepts
     // this output; those combinations require physical-device verification.
+    // L8 注意：这些未在目标设备验证过的 namespace（OpCamera/MiCamera）可能污染第三方解析器
+    // （部分解析器见到未知命名空间会整体判为非标准动图）。若某设备识别异常，优先怀疑此处并按机型裁剪。
     private const val XMP_TEMPLATE =
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" +
         "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
@@ -181,25 +183,29 @@ object MotionPhotoWriter {
      * 用系统 ExifInterface 在原图上无损追加 APP1 段（不重编码像素）。
      */
     private fun withVivoExif(ctx: Context, jpeg: ByteArray): ByteArray {
-        val tmp = File.createTempFile("lgm_exif", ".jpg", ctx.cacheDir)
-        try {
-            tmp.writeBytes(jpeg)
-            val ex = ExifInterface(tmp.absolutePath)
-            ex.setAttribute(ExifInterface.TAG_MAKE, "vivo")
-            ex.setAttribute(ExifInterface.TAG_MODEL,
-                DeviceNames.marketName().takeIf { it.isNotBlank() } ?: "vivo iQOO Neo")
-            val now = java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.US)
-                .format(java.util.Date())
-            ex.setAttribute(ExifInterface.TAG_DATETIME, now)
-            ex.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, now)
-            ex.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, now)
-            // 封面像素已按 EXIF 转正，输出必须标记 normal，否则相册/播放器二次旋转（竖屏又变横屏）
-            ex.setAttribute(ExifInterface.TAG_ORIENTATION, "1")
-            ex.saveAttributes()
-            return tmp.readBytes()
-        } finally {
-            tmp.delete()
-        }
+        // M2：损坏/结构不完整的 JPEG 会让 ExifInterface 构造抛 IOException，进而被上层重试循环
+        // 吞成"动态照片写入失败（已重试）"。EXIF 注入失败不应阻断交付——兜底返回原始 JPEG。
+        return runCatching {
+            val tmp = File.createTempFile("lgm_exif", ".jpg", ctx.cacheDir)
+            try {
+                tmp.writeBytes(jpeg)
+                val ex = ExifInterface(tmp.absolutePath)
+                ex.setAttribute(ExifInterface.TAG_MAKE, "vivo")
+                ex.setAttribute(ExifInterface.TAG_MODEL,
+                    DeviceNames.marketName().takeIf { it.isNotBlank() } ?: "vivo iQOO Neo")
+                val now = java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.US)
+                    .format(java.util.Date())
+                ex.setAttribute(ExifInterface.TAG_DATETIME, now)
+                ex.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, now)
+                ex.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, now)
+                // 封面像素已按 EXIF 转正，输出必须标记 normal，否则相册/播放器二次旋转（竖屏又变横屏）
+                ex.setAttribute(ExifInterface.TAG_ORIENTATION, "1")
+                ex.saveAttributes()
+                tmp.readBytes()
+            } finally {
+                tmp.delete()
+            }
+        }.getOrDefault(jpeg)
     }
 
     /** 写主图：JPEG + 尾部追加 vivo payload（vivo 格式，不插 Google XMP） */
@@ -447,7 +453,10 @@ object MotionPhotoWriter {
         var imageUri: Uri? = null
         var videoUri: Uri? = null
         try {
-            val writtenImageUri = insertPlainImage(ctx, imageName, jpeg, taken)
+            // M5：回退路径此前直接写原始 jpeg（未注 vivo EXIF），与主路径不一致，vivo 相册可能不认。
+            // 与 composeToGallery 保持一致，先注 EXIF 再落盘。
+            val jpegWithExif = withVivoExif(ctx, jpeg)
+            val writtenImageUri = insertPlainImage(ctx, imageName, jpegWithExif, taken)
             imageUri = writtenImageUri
             val writtenVideoUri = insertPlainVideo(ctx, videoName, videoFile, taken)
             videoUri = writtenVideoUri

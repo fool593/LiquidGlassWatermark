@@ -97,8 +97,14 @@ object ExportBench {
             var track = -1
             var started = false
             val total = seconds * fps
-            val ySize = w * h
-            val uvSize = (w / 2) * (h / 2) * 2
+            // L1 修复：编码器输入可能要求行对齐（KEY_STRIDE / KEY_SLICE_HEIGHT），
+            // 直接用 w 作 stride 会让 UV 平面按错行偏移写入，样片出现一行错位。
+            // 优先采用输入格式暴露的 stride/sliceHeight，未暴露时回退 w/h（与旧行为一致）。
+            val inFmt = runCatching { codec.inputFormat }.getOrNull()
+            val strideY = runCatching { inFmt?.getInteger(MediaFormat.KEY_STRIDE) }.getOrNull()?.takeIf { it > 0 } ?: w
+            val sliceH = runCatching { inFmt?.getInteger(MediaFormat.KEY_SLICE_HEIGHT) }.getOrNull()?.takeIf { it > 0 } ?: h
+            val ySize = strideY * sliceH
+            val uvSize = strideY * (sliceH / 2)
             var frame = 0
             var eos = false
             val deadline = System.currentTimeMillis() + 60_000L + seconds * 600L
@@ -110,7 +116,7 @@ object ExportBench {
                         buf.clear()
                         val shift = (frame * 3) % w
                         for (y in 0 until h) {
-                            val rowBase = y * w
+                            val rowBase = y * strideY
                             val band = ((y + frame * 2) / 24) % 2
                             for (x in 0 until w) {
                                 val g = ((x + shift) * 255 / w)
@@ -122,7 +128,7 @@ object ExportBench {
                             for (x in 0 until w / 2) {
                                 val u = (128 + ((x + shift / 2) % 32) * 2 - 32).toByte()
                                 val vv = (128 - ((y + frame) % 32) * 2 + 32).toByte()
-                                val o = ySize + y * w + x * 2
+                                val o = ySize + y * strideY + x * 2
                                 if (o + 1 < ySize + uvSize) {
                                     buf.put(o, u)
                                     buf.put(o + 1, vv)
@@ -211,7 +217,9 @@ object ExportBench {
                 includeAudio = false
             )
             if (r == null) { DebugLog.log("BENCH", "$label GPU 返回 null（见 GPU 日志）"); null }
-            else { runCatching { out.delete() }; countFrames(out.absolutePath).takeIf { it > 0 } ?: r.frames }
+            // C4 修复：先数帧再删文件。原顺序是先 delete() 再 countFrames()，必然得 0，
+            // countFrames 全程白做。此处与 measureCpu 对齐。
+            else { val n = countFrames(out.absolutePath); runCatching { out.delete() }; n.takeIf { it > 0 } ?: r.frames }
         }?.let { s ->
             // GPU 路径的 probes 是绝对时间戳，转成相对起点
             val t0 = s.probes.firstOrNull()?.elapsedMs ?: 0L

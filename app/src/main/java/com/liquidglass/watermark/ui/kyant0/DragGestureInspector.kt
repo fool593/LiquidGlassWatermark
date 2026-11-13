@@ -12,6 +12,12 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.util.fastFirstOrNull
 
+/**
+ * L7 语义契约：`onDrag` 的第二个参数 `dragAmount` 是【相对上一次事件的位移量】，不是"当前手势位置"。
+ * 手势按下时会先发一次 `onDrag(down, Offset.Zero)`（位移为零的合成事件），随后每次移动发真实位移。
+ * 当前所有调用方（LiquidSlider / InteractiveHighlight）都把它当位移量使用，故安全；
+ * 若将来有调用方需要"当前位置"，请勿直接复用本回调的第二参数。
+ */
 suspend fun PointerInputScope.inspectDragGestures(
     onDragStart: (down: PointerInputChange) -> Unit = {},
     onDragEnd: (change: PointerInputChange) -> Unit = {},

@@ -15,6 +15,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
+// L6：此 CompositionLocal 目前恒为 { 1f }（LiquidBottomTabs 固定 provides { 1f }），
+// 因此下方 graphicsLayer 的 scale 实际恒为 1f——属于无效果的复杂度。保留以兼容上游 Kyant0 库结构，
+// 若将来要做"标签按压缩放"再接入真实值。
 internal val LocalLiquidBottomTabScale =
     staticCompositionLocalOf { { 1f } }
 

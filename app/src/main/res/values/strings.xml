@@ -50,7 +50,9 @@
     <string name="font_mode_section">字体</string>
     <string name="font_mode_default">默认字体</string>
     <string name="font_mode_system">系统字体</string>
-    <string name="font_mode_hint">系统字体不可用时自动回退默认字体</string>
+    <string name="font_mode_serif">衬线字体</string>
+    <string name="font_mode_mono">等宽字体</string>
+    <string name="font_mode_hint">衬线 / 等宽字形差异明显，切换即时生效</string>
     <string name="opacity">不透明度</string>
     <string name="opacity_clear">不透明度(0=纯通透)</string>
     <string name="dispersion">色散扩散</string>
@@ -222,6 +224,11 @@
     <string name="adv_ca">色散程度（边缘紫边/蓝边）</string>
     <string name="adv_elevation">悬浮高度（柔和投影）</string>
     <string name="adv_flow">流光速度（0=静止）</string>
+    <!-- v15.18 新增滑块 -->
+    <string name="hl_angle">高光角度</string>
+    <string name="hl_falloff">高光锐度（越小越集中）</string>
+    <string name="depth_effect">深度放大</string>
+    <string name="refraction_model">边缘剖面（0=经典 1=柔和）</string>
     <string name="logo_name_title">自定义 Logo 命名</string>
     <string name="logo_name_hint">给这个 Logo 起个名字（显示在品牌选择器）</string>
     <string name="custom_logo_default_name">我的Logo</string>

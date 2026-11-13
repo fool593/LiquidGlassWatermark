@@ -12,7 +12,10 @@ import android.media.MediaCodecList
  * 2. 开源解码器（AOSP Codec2：c2.android.*；开源软解：OMX.google.*）——全格式兜底、
  *    稳定必能跑完，覆盖系统硬解不支持的编码。
  *
- * 选择原则：默认实例（系统按机型自动选最优）→ 厂商硬解 → 开源软解（c2.android / OMX.google）。
+ * 选择原则：默认实例（系统按机型自动选最优）→ 候选链顺序由调用方 `preferHardwareFirst` 决定：
+ *   - preferHardwareFirst=true（GPU 导出）→ 厂商硬解优先；
+ *   - preferHardwareFirst=false（逐帧解码兜底）→ `videoDecoderCandidates` 返回的开源软解优先序
+ *     （c2.android / OMX.google 排最前，硬解僵死时软解必能兜底）。
  * 全部候选只允许【明确支持源 MIME】的 decoder：video/avc 源绝不尝试 AV1/H263/HEVC/VP8/VP9
  * 等不匹配 MIME 的 decoder（浪费 + 污染失败链）；srcMime 未知时保守放行全部。
  */

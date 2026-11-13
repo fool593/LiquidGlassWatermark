@@ -266,139 +266,71 @@ object WatermarkRenderer {
         val path = Path()
     }
 
-    // ── v15.16 字体模式解析（含回退，绝不抛异常导致渲染中断）──
-    /**
-     * v15.16 修复要点：旧实现里「默认字体」走 Typeface.SANS_SERIF、「系统字体」走 Typeface.DEFAULT，
-     * 而 Android 上这两者指向同一个字体族（sans-serif），切换前后字形完全一致 —— 按钮点了等于没反应。
-     * 现在：
-     * - 默认字体 = APK 内置的思源黑体系中文字体（Noto Sans SC，各设备一致、不受系统主题影响）
-     * - 系统字体 = 设备当前真正在用的系统字体（厂商/主题字体替换后即为该字形）
-     * 两者来自不同字体文件，切换后字形必然不同。
-     */
-    private const val BUILTIN_FONT_REGULAR = "fonts/NotoSansSC-Regular.otf"
-    private const val BUILTIN_FONT_BOLD = "fonts/NotoSansSC-Bold.otf"
-
-    /** 内置字体族缓存（只解析一次；失败回退 sans-serif） */
-    @Volatile private var builtinTypefaceBold: Typeface? = null
-    @Volatile private var builtinTypefaceNormal: Typeface? = null
-    @Volatile private var builtinResolved = false
+    // ── v15.15 字体模式解析（含回退，绝不抛异常导致渲染中断）──
+    /** 默认字体族（应用内置预设）：与改动前完全一致的 sans-serif */
+    private val DEFAULT_TYPEFACE_BOLD: Typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+    private val DEFAULT_TYPEFACE_NORMAL: Typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+    /** v15.17 衬线/等宽字族缓存（键 = mode*2 + bold），避免每帧 create 新 Typeface */
+    private val serifMonoTypefaces = java.util.concurrent.ConcurrentHashMap<Int, Typeface>()
 
     /** 系统字体族缓存（只解析一次；失败置 null 表示不可用） */
     @Volatile private var systemTypefaceBold: Typeface? = null
     @Volatile private var systemTypefaceNormal: Typeface? = null
     @Volatile private var systemTypefaceResolved = false
 
-    /** 系统 sans-serif 实际使用的字体文件路径（解析不出为空串），仅用于诊断日志 */
-    @Volatile private var systemFontFile: String = ""
-
     /** 上一次解析出的字体名，供诊断日志打印（切换前后对比用） */
     @Volatile var lastResolvedTypefaceName: String = "未解析"
         private set
 
-    private fun fallbackTypeface(bold: Boolean): Typeface =
-        Typeface.create(Typeface.SANS_SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
-
-    /** 内置中文字体：从 assets 加载，失败回退 sans-serif（绝不抛异常中断渲染） */
-    private fun builtinTypeface(bold: Boolean): Typeface {
-        if (!builtinResolved) {
-            synchronized(this) {
-                if (!builtinResolved) {
-                    val ctx = runCatching { App.appContext }.getOrNull()
-                    if (ctx != null) {
-                        builtinTypefaceNormal = runCatching {
-                            Typeface.createFromAsset(ctx.assets, BUILTIN_FONT_REGULAR)
-                        }.getOrNull()
-                        builtinTypefaceBold = runCatching {
-                            Typeface.createFromAsset(ctx.assets, BUILTIN_FONT_BOLD)
-                        }.getOrNull() ?: builtinTypefaceNormal?.let {
-                            runCatching { Typeface.create(it, Typeface.BOLD) }.getOrNull()
-                        }
-                    }
-                    builtinResolved = true
-                }
-            }
-        }
-        val t = if (bold) builtinTypefaceBold else builtinTypefaceNormal
-        if (t != null) {
-            lastResolvedTypefaceName = if (bold) "内置中文字体(Noto Sans SC)-bold"
-                                    else "内置中文字体(Noto Sans SC)-regular"
-            return t
-        }
-        lastResolvedTypefaceName = "sans-serif(内置字体不可用，已回退)" + if (bold) "-bold" else "-regular"
-        return fallbackTypeface(bold)
-    }
-
     /**
-     * 解析系统真正在用的 sans-serif 字体文件。
-     * 厂商主题字体（vivo / 小米 / 华为等）多数是替换 /system/fonts 下的字体文件或改写 fonts.xml，
-     * 所以以 fonts.xml 里 sans-serif 族、400 权重、非斜体那一项为准；换过主题字体时拿到的就是换过的字形。
-     * 解析不到返回空串（随后回退系统默认族）。
-     */
-    private fun findSystemSansFontFile(): String {
-        val famRegex = Regex("<family[^>]*name=\"sans-serif\"[^>]*>(.*?)</family>", RegexOption.DOT_MATCHES_ALL)
-        val fontRegex = Regex("<font([^>]*)>([^<]+)</font>")
-        val weightRegex = Regex("weight=\"(\\d+)\"")
-        for (cfg in listOf("/system/etc/fonts.xml", "/system/fonts/fonts.xml")) {
-            val xml = runCatching { java.io.File(cfg).readText() }.getOrNull() ?: continue
-            val families = famRegex.findAll(xml).toList()
-            if (families.isEmpty()) continue
-            val fonts = families.flatMap { fam ->
-                fontRegex.findAll(fam.groupValues[1]).map { it.groupValues[1] to it.groupValues[2].trim() }
-            }.toList()
-            if (fonts.isEmpty()) continue
-            fun weightOf(a: String): Int = weightRegex.find(a)?.groupValues?.get(1)?.toIntOrNull() ?: 400
-            val picked = fonts.firstOrNull { (a, _) ->
-                !a.contains("style=\"italic\"") && weightOf(a) == 400
-            } ?: fonts.firstOrNull { (a, _) -> !a.contains("style=\"italic\"") } ?: fonts.first()
-            val raw = picked.second
-            val path = if (raw.startsWith("/")) raw else "/system/fonts/$raw"
-            if (runCatching { java.io.File(path).exists() }.getOrDefault(false)) return path
-        }
-        return ""
-    }
-
-    private fun systemTypeface(bold: Boolean): Typeface? {
-        val style = if (bold) Typeface.BOLD else Typeface.NORMAL
-        val file = systemFontFile.ifEmpty { findSystemSansFontFile() }
-        // 1) 按系统配置里的字体文件直接加载：主题字体替换过文件时，这里就是替换后的字形
-        if (file.isNotEmpty()) {
-            val base = runCatching { Typeface.createFromFile(file) }.getOrNull()
-            if (base != null) return runCatching { Typeface.create(base, style) }.getOrDefault(base)
-        }
-        // 2) 回退系统默认族（厂商字体引擎 / 主题覆盖由系统统一处理）
-        return runCatching { Typeface.create(Typeface.DEFAULT, style) }.getOrNull()
-            ?: runCatching { Typeface.create("sans-serif", style) }.getOrNull()
-    }
-
-    /**
-     * v15.16 字体模式解析。
-     * - FONT_MODE_DEFAULT：应用内置中文字体（随 APK 打包，任何设备字形一致）
-     * - FONT_MODE_SYSTEM：设备当前系统字体（跟随系统主题字体）
-     * 两种模式使用不同字体文件，切换即时生效；任一模式失败都回退 sans-serif，绝不中断渲染。
+     * v15.15 字体模式解析。
+     * - FONT_MODE_DEFAULT：应用内置 sans-serif（默认，与旧版一致）
+     * - FONT_MODE_SYSTEM：读取设备系统字体族（Android 等价于桌面端的 NSFont/fontconfig 查询）
+     *   平台差异说明：Android 无 SystemParametersInfo/注册表/NSFont/fontconfig，
+     *   系统字体通过 Typeface.DEFAULT（系统默认字族，厂商定制字体生效）获取。
+     * 系统字体不可用 → 自动回退默认字体，绝不中断渲染。
      */
     fun resolveTypeface(mode: Int, bold: Boolean): Typeface {
-        if (mode != FONT_MODE_SYSTEM) return builtinTypeface(bold)
+        // v15.17：衬线 / 等宽是 Android 恒定存在的字族，与 sans-serif 字形差异明显，
+        // 让「字体切换」真的能看出变化（此前 默认=sans-serif、系统=Typeface.DEFAULT 在绝大多数
+        // 设备上解析到同一字族，切换后画面完全没变 → 用户反馈"字体切换切换不了"）。
+        if (mode == FONT_MODE_SERIF || mode == FONT_MODE_MONO) {
+            val family = if (mode == FONT_MODE_SERIF) Typeface.SERIF else Typeface.MONOSPACE
+            val style = if (bold) Typeface.BOLD else Typeface.NORMAL
+            val tf = serifMonoTypefaces.getOrPut(mode * 2 + if (bold) 1 else 0) {
+                runCatching { Typeface.create(family, style) }
+                    .getOrDefault(if (bold) DEFAULT_TYPEFACE_BOLD else DEFAULT_TYPEFACE_NORMAL)
+            }
+            lastResolvedTypefaceName = (if (mode == FONT_MODE_SERIF) "serif" else "monospace") +
+                if (bold) "-bold" else "-regular"
+            return tf
+        }
+        if (mode != FONT_MODE_SYSTEM) {
+            lastResolvedTypefaceName = "sans-serif" + if (bold) "-bold" else "-regular"
+            return if (bold) DEFAULT_TYPEFACE_BOLD else DEFAULT_TYPEFACE_NORMAL
+        }
+        // 系统字体：只解析一次
         if (!systemTypefaceResolved) {
             synchronized(this) {
                 if (!systemTypefaceResolved) {
-                    systemFontFile = runCatching { findSystemSansFontFile() }.getOrDefault("")
-                    systemTypefaceNormal = systemTypeface(false)
-                    systemTypefaceBold = systemTypeface(true)
+                    runCatching {
+                        systemTypefaceNormal = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                        systemTypefaceBold = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    }
                     systemTypefaceResolved = true
                 }
             }
         }
         val st = if (bold) systemTypefaceBold else systemTypefaceNormal
         return if (st != null) {
-            val src = if (systemFontFile.isEmpty()) "系统默认族" else systemFontFile.substringAfterLast('/')
-            lastResolvedTypefaceName = "系统字体($src)" + if (bold) "-bold" else "-regular"
+            lastResolvedTypefaceName = "系统字体" + if (bold) "(粗)" else "(常规)"
             st
         } else {
-            lastResolvedTypefaceName = "sans-serif(系统字体不可用，已回退)" + if (bold) "-bold" else "-regular"
-            fallbackTypeface(bold)
+            // 回退：系统字体不可用 → 默认字体
+            lastResolvedTypefaceName = "sans-serif(系统字体不可用，已回退)"
+            if (bold) DEFAULT_TYPEFACE_BOLD else DEFAULT_TYPEFACE_NORMAL
         }
     }
-
 
     private class Ui(val w: Float, val h: Float, val titleSize: Float, val subSize: Float,
                      val padH: Float, val padV: Float, val sUnit: Float, val gap: Float,
@@ -427,7 +359,7 @@ object WatermarkRenderer {
             val shapeH = if (localH > 0f) localH else wm.height()
             val shortSide = min(shapeW, shapeH)
             // Blur and padding scale with the material, not the number of export pixels.
-            val blurCanvas = p.blur.coerceIn(0, 60) / 60f * shortSide * .16f
+            val blurCanvas = p.blur.coerceIn(0, 100) / 60f * shortSide * .16f
             val pad = ceil(shortSide * .22f + blurCanvas + 2f)
             patch.set(wm.left - pad, wm.top - pad, wm.right + pad, wm.bottom + pad)
             val sc = min(1f, maxEdge.coerceAtLeast(64).toFloat() / max(patch.width(), patch.height()))
@@ -446,10 +378,8 @@ object WatermarkRenderer {
             } else 1f
             // v15.16：缩小补偿——按渲染后形状短边（设备像素）计算光学放大倍率，
             // 使水印被缩小渲染（小视口/小缩放/低分辨率）时仍保留可见的折射环与边缘厚度。
-            // v15.16 补丁：导出路径强制补偿=1（等效旧版导出管线，band/位移不放大，
-            // 导出速度恢复旧版水平）；预览仍保留缩放补偿，避免小视口效果消失。
             val renderedShortSide = shortSide * ((sx + sy) * .5f)
-            val effectScale = if (EditorState.isExporting) 1f else LiquidGlassEngine.scaleCompensation(
+            val effectScale = LiquidGlassEngine.scaleCompensation(
                 renderedShortSide, p.scaleComp.coerceIn(0, 100) / 100f)
             val tier = if (p.glassTier == EditorState.GLASS_TIER_LOW)
                 LiquidGlassEngine.TIER_LOW else LiquidGlassEngine.TIER_HIGH
@@ -629,6 +559,8 @@ object WatermarkRenderer {
                 val splitNameW = if (p.model.isNotEmpty()) c.titlePaint.measureText(p.model) else 0f
                 c.titlePaint.textSize = titleSize
                 c.subPaint.textSize = s2
+                // v15.18：方案2 也显示第二行型号，宽度/高度计入几何，避免被裁掉
+                val splitCodeW = if (p.modelCode.isNotBlank()) c.subPaint.measureText(p.modelCode) else 0f
                 val (splitD, splitT) = splitDateText(p.dateText)
                 val splitD_W = if (splitD.isNotEmpty()) c.subPaint.measureText(splitD) else 0f
                 val splitT_W = if (splitT.isNotEmpty()) c.subPaint.measureText(splitT) else 0f
@@ -649,8 +581,10 @@ object WatermarkRenderer {
                 }
                 // 中间弹性间距：extend=1 时=splitGap*2（自然紧凑，与历史视觉一致），拉长线性增大
                 val flexGap = splitGap * 2f * extend.coerceAtLeast(0.2f)
-                contentW = splitNameW + flexGap + rightW
-                contentH = max(max(t2, s2 * 2f),
+                val leftW = max(splitNameW, splitCodeW)
+                val leftH = t2 + if (splitCodeW > 0f) s2 * 1.25f else 0f
+                contentW = leftW + flexGap + rightW
+                contentH = max(max(leftH, s2 * 2f),
                     if (hasLogo(p)) logoSize else 0f) * 1.35f
             }
             else -> {
@@ -723,9 +657,11 @@ object WatermarkRenderer {
         // —— 显示开关消费（showDevice/showTime/liveSeconds 此前 Toggle 存在但渲染层未读=死控件）：
         //    临时改写 p.model/p.dateText，measure+drawContent 无需改动；finally 恢复，不污染共享状态 ——
         val origModel = p.model
+        val origCode = p.modelCode
         val origDate = p.dateText
         try {
-            if (!p.showDevice) p.model = ""
+            // v15.18：showDevice 同时隐藏机型名称与型号代号
+            if (!p.showDevice) { p.model = ""; p.modelCode = "" }
             if (!p.showTime) p.dateText = ""
             else p.dateText = c.displayDate(p.dateText, EditorState.liveSeconds)
         // —— 渲染诊断日志（节流）：记录实际绘制的水印内容，定位"机型文字消失/错乱"根因 ——
@@ -758,7 +694,9 @@ object WatermarkRenderer {
             val availW = photoDst.width(); val availH = photoDst.height()
             val s = minOf(availW / rw.toFloat(), availH / rh.toFloat())
             val dw = rw * s; val dh = rh * s
-            // 旋转后的显示区域（水印基于此区域定位）
+            // 旋转后的显示区域（水印基于此区域定位）。
+            // L3 契约说明：这里会【原地改写】调用方传入的 photoDst（改为旋转后的显示区域），
+            // 调用方不要复用该 RectF 作为"原始未旋转区域"；如需保留原值请自行传入副本。
             photoDst.set(cx - dw / 2f, cy - dh / 2f, cx + dw / 2f, cy + dh / 2f)
             // 旋转坐标系下原始照片的绘制矩形（宽高对应原始比例）
             val srcDrawW = if (rot % 180 != 0) dh else dw
@@ -954,6 +892,7 @@ object WatermarkRenderer {
         canvas.restore()
         } finally {
             p.model = origModel
+            p.modelCode = origCode
             p.dateText = origDate
         }
     }
@@ -1102,22 +1041,30 @@ object WatermarkRenderer {
                 val nameW = if (p.model.isNotEmpty()) c.titlePaint.measureText(p.model) else 0f
                 c.titlePaint.textSize = ui.titleSize
                 c.subPaint.textSize = s2
+                val codeW = if (p.modelCode.isNotBlank()) c.subPaint.measureText(p.modelCode) else 0f
+                val hasCode = codeW > 0f
                 val subFM2 = c.subPaint.fontMetrics
                 val (splitD, splitT) = splitDateText(p.dateText)
                 val timeBlockH = s2 * 2f
                 c.subPaint.textSize = ui.subSize
                 var x = x0
-                // 1. 机型最左（大字）：基线必须用实际字号 t2 的字体度量居中。
-                //    此前误用 ui.titleSize 的 titleFM，大字号度量使机型文字整体下沉、
-                //    与右侧 logo/竖线/时间块（均按 centerY 居中）不对齐（用户"机型放太下面"）
+                // v15.18：左组 = 机型大字 + 型号小字，整块垂直居中。
+                //    此前 SPLIT 分支从不绘制 modelCode，默认方案2 因此「只显示名称」。
+                val leftBlockH = t2 + if (hasCode) s2 * 1.25f else 0f
+                val leftTop = centerY - leftBlockH / 2f
                 if (p.model.isNotEmpty()) {
                     c.titlePaint.textSize = t2
                     val titleFM2 = c.titlePaint.fontMetrics
-                    val titleBase = centerY - (titleFM2.ascent + titleFM2.descent) / 2f
-                    text2(c.titlePaint, p.model, x, titleBase)
+                    text2(c.titlePaint, p.model, x, leftTop - titleFM2.ascent)
                     c.titlePaint.textSize = ui.titleSize
                 }
-                x += nameW + flexGap
+                if (hasCode) {
+                    c.subPaint.textSize = s2
+                    val codeFM = c.subPaint.fontMetrics
+                    text2(c.subPaint, p.modelCode, x, leftTop + t2 - codeFM.ascent)
+                    c.subPaint.textSize = ui.subSize
+                }
+                x += max(nameW, codeW) + flexGap
                 if (hasLogo(p)) {
                     // 2. logo 属右组、右对齐竖线（放大只向左扩张吃中间 flexGap，绝不压竖线/时间/机型）
                     // 槽位与 measure 一致封顶（×2.6 上限），横长蔡司标不会把竖线/时间挤出条外

@@ -208,19 +208,25 @@ class WatermarkEditorView @JvmOverloads constructor(
             }
             if (photo.isRecycled || width < 2 || height < 2) return
             fit(photoDst, photo.width, photo.height, width, height)
-            var snap = exportSnapshot
-            if (snap == null || snap.width != width || snap.height != height || snap.isRecycled) {
-                runCatching { snap?.recycle() }
-                snap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                exportSnapshot = snap
+            // M7：渲染到临时位图，成功后再交换进 exportSnapshot。
+            // 若 render 中途抛异常，旧快照（或 null）保持不变，导出期间不会显示"残缺水印"。
+            val work = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            try {
+                val c = Canvas(work)
+                c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                // 关键修复：快照必须与正常预览一致用 photoDst（横屏视频 letterbox 居中），
+                // 之前误用全幅 dst → 横屏视频被拉伸成竖屏 → 保存途中预览一直显示竖屏拉伸。
+                val dst = RectF(photoDst)
+                WatermarkRenderer.render(c, photo, dst, EditorState.renderParams(), density,
+                    WatermarkRenderer.unitForPhotoWidth(dst.width(), density), null, 480)
+                // 渲染成功：原子交换（旧快照仅在确认新图可用后才回收）
+                val old = exportSnapshot
+                exportSnapshot = work
+                if (old !== work) runCatching { old?.recycle() }
+            } catch (t: Throwable) {
+                runCatching { work.recycle() }
+                throw t
             }
-            val c = Canvas(snap)
-            c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            // 关键修复：快照必须与正常预览一致用 photoDst（横屏视频 letterbox 居中），
-            // 之前误用全幅 dst → 横屏视频被拉伸成竖屏 → 保存途中预览一直显示竖屏拉伸。
-            val dst = RectF(photoDst)
-            WatermarkRenderer.render(c, photo, dst, EditorState.renderParams(), density,
-                WatermarkRenderer.unitForPhotoWidth(dst.width(), density), null, 480)
         }
     }
 

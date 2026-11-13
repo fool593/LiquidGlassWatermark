@@ -206,6 +206,11 @@
     <string name="adv_ca">Dispersion (purple/blue fringes)</string>
     <string name="adv_elevation">Floating height (soft shadow)</string>
     <string name="adv_flow">Highlight flow speed (0 = still)</string>
+    <!-- v15.18 new sliders -->
+    <string name="hl_angle">Highlight angle</string>
+    <string name="hl_falloff">Highlight sharpness (lower = tighter)</string>
+    <string name="depth_effect">Depth magnification</string>
+    <string name="refraction_model">Edge profile (0 = classic, 1 = soft)</string>
     <string name="logo_name_title">Name your custom logo</string>
     <string name="logo_name_hint">Enter a logo name to show in the brand picker</string>
     <string name="custom_logo_default_name">My logo</string>

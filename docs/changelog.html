@@ -34,6 +34,20 @@
 <h1>📜 更新日志 · Changelog</h1>
 <a class="back" href="./">← 返回首页 Back to home</a>
 
+<h2>v15.18 最小修复版</h2>
+<div class="entry">
+  <span class="ver">v15.18</span><span class="date">2026-11-13</span>
+  <ul>
+    <li>修复手机型号只显示名称、不显示型号：默认方案现在同时绘制机型大字与第二行型号小字。</li>
+    <li>修复高版本 API 重启后玻璃观感变淡：API 模式改为独立全局键持久化，切换后退出重进不再回落自动档。</li>
+    <li>修复自定义机型被还原：导入图片/视频或删除素材时不再用 EXIF 拍摄机型覆盖用户自定义机型（仅当用户未手动改过机型时才自动探测）。</li>
+    <li>增强滑块：模糊强度、乳白浓度上限由 60/40 放宽到 100；新增「高光角度」「高光锐度」两项光学参数；引擎模糊半径系数放大，满档效果约为修复前 2.7 倍。</li>
+    <li>回归验证：按键选中变色、滑块松手不回弹均正常，全程无崩溃。</li>
+    <li class="en">Minimal fix release: model line + sub-model line, persistent high-API glass mode, EXIF-override guard for custom model, wider slider ranges & new optical sliders; buttons recolor and sliders no longer rebound.</li>
+    <li>下载：GitHub Release <code>v15.18</code>（稳定版 / 测试版 / 源码 ZIP）。</li>
+  </ul>
+</div>
+
 <h2>v15.17 图标更新版</h2>
 <div class="entry">
   <span class="ver">v15.17-icon</span><span class="date">2026-11-08</span>

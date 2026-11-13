@@ -1,4 +1,5 @@
 plugins {
-    id("com.android.application") version "8.5.2" apply false
-    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+    // AGP 9 provides Kotlin support built in, so no separate Kotlin Android plugin is applied.
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.kotlin.compose) apply false
 }

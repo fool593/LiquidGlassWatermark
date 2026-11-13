@@ -73,6 +73,10 @@ object PresetIO {
             if (root.optString("app") != MAGIC) return@runCatching false
             val pjo = root.optJSONObject("params") ?: return@runCatching false
             val tmp = EditorState.Params()
+            // C3 修复：readParams 用反射只处理 Int/Float/Boolean/String，customLogos(ArrayList) 会被跳过。
+            // 若 tmp 保持空列表，随后的 copyFrom 会按"目标多于来源"把用户已保存的自定义 logo 全部删掉（数据丢失）。
+            // 先把当前条目灌入 tmp，保证 copyFrom 尺寸一致、不误删。
+            tmp.customLogos.addAll(EditorState.params.customLogos)
             readParams(tmp, pjo)
             // 统一扭曲一致性：新版预设带 warp → 由 warp 推导边缘/内部扭曲；
             // 旧预设只有 edgeWarp/innerWarp → 取较大者迁移到 warp 再统一推导
@@ -86,6 +90,9 @@ object PresetIO {
             tmp.darkMode = com.liquidglass.watermark.darkModeState
             tmp.dateText = EditorState.nowString()
             tmp.sanitizeInPlace()
+            // v15.18：预设里的机型文字视为用户选定值，之后导入素材/重启不得被自动探测覆盖
+            EditorState.modelCustom = true
+            EditorState.modelCodeCustom = true
             EditorState.params.copyFrom(tmp)
             EditorState.persist(ctx)
             true

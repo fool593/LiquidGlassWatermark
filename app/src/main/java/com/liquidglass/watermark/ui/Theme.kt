@@ -113,12 +113,17 @@ private fun liquidGlowCenters(width: Float, height: Float): List<Offset> = listO
  * 3 个全屏半径径向渐变 Brush 的缓存：键为 (宽, 高, dark)。
  * 尺寸不变时零分配；旋转/分屏导致尺寸变化时重建一次。
  */
-private var glowBrushKey: Long = Long.MIN_VALUE
+// L5：原实现把 (宽,高,dark) 哈希成一个 Long 作缓存键，理论上存在碰撞（碰撞会复用错误尺寸的
+// Brush → 视觉错位）。改为直接按三个字段精确比较，杜绝碰撞，开销可忽略。
+private var glowBrushW: Float = Float.NaN
+private var glowBrushH: Float = Float.NaN
+private var glowBrushDark: Boolean = false
 private var glowBrushes: List<Brush> = emptyList()
 
 private fun liquidGlowBrushes(width: Float, height: Float, dark: Boolean): List<Brush> {
-    val key = width.toRawBits().toLong() * 31 + height.toRawBits().toLong() * 7 + (if (dark) 1L else 0L)
-    if (key == glowBrushKey) return glowBrushes
+    if (glowBrushes.isNotEmpty() && width == glowBrushW && height == glowBrushH && dark == glowBrushDark) {
+        return glowBrushes
+    }
     val centers = liquidGlowCenters(width, height)
     val radius = width * 0.95f
     val alpha = if (dark) 0.22f else 0.14f
@@ -129,7 +134,7 @@ private fun liquidGlowBrushes(width: Float, height: Float, dark: Boolean): List<
             radius = radius
         )
     }
-    glowBrushKey = key
+    glowBrushW = width; glowBrushH = height; glowBrushDark = dark
     return glowBrushes
 }
 

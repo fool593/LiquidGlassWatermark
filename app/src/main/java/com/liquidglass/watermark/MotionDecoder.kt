@@ -312,6 +312,11 @@ object MotionDecoder {
     // ---- 性能：线程局部 ARGB 缓冲复用（预览线程与导出线程并发各自持有，杜绝每帧 2MB 分配与 GC）----
     private val threadArgb = ThreadLocal.withInitial { IntArray(0) }
     private val threadYuv = ThreadLocal.withInitial { arrayOf(ByteArray(0), ByteArray(0)) }
+
+    // H4：COLOR_FormatYUV420Flexible 的真实布局由解码器决定（I420/NV12/NV21 皆可能），
+    // 本兜底只能按 NV12 布局"试解"。首次命中时记录一次，提示个别设备可能出现色彩异常，
+    // 便于自检失败时定位（不做逐帧刷屏）。
+    @Volatile private var loggedFlexibleNv12 = false
     private fun reuseYuvPlane(index: Int, size: Int): ByteArray {
         val planes = threadYuv.get()
         if (planes[index].size < size) planes[index] = ByteArray(size)
@@ -762,7 +767,11 @@ object MotionDecoder {
             var guard = 0
             var lastOutputMs = System.currentTimeMillis()
             // Surface 模式取帧失败计数：连续 N 帧取不到 Image → 判定该实例 Surface 输出不可用
-            // （v13.57 实证 vivo 硬解 Surface 5.4s 解完全片却 kept=0），全局回退 buffer 模式
+            // （v13.57 实证 vivo 硬解 Surface 5.4s 解完全片却 kept=0），全局回退 buffer 模式。
+            // H3 复核结论：无需再加"连续 16 帧才判死"的阈值——下方每个取帧失败分支都会在
+            // `if (attempt.surfaceFailed.not())` 内立即置 surfaceFailed=true，而主循环条件
+            // `!(useSurface && attempt.surfaceFailed)` 随即退出并回退 buffer。即首帧或中途任一帧
+            // 失败都立即判死，不存在"静默丢帧跑到 EOS"的路径。此计数器仅作诊断用途。
             var surfaceNullFrames = 0
             // 停滞检测滑动基线：最近 64 帧输出间隔均值（wall clock）。软解 2340x1080 60fps 每帧
             // 300-600ms 是正常解码速度，固定 3s 阈值会误杀（日志实证 c2.android.avc 解 3 帧后被误判僵死）。
@@ -1181,6 +1190,12 @@ object MotionDecoder {
             cf == 22 ||
             cf == 2135033992 /* COLOR_FormatYUV420Flexible（Image 不可用时按 NV12 布局试解） */
         val planar = cf == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
+        // H4：Flexible 被按 NV12 试解时，首次记录一次风险提示（布局由解码器决定，可能色彩异常）。
+        if (cf == 2135033992 && !loggedFlexibleNv12) {
+            loggedFlexibleNv12 = true
+            DebugLog.log("DEC", "COLOR_FormatYUV420Flexible 按 NV12 布局试解：布局由解码器决定，" +
+                "个别设备可能出现色彩异常（自检失败请优先怀疑此处）")
+        }
         if (!semi && !planar) return null
 
         val cropL = runCatching { fmt.getInteger("crop-left") }.getOrDefault(0)

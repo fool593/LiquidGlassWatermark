@@ -611,6 +611,9 @@ object Mp4Exporter {
                     if (!reuseOutput) runCatching { watermarked.recycle() }
                     throw e
                 }
+                // M6 复核结论：这一行并非死代码——推进到"下一帧预期 PTS"后，本回调内下方
+                // decodedMs（进度）随即读取它，循环结束后 decodedEndMs（完整性自检）也读它。
+                // 删除会改变进度推进与解码末帧范围判定，故保留并在此澄清。
                 // Last-frame extent is used only for completeness/progress checks.
                 videoPts += delayMs.coerceAtLeast(1) * 1000L
                 if (watermarked !== bmp) runCatching { bmp.recycle() }
@@ -663,6 +666,9 @@ object Mp4Exporter {
             if (!drainEncoder(true)) return null.also { lastFailReason = "编码器收尾排空失败" }
             onProgress(100)
             // v14.08：视频编码收尾后排空剩余音频尾巴，再 stop muxer
+            // v15.17：排空加上限（视频末帧 +200ms）。无上限排空会在视频轨提前结束时把整段
+            // 剩余音频写进容器，容器时长被音频撑满 → 播放器放完视频帧后整段绿幕。
+            val audioCapUs = videoPts + 200_000L
             if (audioExt != null && audioMuxTrack >= 0 && !audioEos && muxStarted) {
                 var guard = 0
                 try {
@@ -671,6 +677,11 @@ object Mp4Exporter {
                         if (audioExt!!.sampleTrackIndex < 0) break
                         val audioPts = at - sourceOriginUs + prefixPts
                         if (audioPts < prefixPts) { audioExt!!.advance(); continue }
+                        if (audioPts > audioCapUs) {
+                            DebugLog.log("AUDIO", "音频收尾排空到视频末帧+200ms 为止（丢弃尾部 " +
+                                "${(audioPts - audioCapUs) / 1000}ms，防绿幕）")
+                            break
+                        }
                         audioBuf.clear()
                         val n = audioExt!!.readSampleData(audioBuf, 0)
                         if (n < 0) break
@@ -694,7 +705,9 @@ object Mp4Exporter {
             // 输出比真实解码终点短 800ms 以上 = 真截断 → 删 .tmp 报错，绝不把残缺 MP4 当成功文件。
             val decodedEndMs = videoPts / 1000L
             var outDur = -1L
-            if (decodedEndMs > 1000L && tmpOut.exists()) {
+            // v15.17：原来只在 decodedEndMs > 1000 时才校验——"只解码到 0.5 秒"这种最严重的
+            // 截断反而整段跳过校验直接放行。改为只要有源时长就必须校验。
+            if (durEstMs > 1000L && tmpOut.exists()) {
                 outDur = runCatching {
                     val r = android.media.MediaMetadataRetriever()
                     try { r.setDataSource(tmpOut.absolutePath)
@@ -703,10 +716,21 @@ object Mp4Exporter {
                 }.getOrDefault(-1L)
                 DebugLog.log("ENC", "时长自检 元数据=$durEstMs ms 解码终点=${decodedEndMs}ms 输出=${outDur}ms 帧=$framesDone")
                 val coveragePct = (100.0 * decodedEndMs / durEstMs.coerceAtLeast(1)).toInt()
-                val verifyOk = outDur >= 0L && outDur >= decodedEndMs - 800L
-                DebugLog.log("ENC", "EXPORT_VERIFY: sourceDurationMs=$durEstMs outputDurationMs=$outDur decodedEndMs=${decodedEndMs}ms decodedFrames=$framesDone coverage=${coveragePct}% validation=${if (verifyOk) "PASS" else "FAIL"}")
+                // v15.17 修复（用户反馈"导出视频播一会儿变绿幕"）：
+                // 旧校验只有 "outDur >= decodedEndMs - 800"，而 decodedEndMs 本身就是解码停下的
+                // 位置——解码提前中断时这条恒成立；容器时长又被音频轨撑满（音频直通 + 尾部无上限
+                // 排空）→ "视频轨只有开头几帧、音频全量"的坏文件被判成功，播放器放完开头就没有
+                // 可解码帧，剩余整段绿幕。增加覆盖率校验：实际解码终点必须覆盖预期时长。
+                val expectEndMs = if (maxDurationMs > 0) minOf(durEstMs, maxDurationMs) else durEstMs
+                val coversSource = expectEndMs <= 0L ||
+                    decodedEndMs >= expectEndMs - maxOf(500L, expectEndMs / 10L)
+                val verifyOk = outDur >= 0L && outDur >= decodedEndMs - 800L && coversSource
+                DebugLog.log("ENC", "EXPORT_VERIFY: sourceDurationMs=$durEstMs outputDurationMs=$outDur decodedEndMs=${decodedEndMs}ms decodedFrames=$framesDone coverage=${coveragePct}% expectEnd=${expectEndMs}ms coversSource=$coversSource validation=${if (verifyOk) "PASS" else "FAIL"}")
                 if (!verifyOk) {
-                    lastFailReason = "视频被截断（解码终点 ${decodedEndMs}ms，输出仅 ${outDur}ms），已删除残缺文件"
+                    lastFailReason = if (!coversSource)
+                        "视频被截断（只解码到 ${decodedEndMs}ms，源 ${durEstMs}ms，覆盖率 ${coveragePct}%），已删除残缺文件"
+                    else
+                        "视频被截断（解码终点 ${decodedEndMs}ms，输出仅 ${outDur}ms），已删除残缺文件"
                     runCatching { tmpOut.delete() }
                     return null
                 }
@@ -765,8 +789,11 @@ object Mp4Exporter {
             vR[i] = (112 * i); vG[i] = (-94 * i); vB[i] = (-18 * i)
         }
     }
-    private var pxBuf = IntArray(0)  // 线程内串行复用，避免每帧分配 w*h 像素数组
-    private var yuvBuf = ByteArray(0) // 复用 YUV 输出（一次导出 encW×encH 恒定，省去每帧 n*1.5 字节分配的 GC）
+    // C5 修复：Mp4Exporter 是 object（单例），原来的可变单例缓冲 pxBuf/yuvBuf 在
+    // "用户点保存导出" 与 "adb 触发 ExportBench.measureCpu 后台导出" 并发时会互相踩踏 →
+    // YUV 数据错帧 → 输出花屏。改用 ThreadLocal，每个导出线程独占一份，性能与原实现一致。
+    private val pxBufLocal = ThreadLocal.withInitial { IntArray(0) }
+    private val yuvBufLocal = ThreadLocal.withInitial { ByteArray(0) }
 
     /** Use source presentation timestamps when the container omits its nominal frame-rate hint. */
     private fun estimateSourceFrameRate(file: File): Int? = runCatching {
@@ -801,14 +828,15 @@ object Mp4Exporter {
 
     private fun argbToYuv420(bmp: Bitmap, w: Int, h: Int, planar: Boolean): ByteArray {
         val n = w * h
-        if (pxBuf.size < n) pxBuf = IntArray(n)
-        val px = pxBuf
+        // withInitial 保证非空；!! 仅用于把平台类型收窄为非空 IntArray，消除可空告警。
+        var px = pxBufLocal.get()!!
+        if (px.size < n) { px = IntArray(n); pxBufLocal.set(px) }
         bmp.getPixels(px, 0, w, 0, 0, w, h)
         val ySize = n
         val uvSize = ySize / 4
         val need = ySize + uvSize * 2
-        if (yuvBuf.size < need) yuvBuf = ByteArray(need)
-        val out = yuvBuf
+        var out = yuvBufLocal.get()!!
+        if (out.size < need) { out = ByteArray(need); yuvBufLocal.set(out) }
         var yi = 0; var ui = ySize; var vi = ySize + uvSize
         val rT = yR; val gT = yG; val bT = yB
         val uRT = uR; val uGT = uG; val uBT = uB

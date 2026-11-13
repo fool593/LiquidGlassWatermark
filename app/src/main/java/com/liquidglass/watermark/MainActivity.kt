@@ -94,18 +94,13 @@ class MainActivity : ComponentActivity() {
         setDarkMode(com.liquidglass.watermark.darkModeState)
         // 应用 API 模式（高/低/自动），同步软件模糊状态
         applyApiMode()
-        // v15.17 ROM 兼容防护：按 ROM 家族（澎湃/鸿蒙/ColorOS/OriginOS/One UI 等）适配渲染策略，
-        // 防止 AGSL RuntimeShader 在部分厂商驱动上 native 崩溃（RenderThread SIGSEGV，Java catch 拦不住）
-        applyRomGuard()
         // 品牌自动匹配应用到全部方案（方案1/方案2 都要有机型/logo/时间，否则切方案2 内容空、看起来"跟以前一样"）
         for (pi in 0 until EditorState.PLAN_COUNT) {
             val pp = EditorState.planParamsAt(pi)
-            val mc2 = DeviceNames.modelCode()
             val b2 = DeviceNames.brand()
-            val autoP2 = setOf(mc2, "$b2 $mc2", "$b2$mc2")
-            if (pp.model in autoP2) pp.model = EditorState.defaultModelName()
-            if (pp.model.isEmpty()) pp.model = EditorState.defaultModelName()
-            if (pp.modelCode.isEmpty()) pp.modelCode = EditorState.defaultModelCode()
+            // v15.18：去掉按值猜测的迁移（会误伤用户手填机型），只在空白时补默认
+            if (pp.model.isBlank()) pp.model = EditorState.defaultModelName()
+            if (pp.modelCode.isBlank()) pp.modelCode = EditorState.defaultModelCode()
             if (pp.dateText.isEmpty()) pp.dateText = EditorState.nowString()
             if (pp.logoBrand == EditorState.BRAND_NONE) {
                 val autoLogo2 = when (b2.lowercase()) {
@@ -118,14 +113,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         val p = EditorState.params
-        // 设备名迁移：旧版本把 model 持久化成"品牌+型号"（如 "Vivo V1914A"）或纯型号，
-        // 这类自动样式统一升级为手机市场名（"vivo iQOO Neo"）；用户手动自定义的不动
-        val mc = DeviceNames.modelCode()
         val b = DeviceNames.brand()
-        val autoPatterns = setOf(mc, "$b $mc", "$b$mc")
-        if (p.model in autoPatterns) p.model = EditorState.defaultModelName()
-        if (p.model.isEmpty()) p.model = EditorState.defaultModelName()
-        if (p.modelCode.isEmpty()) p.modelCode = EditorState.defaultModelCode()
+        // v15.18：不再按值猜测迁移（会误伤用户自定义机型）；自定义过或已有值都不覆盖
+        if (!EditorState.modelCustom && p.model.isBlank()) p.model = EditorState.defaultModelName()
+        if (!EditorState.modelCodeCustom && p.modelCode.isBlank()) p.modelCode = EditorState.defaultModelCode()
         if (p.dateText.isEmpty()) p.dateText = EditorState.nowString()
         // 品牌 logo 自动匹配：机型/图标/时间三要素对得上（iQOO→vivo、Redmi→小米、华为/荣耀→华为）
         if (p.logoBrand == EditorState.BRAND_NONE) {
@@ -171,36 +162,6 @@ class MainActivity : ComponentActivity() {
                         EditorState.switchPlan(this, idx)
                         val after = EditorState.params.fontMode
                         DebugLog.log("AUTOTEST", "方案切换 idx=$idx 前fontMode=$before 后fontMode=$after")
-                    }
-                    // v15.17 ROM 防护验证钩子：romtest:<market> 模拟指定 ROM 家族（xiaomi/huawei/oppo/
-                    // vivo/samsung/google/other），打印防护决策（真实 Build 只读，用参数模拟家族判定）
-                    spec.startsWith("romtest:") -> {
-                        val market = spec.substringAfter("romtest:").trim().lowercase()
-                        val sdkSim = if (market.endsWith(":sdk<33")) 32 else 34
-                        val m = market.substringBefore(":")
-                        val fam = when (m) {
-                            "xiaomi", "redmi", "poco" -> com.liquidglass.watermark.RomGuard.XIAOMI
-                            "huawei", "honor" -> com.liquidglass.watermark.RomGuard.HUAWEI
-                            "oppo", "oneplus", "realme" -> com.liquidglass.watermark.RomGuard.OPPO
-                            "vivo", "iqoo" -> com.liquidglass.watermark.RomGuard.VIVO
-                            "samsung" -> com.liquidglass.watermark.RomGuard.SAMSUNG
-                            "google" -> com.liquidglass.watermark.RomGuard.GOOGLE
-                            else -> com.liquidglass.watermark.RomGuard.OTHER
-                        }
-                        val name = when (fam) {
-                            com.liquidglass.watermark.RomGuard.XIAOMI -> "小米/红米/POCO（澎湃/MIUI）"
-                            com.liquidglass.watermark.RomGuard.HUAWEI -> "华为/荣耀（鸿蒙/EMUI/MagicOS）"
-                            com.liquidglass.watermark.RomGuard.OPPO -> "OPPO/一加/真我（ColorOS）"
-                            com.liquidglass.watermark.RomGuard.VIVO -> "vivo/iQOO（OriginOS）"
-                            com.liquidglass.watermark.RomGuard.SAMSUNG -> "三星（One UI）"
-                            com.liquidglass.watermark.RomGuard.GOOGLE -> "Google（Pixel 原生）"
-                            else -> "其他"
-                        }
-                        val defaultLow = com.liquidglass.watermark.RomGuard.defaultTierLowFor(fam, sdkSim)
-                        val userSet = prefs.getBoolean("glassTierUserSet", false)
-                        val cur = EditorState.params.glassTier
-                        DebugLog.log("ROMTEST",
-                            "模拟ROM=$m($name) sdk=$sdkSim defaultTierLow=$defaultLow 当前glassTier=$cur userSet=$userSet")
                     }
                     spec.startsWith("logo2:") -> {
                         // v14.75 验证钩子：第二次导入不同文件（auto_logo2.png）→ 实证隔离
@@ -483,6 +444,8 @@ class MainActivity : ComponentActivity() {
     /** 应用 API 模式：高=硬件模糊(API31+)，低=软件模糊，默认=按设备自动 */
     fun applyApiMode() {
         val mode = EditorState.params.apiMode
+        // v15.18：立即写全局键，避免只靠 bump() 延迟落盘导致重启回落自动档、玻璃观感变淡
+        EditorState.saveApiModeGlobal(mode)
         val sdk = android.os.Build.VERSION.SDK_INT
         // 高版本API：强制走硬件合成路径（组件内部会按 SDK 门限自动跳过不存在的 RenderEffect 类，不会崩）
         val useSw = when (mode) {
@@ -492,59 +455,6 @@ class MainActivity : ComponentActivity() {
         }
         com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled = useSw
         EditorState.params.softwareBlur = useSw
-    }
-
-    /**
-     * v15.17 ROM 兼容防护（按 ROM 家族而非仅按 Android 版本适配）：
-     * 1) 小米/红米/POCO 澎湃（HyperOS）+ API33+：AGSL RuntimeShader 在高通 Adreno/联发科 Mali
-     *    驱动上编译/执行可能触发 RenderThread 层 native 崩溃（SIGSEGV，Java catch 拦不住），
-     *    表现即"进入 App 即闪退"。默认强制 LOW 档（软件法线 UV 折射 + 扭曲，色散/菲涅尔廉价近似，
-     *    不退化 alpha），用户仍可在参数面板手动切回 HIGH。
-     * 2) 崩溃自愈：上次崩溃日志（app_crash/last.txt）含渲染/GL 关键字时自动降 LOW 并记录。
-     * 3) 用户显式在面板调过画质档位（markGlassTierUserSet）→ 尊重用户选择，不覆盖。
-     */
-    private fun applyRomGuard() {
-        try {
-            val sdk = android.os.Build.VERSION.SDK_INT
-            val fam = com.liquidglass.watermark.RomGuard.family()
-            val p = EditorState.params
-            val userSet = prefs.getBoolean("glassTierUserSet", false)
-            var forcedLow = false
-            var reason = ""
-            if (!userSet && p.glassTier == EditorState.GLASS_TIER_HIGH && RomGuard.defaultTierLow(sdk)) {
-                forcedLow = true
-                reason = "ROM=${RomGuard.familyName()} API$sdk 澎湃/AGSL 驱动风险→默认 LOW 档（软件折射保留）"
-            }
-            // 崩溃自愈：上次闪退若与渲染/GL 相关，本次启动强制 LOW（避免再闪退）
-            if (p.glassTier == EditorState.GLASS_TIER_HIGH) {
-                runCatching {
-                    val f = File(getDir("crash", MODE_PRIVATE), "last.txt")
-                    if (f.exists()) {
-                        val t = f.readText()
-                        if (t.contains("RuntimeShader") || t.contains("RenderThread") ||
-                            t.contains("RenderEffect") || t.contains("GrGL") || t.contains("GLES") ||
-                            t.contains("HWUI") || t.contains("SIGSEGV") || t.contains("Fatal signal")) {
-                            forcedLow = true
-                            reason = "上次崩溃含渲染/GL 关键字→自愈降 LOW 档（可在面板手动切回 HIGH）"
-                        }
-                    }
-                }
-            }
-            if (forcedLow) {
-                p.glassTier = EditorState.GLASS_TIER_LOW
-                com.liquidglass.watermark.glass.GlassQuality.tier = p.glassTier
-                DebugLog.log("ROMGUARD", "防护生效：$reason 设备=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} sdk=$sdk")
-            } else {
-                DebugLog.log("ROMGUARD", "无需防护：ROM=${RomGuard.familyName()} sdk=$sdk glassTier=${p.glassTier} userSet=$userSet")
-            }
-        } catch (_: Throwable) {
-            // 防护逻辑自身失败绝不影响启动
-        }
-    }
-
-    /** v15.17 用户在参数面板显式调整过画质档位（ROM 防护不再自动覆盖） */
-    fun markGlassTierUserSet() {
-        prefs.edit().putBoolean("glassTierUserSet", true).apply()
     }
 
     /** 应用内语言切换：写 prefs 并重建 Activity，attachBaseContext 下次按新语言加载资源 */
@@ -586,7 +496,14 @@ class MainActivity : ComponentActivity() {
         EditorState.isDemo = true
         // 断开预览 View 引用，避免持有一整套渲染缓冲/位图直到进程回收
         preview = null
-        WatermarkRenderer.clearBrandCache()
+        // L9：若导出线程仍在渲染，clearBrandCache 回收品牌位图会与其 drawLogo 竞态 →
+        // 用已 recycle 的 Bitmap 崩溃（窄窗口：恰在导出渲染时销毁 Activity）。此时跳过清理，
+        // 位图随进程/单例释放；正常路径（非导出中）照常清理。
+        if (EditorState.isExporting || exporting.get()) {
+            DebugLog.log("LIFECYCLE", "onDestroy 时导出仍在进行，跳过 clearBrandCache 以防回收竞态")
+        } else {
+            WatermarkRenderer.clearBrandCache()
+        }
     }
 
     // ---------- 走秒 ----------
@@ -1864,7 +1781,8 @@ class MainActivity : ComponentActivity() {
                     EditorState.previewBitmap?.let { if (!it.isRecycled) runCatching { it.recycle() } }
                     EditorState.previewBitmap = info.bitmap
                     EditorState.sourceUri = uri; EditorState.isDemo = false
-                    info.model?.takeIf { it.isNotBlank() }?.let {
+                    // v15.18：用户自定义机型后，EXIF 拍摄机型不得覆盖（否则导入照片即还原）
+                    if (!EditorState.modelCustom) info.model?.takeIf { it.isNotBlank() }?.let {
                         val mk = info.make?.trim()?.replaceFirstChar { c -> c.uppercase() }
                         EditorState.params.model =
                             if (!mk.isNullOrBlank() && !it.contains(mk, ignoreCase = true))
@@ -1923,7 +1841,8 @@ class MainActivity : ComponentActivity() {
             EditorState.previewBitmap?.let { if (!it.isRecycled) runCatching { it.recycle() } }
             EditorState.previewBitmap = info.bitmap
             EditorState.sourceUri = uri; EditorState.isDemo = false
-            info.model?.takeIf { it.isNotBlank() }?.let {
+            // v15.18：WebP 兜底路径同样不得覆盖用户自定义机型
+            if (!EditorState.modelCustom) info.model?.takeIf { it.isNotBlank() }?.let {
                 val mk = info.make?.trim()?.replaceFirstChar { c -> c.uppercase() }
                 EditorState.params.model =
                     if (!mk.isNullOrBlank() && !it.contains(mk, ignoreCase = true))
@@ -2576,8 +2495,18 @@ class MainActivity : ComponentActivity() {
      * 那是 vivo 动照（封面竖屏+视频横像素无 rotation）的专属修复，
      * 对普通横屏视频误判会把整段视频拉成竖屏（用户"导出拉伸为竖屏"根因）。
      */
+    // M4：videoDurationMs 在 composeMotionPhotoNow 中会被调用约 3 次，bytes 场景每次都要把整段
+    // MP4 写进 cacheDir 再读元数据，累计 I/O 可观。按 uri / bytes(长度+内容哈希) 缓存结果。
+    private val durationCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private fun videoDurationMs(uri: android.net.Uri?, bytes: ByteArray?): Long {
-        return runCatching {
+        val key = when {
+            uri != null -> "u:$uri"
+            bytes != null && bytes.size > 4096 -> "b:${bytes.size}:${bytes.contentHashCode()}"
+            else -> return -1L
+        }
+        durationCache[key]?.let { return it }
+        val d = runCatching {
             val mmr = android.media.MediaMetadataRetriever()
             try {
                 when {
@@ -2599,6 +2528,11 @@ class MainActivity : ComponentActivity() {
                 }
             } finally { runCatching { mmr.release() } }
         }.getOrDefault(-1L)
+        if (d > 0) {
+            if (durationCache.size > 16) durationCache.clear()
+            durationCache[key] = d
+        }
+        return d
     }
 
     /** 把缓存 MP4 复制进系统相册，返回路径字符串 */
@@ -2624,10 +2558,16 @@ class MainActivity : ComponentActivity() {
                 } ?: error("相册写入失败")
             } finally {
                 // 写入完成或失败都立即结束 pending——进程任何时刻被杀都不残留"看不见"的记录
-                runCatching {
-                    values.clear()
-                    values.put(android.provider.MediaStore.Video.Media.IS_PENDING, 0)
-                    resolver.update(ins, values, null, null)
+                val pendingDone = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Video.Media.IS_PENDING, 0)
+                }
+                val updated = runCatching { resolver.update(ins, pendingDone, null, null) > 0 }
+                    .getOrDefault(false)
+                if (!updated) {
+                    // H2 修复：update 返回 0（MediaProvider 未识别/记录被删）时，视频会永远停在
+                    // IS_PENDING=1——相册看不到，却仍提示"保存成功"。显式留痕并重试一次。
+                    DebugLog.log("SAVE", "IS_PENDING 清除失败（update=0）uri=$ins，重试一次")
+                    runCatching { resolver.update(ins, pendingDone, null, null) }
                 }
             }
             // 双保险：显式扫描，防部分 ROM 相册不自动刷新

@@ -45,6 +45,12 @@ object GpuMp4Exporter {
     data class Result(val file: File, val durationMs: Long, val frames: Int)
 
     /**
+     * 水印确实未写入输出时抛出，区别于验证器自身内部异常（抽帧/越界等）。
+     * 调用方据此删除坏输出并回退逐帧路径；内部异常则保留输出，绝不误删正常渲染的视频。
+     */
+    private class WatermarkMissingException(msg: String) : RuntimeException(msg)
+
+    /**
      * @param watermarkRenderer 水印渲染器（在透明 Bitmap 上画水印，上传为 GL 纹理叠加）
      * @param codec MIME：AVC/HEVC
      * @param onProgress 进度回调 0-100
@@ -298,6 +304,11 @@ object GpuMp4Exporter {
             // 测量失败=null → 全程走旧全帧路径（兼容兜底）
             var wmRegion: IntArray? = if (cpuWatermark)
                 runCatching { watermarkRenderer.exportWmRegion(encW, encH) }.getOrNull() else null
+            // C1 修复：把水印区域同步赋给 maskBBox，供尾部水印验证器使用。
+            // exportWmRegion 返回 [x, y, w, h]，而 maskBBox 需要 [x0, y0, x1, y1]（右下角 = 左上 + 宽高）。
+            // 几何在导出期间被 isExporting 冻结，测一次即可，与 wmRegion 同源。
+            maskBBox = wmRegion?.let { intArrayOf(it[0], it[1], it[0] + it[2], it[1] + it[3]) }
+                ?: intArrayOf(0, 0, encW, encH)
             var patchFailStreak = 0
             // v15.11 分阶段耗时统计（性能剖析）：区分 解码等待/读回/CPU渲染/上传/绘制/编码交换
             var tDecodeWait = 0L; var tCapture = 0L; var tCpuRender = 0L
@@ -600,8 +611,12 @@ object GpuMp4Exporter {
             check(encoderEos) { "编码器未完成尾帧输出" }
 
             // v14.08：视频处理完毕后排空剩余音频（视频 EOS 后音频可能有尾巴），再 stop muxer
+            // v15.17：排空必须有上限——视频轨提前结束时无上限排空会把整段剩余音频写进容器，
+            // 容器时长被音频撑满，播放器在视频帧用尽后整段显示绿幕（用户反馈的现象）。
+            // 只补到视频末帧 +200ms，超出部分丢弃（宁可短，也不交付"绿幕视频"）。
             val aex2 = audioExt
             val amux = muxer
+            val audioCapUs = lastPtsUs + 200_000L
             if (aex2 != null && audioMuxTrack >= 0 && amux != null && !audioEos) {
                 try {
                     while (true) {
@@ -609,6 +624,11 @@ object GpuMp4Exporter {
                         if (aex2.sampleTrackIndex < 0) break
                         if (isCancelled()) return null
                         if (timeline.audioTimeUs(at) < 0L) { aex2.advance(); continue }
+                        if (timeline.audioTimeUs(at) > audioCapUs) {
+                            DebugLog.log("AUDIO", "音频收尾排空到视频末帧+200ms 为止（丢弃尾部 " +
+                                "${(timeline.audioTimeUs(at) - audioCapUs) / 1000}ms，防绿幕）")
+                            break
+                        }
                         audioBuf.clear()
                         val n = aex2.readSampleData(audioBuf, 0)
                         if (n < 0) break
@@ -658,6 +678,21 @@ object GpuMp4Exporter {
                 runCatching { tmpOut?.delete() }
                 return null
             }
+            // v15.17 关键修复（用户反馈"导出视频播一会儿变绿幕"）：
+            // 上面的时长校验读的是【容器时长】，而容器时长由【音频轨】决定——视频轨提前结束时
+            // （解码/GPU 帧管道在开头几帧后就断了），容器时长仍等于源时长，校验照样通过，
+            // 于是交付出一个"视频轨只有 0.5 秒、音频 58 秒"的文件：播放器放完开头几帧就再没有
+            // 可解码帧，剩余时长整段显示绿幕（YUV 全零）。
+            // 必须单独校验【输出视频轨】时长，视频轨明显短于预期即判定失败并回退逐帧路径。
+            val outVideoDurMs = videoTrackDurationMs(tmpOut!!)
+            if (expectDurMs > 0 && outVideoDurMs > 0 &&
+                outVideoDurMs < expectDurMs - maxOf(500L, expectDurMs / 10L)) {
+                DebugLog.log("GPU", "视频轨截断 outVideo=${outVideoDurMs}ms expect=${expectDurMs}ms " +
+                    "容器=${outDurMs}ms frames=$framesEncoded（音频撑起了容器时长），判定失败回退逐帧")
+                runCatching { tmpOut?.delete() }
+                return null
+            }
+            DebugLog.log("GPU", "时长校验 容器=${outDurMs}ms 视频轨=${outVideoDurMs}ms 期望=${expectDurMs}ms frames=$framesEncoded")
             // v14.08：音频完整性验证——输入有音频而输出无音频 = EXPORT_AUDIO_LOST，判定导出失败
             // （绝不交付"视频处理完丢了原声"的坏文件；直通失败时输出会被删除并回退逐帧路径）
             val inHasAudio = audioExt != null
@@ -682,12 +717,20 @@ object GpuMp4Exporter {
             // 水印未真实写入（GPU 渲染假成功）时抛异常 → 调用方回退逐帧路径，绝不交付无水印视频。
             // 注意：验证器自身异常（Bitmap 越界/抽帧失败等）≠ 水印缺失，隔离后保留输出，
             // 绝不因"验证器崩了"把一份正常渲染的视频删掉（曾导致 GPU 成功后回退逐帧→该设备逐帧不可行→导出必败）。
-            var verifyOk = true
+            var watermarkMissing = false
             try {
-                verifyWatermarkOnOutput(tmpOut!!, srcFile, maskBBox, encW, encH)
+                verifyWatermarkOnOutput(tmpOut!!, srcFile, maskBBox, encW, encH, maxDurationMs)
+            } catch (e: WatermarkMissingException) {
+                // 水印确实未写入：删除坏输出，回退逐帧路径（绝不交付无水印视频）。
+                watermarkMissing = true
+                DebugLog.log("GPU", "水印验证失败（水印未真实写入：${e.message}）→ 删除坏输出，回退逐帧路径")
             } catch (t: Throwable) {
-                verifyOk = false
+                // 验证器自身内部异常（抽帧失败/越界等）≠ 水印缺失：保留输出，绝不误删正常渲染的视频。
                 DebugLog.log("GPU", "水印验证器异常（${t.javaClass.simpleName}: ${t.message}），跳过验证保留输出")
+            }
+            if (watermarkMissing) {
+                runCatching { tmpOut?.delete() }
+                return null
             }
             // v15.13 精简：删除 !cpuWatermark 终检 bbox 验证块（cpuWatermark 恒 true 不可达）+ mb 死变量
             // 验证全部通过 → 原子提交（part/tmp → final）；失败路径已删除 tmpOut，绝不提交未验证文件
@@ -769,7 +812,31 @@ object GpuMp4Exporter {
      * 相比旧"内部 std 应比外部平滑"单向判定：当水印含文字/logo 时内部 std 反而更高，
      * 旧逻辑误杀 GPU 成功（v13.78 日志实证 33s 视频内部 std=47 外部=39 被误判失败）。
      */
-    private fun verifyWatermarkOnOutput(outFile: File, srcFile: File, bbox: IntArray?, w: Int, h: Int) {
+    /**
+     * v15.17：读取 MP4 内【视频轨】自身时长（毫秒），读不到返回 0。
+     *
+     * 不能用 MediaMetadataRetriever 的 METADATA_KEY_DURATION：那是【容器/播放时长】，
+     * 由最长轨（通常是音频）决定。视频轨被截断时它仍然等于源时长，会把坏文件判成好文件。
+     */
+    private fun videoTrackDurationMs(f: File): Long = runCatching {
+        val ex = MediaExtractor()
+        try {
+            ex.setDataSource(f.absolutePath)
+            var result = 0L
+            for (i in 0 until ex.trackCount) {
+                val fmt = ex.getTrackFormat(i)
+                val m = fmt.getString(MediaFormat.KEY_MIME) ?: continue
+                if (!m.startsWith("video/")) continue
+                result = runCatching { fmt.getLong(MediaFormat.KEY_DURATION) }.getOrDefault(0L) / 1000L
+                break
+            }
+            result
+        } finally {
+            runCatching { ex.release() }
+        }
+    }.getOrDefault(0L)
+
+    private fun verifyWatermarkOnOutput(outFile: File, srcFile: File, bbox: IntArray?, w: Int, h: Int, maxDurationMs: Long = 0L) {
         if (bbox == null) throw RuntimeException("水印蒙版 bbox 缺失")
         val x0 = bbox[0]; val y0 = bbox[1]; val x1 = bbox[2]; val y1 = bbox[3]
         if (x1 - x0 < 8 || y1 - y0 < 8) throw RuntimeException("水印蒙版区域过小")
@@ -796,9 +863,12 @@ object GpuMp4Exporter {
             if (srcDur > 0) {
                 val rs = android.media.MediaMetadataRetriever()
                 try {
-                    rs.setDataSource(srcFile.absolutePath)
-                    srcBmp = rs.getFrameAtTime(srcDur / 2 * 1000,
-                        android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                rs.setDataSource(srcFile.absolutePath)
+                // H1 修复：截断导出（动态照片 5 秒）时，输出时长 ≈ min(srcDur, maxDurationMs)，
+                // 输出中点对应源时间应为 outDur/2 而非 srcDur/2，否则源/输出抽帧内容错位 → 误判水印缺失。
+                val srcSeekMs = if (maxDurationMs > 0L) (outDur ?: 0L) / 2 else srcDur / 2
+                srcBmp = rs.getFrameAtTime(srcSeekMs * 1000,
+                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 } finally { runCatching { rs.release() } }
             }
             try {
@@ -830,7 +900,11 @@ object GpuMp4Exporter {
                     val pass = wmDiff >= bg * 1.15f + 8f || kotlin.math.abs(wmDelta) >= 6f || wmFrac > 0.03f
                     DebugLog.log("GPU", "水印验证 out=${outBmp.width}x${outBmp.height} src=${srcBmp.width}x${srcBmp.height} " +
                         "wmDiff=$wmDiff bgDiff=$bgDiff wmΔL=$wmDelta wmFrac=$wmFrac bbox=[$x0,$y0,$x1,$y1] " +
-                        if (pass) "通过" else "失败（输出保留）")
+                        if (pass) "通过" else "失败")
+                    // C2 修复：源/输出可对比且判定为"水印未真实写入"时，抛专有的 WatermarkMissingException，
+                    // 调用方据此删除坏输出并回退逐帧路径，绝不交付无水印视频。
+                    if (!pass) throw WatermarkMissingException(
+                        "水印变化度不足：wmDiff=$wmDiff bgDiff=$bgDiff wmΔL=$wmDelta wmFrac=$wmFrac")
                 } else {
                     // 源帧不可用降级：宽松 std 判定——仅排除纯黑/花屏极端（std≈0），
                     // 不再用"内部应比外部平滑"单向假设（文字/logo 会提高内部 std）
