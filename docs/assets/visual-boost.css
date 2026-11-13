@@ -1,0 +1,154 @@
+/* ============================================================
+   Visual boost — deeper glass, stronger edges, richer background.
+   Loaded after the base stylesheet, so these rules win.
+   ============================================================ */
+
+/* ---- Stronger surface contrast ---- */
+html[data-theme=dark] {
+  --card: #1a234a80;
+  --card-2: #1a234a5c;
+  --line: #a9bcff4d;
+  --line-2: #ffffff14;
+  --shadow: #000000a6;
+}
+html[data-theme=light] {
+  --card: #ffffff8a;
+  --card-2: #ffffff66;
+  --line: #ffffffeb;
+  --line-2: #141e3c1f;
+  --shadow: #1f305440;
+}
+
+/* ---- Glass: thicker bevel, brighter rim, deeper shadow ---- */
+.glass {
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
+  backdrop-filter: blur(22px) saturate(185%);
+  border: 1px solid var(--line);
+  box-shadow:
+    0 22px 60px var(--shadow),
+    inset 0 1px 0 rgba(255, 255, 255, .55),
+    inset 0 2px 14px rgba(255, 255, 255, .10),
+    inset 0 -1px 0 rgba(255, 255, 255, .16),
+    inset 1px 0 0 rgba(255, 140, 200, .09),
+    inset -1px 0 0 rgba(120, 200, 255, .09),
+    inset 0 -18px 42px var(--glow);
+}
+html[data-theme=dark] .glass {
+  border-color: #a9bcff42;
+  box-shadow:
+    0 24px 66px var(--shadow),
+    inset 0 1px 0 rgba(255, 255, 255, .30),
+    inset 0 2px 16px rgba(180, 200, 255, .09),
+    inset 0 -1px 0 rgba(255, 255, 255, .14),
+    inset 1px 0 0 rgba(255, 140, 200, .12),
+    inset -1px 0 0 rgba(120, 200, 255, .12),
+    inset 0 -18px 42px #141a328c;
+}
+
+/* Real frosted grain on the glass surface (above the refraction canvas,
+   below the content). Clipped by the card's rounded corners. */
+.glass > .glass-frost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: .06;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)' opacity='.7'/%3E%3C/svg%3E");
+  background-size: 150px 150px;
+}
+html[data-theme=light] .glass > .glass-frost { opacity: .05; mix-blend-mode: multiply; }
+html[data-theme=light] .glass {
+  border-color: #ffffffeb;
+  box-shadow:
+    0 22px 58px var(--shadow),
+    inset 0 1px 0 #fffffffa,
+    inset 0 2px 14px #ffffffb3,
+    inset 0 -18px 40px #6366f11f;
+}
+.glass:before {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #fffffff5 18%, #fffffff5 82%, transparent);
+  filter: drop-shadow(0 0 7px #ffffff59);
+}
+html[data-theme=dark] .glass:before {
+  background: linear-gradient(90deg, transparent, #cfdcffd9 18%, #cfdcffd9 82%, transparent);
+  filter: drop-shadow(0 0 8px #8ca0ff66);
+}
+
+/* ---- Background: richer colour fields + global frosted grain ---- */
+#bg-blobs { filter: blur(64px) saturate(180%); }
+.blob { opacity: .72; }
+html[data-theme=dark] .blob { opacity: .6; }
+
+#bg-grain {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .055;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+html[data-theme=light] #bg-grain { opacity: .04; mix-blend-mode: multiply; }
+
+/* ---- Showcase: the three effect shots become large anchors ---- */
+@media (min-width: 900px) {
+  .shots .grid { grid-template-columns: repeat(6, 1fr); gap: 20px; }
+
+  .shots .shot-card:nth-child(1) { grid-column: span 6; }
+  .shots .shot-card:nth-child(2),
+  .shots .shot-card:nth-child(3) { grid-column: span 3; }
+  .shots .shot-card:nth-child(4),
+  .shots .shot-card:nth-child(5),
+  .shots .shot-card:nth-child(6) { grid-column: span 2; }
+
+  .shots .shot-card:nth-child(1) img { max-height: 560px; object-fit: cover; }
+  .shots .shot-card:nth-child(2) img,
+  .shots .shot-card:nth-child(3) img { max-height: 420px; object-fit: cover; }
+  .shots .shot-card:nth-child(4) img,
+  .shots .shot-card:nth-child(5) img,
+  .shots .shot-card:nth-child(6) img { max-height: 520px; }
+
+  .shots .shot-card:nth-child(1) .shot-cap,
+  .shots .shot-card:nth-child(2) .shot-cap,
+  .shots .shot-card:nth-child(3) .shot-cap { font-size: 1rem; padding: 13px 18px 15px; }
+}
+
+/* ---- Tooltip layer (JS-positioned, escapes .glass overflow:hidden) ---- */
+.tip {
+  border-bottom: 1px dashed rgba(170, 190, 255, .65);
+  cursor: help;
+  text-underline-offset: 3px;
+}
+#tip-layer {
+  position: fixed;
+  z-index: 400;
+  left: 0;
+  top: 0;
+  width: max-content;
+  max-width: min(300px, 86vw);
+  padding: 10px 13px;
+  border-radius: 12px;
+  background: rgba(9, 13, 26, .97);
+  border: 1px solid rgba(160, 180, 255, .38);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .55);
+  color: #eef1fb;
+  font-size: .82rem;
+  line-height: 1.55;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity .16s, transform .16s, visibility .16s;
+  pointer-events: none;
+}
+#tip-layer.show { opacity: 1; visibility: visible; transform: none; }
+html[data-theme=light] #tip-layer {
+  background: rgba(255, 255, 255, .98);
+  color: #1c1e21;
+  border-color: rgba(28, 30, 33, .2);
+  box-shadow: 0 18px 50px rgba(31, 48, 84, .22);
+}
