@@ -300,25 +300,15 @@ object GpuMp4Exporter {
             val startTime = System.currentTimeMillis()
             // 首帧守卫：5 秒内未渲染出第一帧 → 该 GPU/解码器组合不兼容，立即放弃回退
             val firstFrameDeadline = startTime + 5000
-            // v15.12 patch 提速：水印包围盒只测量一次（导出期间参数被 isExporting 冻结，几何恒定）；
-            // 测量失败=null → 全程走旧全帧路径（兼容兜底）
-            var wmRegion: IntArray? = if (cpuWatermark)
-                runCatching { watermarkRenderer.exportWmRegion(encW, encH) }.getOrNull() else null
-            // C1 修复：把水印区域同步赋给 maskBBox，供尾部水印验证器使用。
-            // exportWmRegion 返回 [x, y, w, h]，而 maskBBox 需要 [x0, y0, x1, y1]（右下角 = 左上 + 宽高）。
-            // 几何在导出期间被 isExporting 冻结，测一次即可，与 wmRegion 同源。
-            maskBBox = wmRegion?.let { intArrayOf(it[0], it[1], it[0] + it[2], it[1] + it[3]) }
-                ?: intArrayOf(0, 0, encW, encH)
-            var patchFailStreak = 0
+            // v15.22 清理死代码：GPU 混合路径统一走【全帧】renderWatermarkOnly。
+            // 原 v15.12「patch 区域提速」分支因液态玻璃在透明底折射不可见、恒产生 wmDiff=0.0 被
+            // 水印校验拦截（v15.20 已停用 wmRegion=null），该分支及其辅助函数（exportWmRegion /
+            // renderWatermarkPatch）已不可达，本轮直接删除，行为等价、代码更干净。
+            // maskBBox 供尾部水印验证器使用：整帧校验，水印确实存在 → 验证通过 → GPU 直出。
+            maskBBox = intArrayOf(0, 0, encW, encH)
             // v15.11 分阶段耗时统计（性能剖析）：区分 解码等待/读回/CPU渲染/上传/绘制/编码交换
             var tDecodeWait = 0L; var tCapture = 0L; var tCpuRender = 0L
             var tUpload = 0L; var tDraw = 0L; var tSwap = 0L; var tLoopStart = 0L
-            if (wmRegion != null) {
-                val r = wmRegion!!
-                val pct = (100L * r[2] * r[3] / (encW.toLong() * encH).coerceAtLeast(1L)).toInt()
-                DebugLog.log("GPU", "水印 patch 区域=${r[2]}x${r[3]} @${r[0]},${r[1]}" +
-                    "（全帧 ${encW}x${encH}，读回量约 $pct%）")
-            }
 
             while (!outputEos && System.currentTimeMillis() < deadline) {
                 if (framesEncoded == 0 && System.currentTimeMillis() > firstFrameDeadline) {
@@ -408,64 +398,26 @@ object GpuMp4Exporter {
                             val barH = if (bb != null && bb.size >= 4 && bb[3] > bb[1])
                                 (bb[3] - bb[1]).toFloat() else encH * 0.10f
                             if (cpuWatermark) {
-                                // v14.27 混合路径：GPU 硬解取帧 → CPU 引擎水印（=预览/GIF 同引擎）
-                                // → 上传直绘编码器。水印所见即所得，且解码不再拖慢导出。
-                                // v15.12 patch 提速：只读回水印区域 + 区域渲染 + GPU 直绘视频背景，
-                                // 1080p 每帧读回/上传从全帧 ~10MB×2 → 区域 ~1-3MB×2（全帧路径保留为兜底）
-                                val reg = wmRegion
-                                if (reg != null && reg.size >= 4 && reg[2] > 16 && reg[3] > 16) {
-                                    val t0 = System.nanoTime()
-                                    // Read the correctly oriented ROI straight from the full-size
-                                    // FBO. This avoids an intermediate crop FBO and has no resampling.
-                                    val raw = textureRender.captureVideo2dRegion(outputSurface.textureId,
-                                        encW, encH, reg[0], reg[1], reg[2], reg[3])
-                                    val t1 = System.nanoTime()
-                                    if (raw != null) {
-                                        // Animation follows source media time, regardless of export speed.
-                                        EditorState.exportTimeSec = outPtsUs / 1_000_000f
-                                        val wmPatch = watermarkRenderer.renderWatermarkPatch(
-                                            raw, encW, encH, reg[0], reg[1], reg[2], reg[3])
-                                        val t2 = System.nanoTime()
-                                        textureRender.drawVideoDirect(encW, encH)
-                                        textureRender.uploadBlit(wmPatch, wmPatch.width, wmPatch.height)
-                                        val t3 = System.nanoTime()
-                                        textureRender.drawPatchBlit(reg[0], reg[1],
-                                            wmPatch.width, wmPatch.height, encW, encH)
-                                        val t4 = System.nanoTime()
-                                        tCapture += t1 - t0; tCpuRender += t2 - t1
-                                        tUpload += t3 - t2; tDraw += t4 - t3
-                                        patchFailStreak = 0
-                                    } else {
-                                        // patch 读回失败：连续 3 次永久退回全帧路径（防每帧重试抖动）
-                                        patchFailStreak++
-                                        if (patchFailStreak >= 3) {
-                                            wmRegion = null
-                                            DebugLog.log("GPU", "patch 读回连续失败，退回全帧路径")
-                                        }
-                                        val rawFull = textureRender.captureVideo2d(
-                                            outputSurface.textureId, encW, encH)
-                                        if (rawFull != null) {
-                                            EditorState.exportTimeSec = outPtsUs / 1_000_000f
-                                            val wm = watermarkRenderer.renderWatermarkOnly(rawFull, encW, encH)
-                                            textureRender.uploadBlit(wm, encW, encH)
-                                            textureRender.drawFrameBlit(encW, encH)
-                                        } else {
-                                            throw IllegalStateException("视频帧读回失败，回退同引擎逐帧路径")
-                                        }
-                                    }
+                                // GPU 硬解取帧 → CPU 全帧水印渲染（=预览/GIF 同引擎）→ 上传 → 硬编。
+                                // 保留分段计时，供尾部性能日志（读回/CPU渲染/上传/绘制）继续可用。
+                                val t0 = System.nanoTime()
+                                val raw = textureRender.captureVideo2d(outputSurface.textureId, encW, encH)
+                                val t1 = System.nanoTime()
+                                if (raw != null) {
+                                    // Animation follows source media time, regardless of export speed.
+                                    EditorState.exportTimeSec = outPtsUs / 1_000_000f
+                                    val wm = watermarkRenderer.renderWatermarkOnly(raw, encW, encH)
+                                    val t2 = System.nanoTime()
+                                    textureRender.uploadBlit(wm, encW, encH)
+                                    val t3 = System.nanoTime()
+                                    textureRender.drawFrameBlit(encW, encH)
+                                    val t4 = System.nanoTime()
+                                    tCapture += t1 - t0; tCpuRender += t2 - t1
+                                    tUpload += t3 - t2; tDraw += t4 - t3
+                                    // raw 是 TextureRender 跨帧复用的读回缓冲（不回收），
+                                    // wm 是 wmOut 复用缓冲（不回收）——消除每帧位图分配/回收的 GC 抖动
                                 } else {
-                                    val raw = textureRender.captureVideo2d(outputSurface.textureId, encW, encH)
-                                    if (raw != null) {
-                                        // Animation follows source media time, regardless of export speed.
-                                        EditorState.exportTimeSec = outPtsUs / 1_000_000f
-                                        val wm = watermarkRenderer.renderWatermarkOnly(raw, encW, encH)
-                                        textureRender.uploadBlit(wm, encW, encH)
-                                        textureRender.drawFrameBlit(encW, encH)
-                                        // v14.33：raw 是 TextureRender 跨帧复用的读回缓冲（不回收），
-                                        // wm 是 wmOut 复用缓冲（不回收）——消除每帧位图分配/回收的 GC 抖动
-                                    } else {
-                                        throw IllegalStateException("视频帧读回失败，回退同引擎逐帧路径")
-                                    }
+                                    throw IllegalStateException("视频帧读回失败，回退同引擎逐帧路径")
                                 }
                             }
                             // Encoder and animation use the same normalized source timestamp.
@@ -480,13 +432,10 @@ object GpuMp4Exporter {
                             lastPtsUs = outPtsUs
                             framesEncoded++
                             if (eos) { encoder.signalEndOfInputStream(); outputEos = true }
-                            // v14.03：首帧视频纹理为黑（GPU 拷贝失败）→ 放弃 GPU 路径回退逐帧，
-                            // 绝不交付"整体黑+只有水印文字"的坏视频
-                            if (framesEncoded == 1 && textureRender.videoBootBlack) {
-                                DebugLog.log("GPU", "首帧视频纹理为黑（GPU 拷贝失败），放弃 GPU 路径回退逐帧")
-                                runCatching { tmpOut?.delete() }
-                                return null
-                            }
+                            // v15.24：旧「首帧黑屏检测」依赖 videoBootBlack，而它唯一的写入点
+                            // checkBootBlack() 只在已无调用方的 drawFrame() 内触发 → 恒 false，
+                            // 该分支从未真正起过作用。整条死链已删除（行为不变），
+                            // 不再保留一段看似生效、实则不存在的保护逻辑。
                             // 进度：按 PTS / 总时长
                             if (durUs > 0) {
                                 val pct = (12 + 78 * bufferInfo.presentationTimeUs / durUs).toInt().coerceIn(12, 90)
@@ -689,6 +638,17 @@ object GpuMp4Exporter {
                 outVideoDurMs < expectDurMs - maxOf(500L, expectDurMs / 10L)) {
                 DebugLog.log("GPU", "视频轨截断 outVideo=${outVideoDurMs}ms expect=${expectDurMs}ms " +
                     "容器=${outDurMs}ms frames=$framesEncoded（音频撑起了容器时长），判定失败回退逐帧")
+                runCatching { tmpOut?.delete() }
+                return null
+            }
+            // v15.20 关键补强：视频轨【声明时长】会被编码器按末帧 PTS 写成满值，单看它会被骗过
+            // （"开头一闪、后面绿幕"正是视频轨被截断成开头几帧、但声明时长仍≈源时长的表现）。
+            // 必须按【实际编码帧数】二次兜底：解码/帧管道在开头几帧后断流时，framesEncoded 远小于预期，
+            // 此时视频轨只有开头一闪、其余为未编码的空帧（绿幕），绝不可交付。命中即判失败、回退逐帧 CPU 路径。
+            val expectFrames = if (expectDurMs > 0) (expectDurMs / 1000f * fps).toInt() else 0
+            if (expectFrames >= 10 && framesEncoded < expectFrames / 2) {
+                DebugLog.log("GPU", "编码帧数不足 out=${framesEncoded}帧 期望≈${expectFrames}帧 " +
+                    "（帧管道在开头几帧后断流，视频轨被截断），判定失败回退逐帧路径")
                 runCatching { tmpOut?.delete() }
                 return null
             }
@@ -1069,7 +1029,14 @@ object GpuMp4Exporter {
         fun swapBuffers(): Boolean = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
 
         fun setPresentationTime(nsecs: Long) {
-            runCatching { EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, nsecs) }
+            // v15.20：旧实现静默吞错，PTS 未写入时导出的视频帧时间戳全部塌缩为 0 → 编码器只产 1 帧、
+            // 其余丢弃 → "开头一闪、后面绿幕"。改为显式告警，便于真机日志定位。
+            try {
+                val ok = EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, nsecs)
+                if (!ok) DebugLog.log("GPU", "eglPresentationTimeANDROID=false nsecs=$nsecs（PTS 可能未生效→绿幕/快进）")
+            } catch (t: Throwable) {
+                DebugLog.log("GPU", "eglPresentationTimeANDROID 异常 ${t.javaClass.simpleName}: ${t.message}（PTS 未生效→绿幕/快进）")
+            }
         }
 
         fun release() {
@@ -1618,102 +1585,6 @@ object GpuMp4Exporter {
             return capBmp
         }
 
-        // ── v15.12 patch 提速：只读回水印区域（全帧 glReadPixels 1080p ≈10MB/帧，是导出慢的主因）──
-        private var regBuf: ByteBuffer? = null
-        private var regBmp: Bitmap? = null
-
-        fun captureVideo2dRegion(videoTex: Int, w: Int, h: Int,
-                                 bx: Int, by: Int, bw: Int, bh: Int): Bitmap? {
-            if (bw <= 0 || bh <= 0 || bx < 0 || by < 0 || bx + bw > w || by + bh > h) return null
-            ensureVideo2d(w, h)
-            if (fbo == 0 || video2dTex == 0) return null
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
-            GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-                GLES20.GL_TEXTURE_2D, video2dTex, 0)
-            if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) != GLES20.GL_FRAMEBUFFER_COMPLETE) {
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-                return null
-            }
-            GLES20.glViewport(0, 0, w, h)
-            GLES20.glUseProgram(copyProgram)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, videoTex)
-            GLES20.glUniform1i(copyVideoLoc, 0)
-            GLES20.glUniformMatrix4fv(copyMatrixLoc, 1, false, sourceMatrix, 0)
-            GLES20.glDisable(GLES20.GL_BLEND)
-            drawQuad(copyPositionLoc, copyTexCoordLoc, copyTexCoordBuffer)
-            val n = bw * bh
-            if (regBuf == null || regBuf!!.capacity() < n * 4) {
-                regBuf = ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder())
-            }
-            val buf = regBuf!!
-            buf.clear()
-            // Pass1 stores the frame vertically inverted in GL memory; GL row `by` therefore
-            // corresponds to the displayed top-origin frame row `by` for this direct readback.
-            GLES20.glReadPixels(bx, by, bw, bh, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-            if (GLES20.glGetError() != GLES20.GL_NO_ERROR) return null
-            if (regBmp == null || regBmp!!.width != bw || regBmp!!.height != bh) {
-                runCatching { regBmp?.recycle() }
-                regBmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-            }
-            val bmp = regBmp!!
-            buf.position(0)
-            bmp.copyPixelsFromBuffer(buf)
-            return bmp
-        }
-
-        /** v15.12：video2dTex（Pass1 已拷贝）直接绘制到编码器表面（视频背景走 GPU，零 CPU 搬运） */
-        fun drawVideoDirect(w: Int, h: Int) {
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            GLES20.glViewport(0, 0, w, h)
-            GLES20.glUseProgram(blitProgram)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, video2dTex)
-            GLES20.glUniform1i(blitTexLoc, 0)
-            GLES20.glDisable(GLES20.GL_BLEND)
-            drawQuad(blitPosLoc, blitTexCoordLoc, texCoordBuffer)
-        }
-
-        // patch 叠加顶点缓冲（复用，避免每帧分配）
-        private val patchVerts = FloatArray(16)
-        private var patchVertexBuffer: FloatBuffer? = null
-        /** v15.12：把 blit 纹理（水印 patch）alpha 混合叠加到已绘制的视频帧上，位置=帧坐标 (bx,by) */
-        fun drawPatchBlit(bx: Int, by: Int, bw: Int, bh: Int, w: Int, h: Int) {
-            if (bw <= 0 || bh <= 0) return
-            val x0 = bx.toFloat() / w * 2f - 1f
-            val x1 = (bx + bw).toFloat() / w * 2f - 1f
-            val yTop = (h - by).toFloat() / h * 2f - 1f
-            val yBot = (h - by - bh).toFloat() / h * 2f - 1f
-            // 顶点顺序：左下、右下、左上、右上（与 texCoordBuffer 的 (0,1)(1,1)(0,0)(1,0) 配对 → 正立）
-            patchVerts[0] = x0; patchVerts[1] = yBot; patchVerts[2] = 0f; patchVerts[3] = 1f
-            patchVerts[4] = x1; patchVerts[5] = yBot; patchVerts[6] = 1f; patchVerts[7] = 1f
-            patchVerts[8] = x0; patchVerts[9] = yTop; patchVerts[10] = 0f; patchVerts[11] = 0f
-            patchVerts[12] = x1; patchVerts[13] = yTop; patchVerts[14] = 1f; patchVerts[15] = 0f
-            val pb = patchVertexBuffer ?: ByteBuffer.allocateDirect(patchVerts.size * 4)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer()
-                .also { patchVertexBuffer = it }
-            pb.clear(); pb.put(patchVerts); pb.position(0)
-            // Android Canvas bitmaps store premultiplied RGBA. Using SRC_ALPHA multiplies the
-            // already-premultiplied glass color a second time and darkens translucent pixels.
-            GLES20.glEnable(GLES20.GL_BLEND)
-            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-            GLES20.glUseProgram(blitProgram)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blitTex)
-            GLES20.glUniform1i(blitTexLoc, 0)
-            GLES20.glEnableVertexAttribArray(blitPosLoc)
-            GLES20.glVertexAttribPointer(blitPosLoc, 2, GLES20.GL_FLOAT, false, 16, pb)
-            texCoordBuffer.position(0)
-            GLES20.glEnableVertexAttribArray(blitTexCoordLoc)
-            GLES20.glVertexAttribPointer(blitTexCoordLoc, 2, GLES20.GL_FLOAT, false, 8, texCoordBuffer)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-            GLES20.glDisableVertexAttribArray(blitPosLoc)
-            GLES20.glDisableVertexAttribArray(blitTexCoordLoc)
-            GLES20.glDisable(GLES20.GL_BLEND)
-        }
-
         // CPU 引擎水印帧上传到 blit 纹理
         fun uploadBlit(bmp: Bitmap, w: Int, h: Int) {
             ensureBlit(w, h)
@@ -1755,45 +1626,6 @@ object GpuMp4Exporter {
             }
         }
 
-        // ── v14.03：视频纹理首帧黑检测（详见 drawFrame 注释）──
-        @Volatile var videoBootBlack = false
-        private var videoBootChecked = false
-
-        private fun checkBootBlack() {
-            if (videoBootChecked) return
-            videoBootChecked = true
-            try {
-                // 优先读 FBO（video2dTex）中心像素；FBO 不可用时读编码器表面
-                if (fbo != 0) {
-                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
-                    videoBootBlack = readCenterBlack()
-                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-                } else {
-                    videoBootBlack = readCenterBlack()
-                }
-            } catch (t: Throwable) {
-                DebugLog.log("GPU", "视频纹理黑检测异常，跳过：${t.javaClass.simpleName}")
-                videoBootBlack = false
-            }
-        }
-
-        /** 读取当前绑定缓冲中心 4×4 像素，全为近黑则返回 true */
-        private fun readCenterBlack(): Boolean {
-            val w = video2dW; val h = video2dH
-            if (w <= 4 || h <= 4) return false
-            val buf = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder())
-            GLES20.glReadPixels(w / 2 - 2, h / 2 - 2, 4, 4, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
-            var bright = 0
-            while (buf.hasRemaining()) {
-                val r = buf.get().toInt() and 0xFF
-                val g = buf.get().toInt() and 0xFF
-                val b = buf.get().toInt() and 0xFF
-                buf.get() // alpha
-                if (r > 12 || g > 12 || b > 12) bright++
-            }
-            return bright == 0
-        }
-
         // 全屏四边形绘制（用指定 program 的 attrib location 与纹理坐标缓冲）
         private fun drawQuad(posLoc: Int, texLoc: Int, texBuf: FloatBuffer) {
             vertexBuffer.position(0)
@@ -1824,117 +1656,9 @@ object GpuMp4Exporter {
             DebugLog.log("GPU", "旋转像素 rot=$r 拷贝texcoord=[${tc.joinToString(",")}]")
         }
 
-        fun drawFrame(videoTex: Int, maskTex: Int, watermarkTex: Int, width: Int, height: Int,
-                  barH: Float = -1f, distTex: Int = 0, fallbackTex: Int = 0) {
-            // ── Pass 1：OES 视频帧 → 2D 纹理（FBO 离屏拷贝）
-            //    根因修复：Adreno 630 上对 GL_TEXTURE_EXTERNAL_OES 做 UV 偏移采样
-            //    （blur9 的 9 次采样）返回同一 texel → 模糊=0 → 玻璃体透明（只剩文字+阴影）。
-            //    先拷成 2D 纹理后，2D 偏移采样在所有设备可靠，模糊/色散/折射真实生效。
-            var fboOk = false
-            ensureVideo2d(width, height)
-            if (fbo != 0 && video2dTex != 0) {
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
-                GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-                    GLES20.GL_TEXTURE_2D, video2dTex, 0)
-                val st = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
-                fboOk = st == GLES20.GL_FRAMEBUFFER_COMPLETE
-                if (fboOk) {
-                    GLES20.glViewport(0, 0, width, height)
-                    GLES20.glUseProgram(copyProgram)
-                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                    GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, videoTex)
-                    GLES20.glUniform1i(copyVideoLoc, 0)
-            GLES20.glUniformMatrix4fv(copyMatrixLoc, 1, false, sourceMatrix, 0)
-                    GLES20.glDisable(GLES20.GL_BLEND)
-                    // 关键：Pass1 用 v 不翻转 texCoord（2D 纹理倒置存储），Pass2 v 翻转采样后正立
-                    drawQuad(copyPositionLoc, copyTexCoordLoc, copyTexCoordBuffer)
-                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-                } else {
-                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-                    DebugLog.log("GPU", "FBO 不完整 status=$st，退化直接 OES 采样合成")
-                }
-            }
-
-            // ── Pass 2：视频（2D/OES）+ 玻璃蒙版 + 水印前景 → 编码器 InputSurface ──
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            GLES20.glUseProgram(program)
-            GLES20.glViewport(0, 0, width, height)
-
-            // 视频纹理：优先 2D（模糊可靠），FBO 不可用时退化 OES（仍能出画面）
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            if (fboOk) GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, video2dTex)
-            else GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, videoTex)
-            GLES20.glUniform1i(videoTexLoc, 0)
-
-            // 玻璃蒙版纹理（2D）
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex)
-            GLES20.glUniform1i(maskTexLoc, 1)
-
-            // 水印前景纹理（2D）
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, watermarkTex)
-            GLES20.glUniform1i(fgTexLoc, 2)
-
-            // v14.68 距离场纹理（2D）：折射/菲涅尔数据源；缺失绑纯黑兜底（守卫拦截）
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE3)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (distTex != 0) distTex else fallbackTex)
-            GLES20.glUniform1i(distTexLoc, 3)
-
-            // 分辨率（用于模糊 texel 计算）
-            GLES20.glUniform2f(resolutionLoc, width.toFloat(), height.toFloat())
-            // ── 玻璃效果参数：全部跟随用户滑块 ──
-            val p = EditorState.params
-            GLES20.glUniform1f(blurLoc, p.blur.coerceIn(0, 100).toFloat())
-            GLES20.glUniform1f(warpLoc, p.warp.coerceIn(0, 100) / 100f)
-            GLES20.glUniform1f(contrastLoc, p.glassContrast.coerceIn(0.5f, 2f))
-            val tc = p.tintColor
-            GLES20.glUniform4f(tintLoc,
-                ((tc shr 16) and 0xFF) / 255f,
-                ((tc shr 8) and 0xFF) / 255f,
-                (tc and 0xFF) / 255f, 1f)
-            GLES20.glUniform1f(tintStrLoc, (p.tintStrength * p.opacity / 10000f).coerceIn(0f, 1f))
-            GLES20.glUniform1f(chromaticLoc, p.chromatic.coerceIn(0, 100).toFloat())
-            GLES20.glUniform1f(opacityLoc, p.opacity.coerceIn(0, 100).toFloat())
-            GLES20.glUniform1f(shadowLoc, p.shadow.coerceIn(0, 100).toFloat())
-            GLES20.glUniform1f(barHLoc, if (barH > 0f) barH else width * 0.25f)
-            GLES20.glUniform1f(edgeWarpLoc, ((p.edgeWarp % 101 + 101) % 101) / 100f)
-            GLES20.glUniform1f(innerWarpLoc, ((p.innerWarp % 101 + 101) % 101) / 100f)
-            // v14.41：流体相位——开启时随实时时钟推进（与引擎相位同源），关闭=0（静态玻璃）
-            GLES20.glUniform1f(timeLoc, if (p.fluidEnabled) {
-                val spd = p.fluidSpeed.coerceIn(1, 100)
-                val radPerSec = 0.6f + spd / 100f * 4.0f
-                (android.os.SystemClock.elapsedRealtime() % 3_600_000L) / 1000f * radPerSec
-            } else 0f)
-            GLES20.glUniform1f(hlAngleLoc, (p.hlAngle * (Math.PI / 180.0)).toFloat())
-            GLES20.glUniform1f(falloffLoc, p.falloff.coerceIn(0.5f, 3f))
-            GLES20.glUniform1f(specularLoc, (p.specular.coerceIn(0, 100) / 100f))
-            GLES20.glUniform1f(innerShadowLoc, (p.innerShadow.coerceIn(0, 100) / 100f))
-            GLES20.glUniform1f(snellPxLoc, (p.refractA.coerceIn(0, 100) / 100f) * 40f)
-            GLES20.glUniform1f(snellKLoc, 1f)
-            // v14.11 诊断：首帧打印全部玻璃 uniform 实值（确认参数确实进入导出着色器）
-            if (!uniformLogged) {
-                uniformLogged = true
-                DebugLog.log("GPU", "uniform 快照: warp=${p.warp} blur=${p.blur} refractH=${p.refractH} " +
-                    "refractA=${p.refractA} chromatic=${p.chromatic} contrast=${p.glassContrast} " +
-                    "tintStr=${(p.tintStrength * p.opacity / 10000f)} opacity=${p.opacity} shadow=${p.shadow} " +
-                    "edgeWarp=${p.edgeWarp} innerWarp=${p.innerWarp} mode=${p.layoutMode}")
-            }
-
-            drawQuad(positionLoc, texCoordLoc, texCoordBuffer)
-
-            // v14.03：首帧结束做视频纹理黑检测（此时 Pass1 已把首帧拷入 FBO/OES 数据就绪）。
-            // 部分设备 Pass1/OES 拷贝返回纯黑却"成功"，会导致整段导出视频是黑的（水印文字可见但
-            // 无玻璃效果）。检测到黑 → 导出方放弃 GPU 路径回退 CPU 逐帧，绝不交付黑视频。
-            checkBootBlack()
-        }
-
         fun release() {
             capBmp?.let { if (!it.isRecycled) it.recycle() }; capBmp = null
             capBuf = null
-            regBmp?.let { if (!it.isRecycled) it.recycle() }; regBmp = null
-            regBuf = null
             if (program != 0) GLES20.glDeleteProgram(program)
             if (copyProgram != 0) GLES20.glDeleteProgram(copyProgram)
             if (blitProgram != 0) GLES20.glDeleteProgram(blitProgram)

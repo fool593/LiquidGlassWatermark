@@ -629,13 +629,15 @@ object WatermarkRenderer {
                cache: BlurCache?, maxBlurEdge: Int, photoPreRotated: Boolean = false,
                maskOnly: Boolean = false, skipGlassBody: Boolean = false,
                lite: Boolean = false,
-               skipBackground: Boolean = false, photoScaleX: Float = -1f, photoScaleY: Float = -1f) {
+               skipBackground: Boolean = false, photoScaleX: Float = -1f, photoScaleY: Float = -1f,
+               skipShadow: Boolean = false) {
         val c = ctx()
         try {
             // Visibility formatting is local to this thread; never mutate the editor/export snapshot.
             val drawParams = c.renderParams.apply { copyFrom(p) }
-            renderInner(c, canvas, photo, photoDst, drawParams, density, unit, cache, maxBlurEdge,
-                photoPreRotated, maskOnly, skipGlassBody, lite, skipBackground, photoScaleX, photoScaleY)
+        renderInner(c, canvas, photo, photoDst, drawParams, density, unit, cache, maxBlurEdge,
+            photoPreRotated, maskOnly, skipGlassBody, lite, skipBackground, photoScaleX, photoScaleY,
+            skipShadow)
         } catch (t: Throwable) {
             // 渲染兜底：至少把原图画出，绝不因水印异常导致闪退（重算 photoDst 防污染矩形）
             runCatching { canvas.drawBitmap(photo, null, photoDst, c.bmpPaint) }
@@ -650,7 +652,8 @@ object WatermarkRenderer {
                             skipGlassBody: Boolean = false,
                             lite: Boolean = false,
                             skipBackground: Boolean = false,
-                            photoScaleX: Float = -1f, photoScaleY: Float = -1f) {
+                            photoScaleX: Float = -1f, photoScaleY: Float = -1f,
+                            skipShadow: Boolean = false) {
         if (photoDst.width() <= 2f || photoDst.height() <= 2f) return
         if (photo.isRecycled) return
         c.bmpPaint.alpha = 255
@@ -796,7 +799,7 @@ object WatermarkRenderer {
         // v14.09：恢复【蒙版纹理】的外投影（fg 前景纹理仍跳过）：蒙版只画形状+阴影，
         // 着色器改为"形状 alpha 叠玻璃本体 + 阴影区单独压暗视频"（去掉阴影区掺玻璃体的
         // 旧逻辑）→ 导出的软阴影与预览一致，且不再有旧版"外围发黑"。
-        if (p.shadow > 0 && p.opacity > 0 && !skipGlassBody) {
+        if (p.shadow > 0 && p.opacity > 0 && !skipGlassBody && !skipShadow) {
             c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
             c.fillPaint.style = Paint.Style.FILL; c.fillPaint.color = Color.BLACK
             // v15.1 投影加强：alpha 系数 0.66→0.78、模糊 0.07+0.20→0.08+0.22——压住"贴纸效应"，

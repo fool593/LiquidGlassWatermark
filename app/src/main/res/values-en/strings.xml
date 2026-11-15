@@ -69,7 +69,6 @@
     <string name="show_time_sec">Show time (to seconds)</string>
     <string name="font_contrast">Font contrast boost</string>
     <string name="brand_size">Logo size</string>
-    <string name="logo_stretch">Logo widen</string>
     <string name="logo_align">Logo position</string>
     <string name="logo_align_front">Front</string>
     <string name="logo_align_back">Back</string>

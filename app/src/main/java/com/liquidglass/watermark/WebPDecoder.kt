@@ -88,6 +88,9 @@ object WebPDecoder {
                     onDone(ok)
                 }
             }
+            // API 26/27 无 ImageDecoder / AnimatedImageDrawable（均 API 28 起）→ 动图 WebP 解码
+            // 不支持，直接失败（调用方提示换图），避免 NewApi 调用在旧系统抛异常/崩溃。
+            if (android.os.Build.VERSION.SDK_INT < 28) { finish(false); return@post }
             try {
                 val src = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
                 val d = ImageDecoder.decodeDrawable(src) { decoder, info, _ ->

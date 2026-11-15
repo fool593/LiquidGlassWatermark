@@ -26,11 +26,6 @@ class WatermarkEditorView @JvmOverloads constructor(
     private val cache = WatermarkRenderer.BlurCache()
     // 逐帧导出专用玻璃缓存（跨帧复用输出位图；每帧 invalidateKey 强制重算玻璃，消除每帧整图分配）
     private val frameCache = WatermarkRenderer.BlurCache()
-    // v15.12 GPU patch 导出专用缓存：不与预览共享 frameCache（预览线程也在用，跨线程无同步共享
-    // 会互相清缓存/数据竞争，导出每帧 invalidateKey 会迫使预览每帧重渲染玻璃）
-    private val patchCache = WatermarkRenderer.BlurCache()
-    private var wmPatchOut: Bitmap? = null
-
     private val density = resources.displayMetrics.density
     private val performanceProfile = WatermarkPerformancePolicy.forContext(context)
     val motionExportMaxEdge: Int get() = performanceProfile.videoFrameEdge
@@ -530,8 +525,10 @@ class WatermarkEditorView @JvmOverloads constructor(
         // 逐帧导出：帧内容逐帧变 → 强制重算玻璃（key 命中会返回旧帧玻璃块），缓存跨帧复用位图省分配；
         // maxEdge 480：玻璃是模糊背景，半分辨率采样视觉无损，速度约 ×2（文字/logo 独立绘制保持全分辨率）
         frameCache.invalidateKey()
+        // skipShadow=true：动图/GIF 逐帧导出为透明帧，关闭黑色外阴影（消除黑光晕 + 满足"字体不能有阴影"）
         WatermarkRenderer.render(c, src, dst, EditorState.renderParams(), density, unit, frameCache,
-            performanceProfile.videoFrameEdge, photoPreRotated = true)  // 逐帧导出：src 已旋转就绪
+            performanceProfile.videoFrameEdge, photoPreRotated = true,
+            skipShadow = true)  // 逐帧导出：src 已旋转就绪
         return bmp
     }
     /**
@@ -555,8 +552,10 @@ class WatermarkEditorView @JvmOverloads constructor(
         // 逐帧导出：帧内容逐帧变 → 强制重算玻璃（key 命中会返回旧帧玻璃块），缓存跨帧复用位图省分配；
         // maxEdge 480：玻璃是模糊背景，半分辨率采样视觉无损，速度约 ×2（文字/logo 独立绘制保持全分辨率）
         frameCache.invalidateKey()
+        // skipShadow=true：动态照片逐帧导出为透明帧，关闭黑色外阴影（消除黑光晕 + 满足"字体不能有阴影"）
         WatermarkRenderer.render(c, src, dst, EditorState.renderParams(), density, unit, frameCache,
-            performanceProfile.videoFrameEdge, photoPreRotated = true)  // 逐帧导出：src 已旋转就绪
+            performanceProfile.videoFrameEdge, photoPreRotated = true,
+            skipShadow = true)  // 逐帧导出：src 已旋转就绪
         return bmp
     }
     /**
@@ -582,77 +581,6 @@ class WatermarkEditorView @JvmOverloads constructor(
         WatermarkRenderer.render(c, src, dst, EditorState.renderParams(), density, unit, frameCache,
             performanceProfile.videoFrameEdge,
             photoPreRotated = true, skipGlassBody = skipGlassBody)  // GPU 前景纹理跳过玻璃本体（黑色残影→黑底），模糊背景由着色器提供
-        return out
-    }
-
-    /** v15.12 GPU patch 提速：水印包围盒（全帧像素，含外扩），供 GPU 路径只读回该区域。
-     *  失败返回全帧（调用方回退旧全帧路径）。后台线程调用，proxy 渲染与预览同引擎。 */
-    fun exportWmRegion(fullW: Int, fullH: Int): IntArray {
-        if (fullW < 16 || fullH < 16) return intArrayOf(0, 0, fullW, fullH)
-        var proxy: Bitmap? = null
-        try {
-            val pw = 96
-            val ph = maxOf(16, (96f * fullH / fullW).toInt())
-            proxy = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
-            proxy.eraseColor(0xFF7A8494.toInt())
-            val c = Canvas(proxy)
-            val dst = RectF(0f, 0f, pw.toFloat(), ph.toFloat())
-            val unit = WatermarkRenderer.unitForPhotoWidth(pw.toFloat(), density)
-            WatermarkRenderer.render(c, proxy, dst, EditorState.renderParams(), density, unit,
-                null, 240, photoPreRotated = true)
-            val r = WatermarkRenderer.lastWatermarkRect
-            if (r.width() > 1f && r.height() > 1f) {
-                // 外扩用【全帧像素】按宽/高分别给余量（旋转 AABB + 玻璃采样带 + 投影扩散）：
-                // 旧式"对角×0.6+64"在 proxy 像素上乘缩放比后恒等于全帧 → 提速失效
-                val sx = fullW / pw.toFloat(); val sy = fullH / ph.toFloat()
-                val wFull = (r.width() * sx).coerceAtLeast(1f)
-                val hFull = (r.height() * sy).coerceAtLeast(1f)
-                val padX = wFull * 0.30f + 48f
-                val padY = hFull * 0.45f + 48f
-                val l = (r.left * sx - padX).toInt().coerceAtLeast(0)
-                val t = (r.top * sy - padY).toInt().coerceAtLeast(0)
-                val rr = (r.right * sx + padX).toInt().coerceAtMost(fullW)
-                val b = (r.bottom * sy + padY).toInt().coerceAtMost(fullH)
-                if (rr - l in 16..fullW && b - t in 16..fullH) {
-                    return intArrayOf(l, t, rr - l, b - t)
-                }
-            }
-        } catch (_: Throwable) {
-        } finally { runCatching { proxy?.recycle() } }
-        return intArrayOf(0, 0, fullW, fullH)
-    }
-
-    /** v15.12 GPU patch 提速：在【已读回的水印区域子图】上仅渲染水印层（背景由 GPU 直绘）。
-     *  区域子图保留原像素尺寸（不做前后缩放）；(bx,by)=区域在全帧中的位置。 */
-    fun renderWatermarkPatch(patchBmp: Bitmap, fullW: Int, fullH: Int, bx: Int, by: Int,
-                             regionW: Int, regionH: Int): Bitmap {
-        val bw = patchBmp.width.coerceAtLeast(1)
-        val bh = patchBmp.height.coerceAtLeast(1)
-        var out = wmPatchOut
-        if (out == null || out.width != bw || out.height != bh || out.isRecycled) {
-            runCatching { out?.recycle() }
-            out = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-            wmPatchOut = out
-        }
-        val c = Canvas(out)
-        c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        val photoScaleX = bw.toFloat() / regionW.coerceAtLeast(1)
-        val photoScaleY = bh.toFloat() / regionH.coerceAtLeast(1)
-        // Renderer geometry is expressed in full-frame pixels. Scale the canvas into the
-        // readback bitmap so text, border, shadow and glass all land in the same full-frame
-        // coordinates when this patch is enlarged back onto the encoder surface.
-        c.scale(photoScaleX, photoScaleY)
-        // 虚拟全帧 dst（坐标平移 (-bx,-by)）：水印定位/缩放与全帧一致
-        val dst = RectF(-bx.toFloat(), -by.toFloat(), (fullW - bx).toFloat(), (fullH - by).toFloat())
-        val unit = WatermarkRenderer.unitForPhotoWidth(fullW.toFloat(), density)
-        // Each frame changes the sampled background; reuse patch buffers but recompute the glass effect.
-        patchCache.invalidateKey()
-        // Map the sampled patch back to its exact full-frame X/Y extent; use independent ratios
-        // because integer FBO sizes can round the two axes differently.
-        WatermarkRenderer.render(c, patchBmp, dst, EditorState.renderParams(), density, unit, patchCache,
-            performanceProfile.exportPatchEdge,
-            photoPreRotated = true, skipBackground = true,
-            photoScaleX = photoScaleX, photoScaleY = photoScaleY)
         return out
     }
 
@@ -753,9 +681,12 @@ class WatermarkEditorView @JvmOverloads constructor(
             gifFrame?.recycle(); outFrame?.recycle(); wmOut?.recycle(); maskOut?.recycle()
             frameRaw?.recycle(); rotatedSrc?.recycle()
             placeBmp?.recycle(); exportSnapshot?.recycle(); backdropBmp?.recycle()
+            // v15.24：距离场位图原先漏回收，View detach 后残留一张 256×h 的 ARGB_8888
+            distFieldBmp?.recycle()
         }
         gifFrame = null; outFrame = null; wmOut = null; maskOut = null
         frameRaw = null; rotatedSrc = null; gifCanvas = null; placeBmp = null; exportSnapshot = null
         backdropBmp = null; backdropFor = null
+        distFieldBmp = null; distFieldKey = ""
     }
 }

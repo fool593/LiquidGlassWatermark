@@ -289,8 +289,15 @@ object Mp4Exporter {
                     rotation, onFrame, onProgress,
                     prefixFrame, prefixDurationMs, ByteArray(0), localUri, reuseOutput,
                     includeAudio, maxDurationMs, srcBitrate)
-                if (ownLocal) runCatching { srcLocal.delete() }
-                return r
+                // v15.24：exportWithEncoder 内部多处失败是 return null（无异常）。
+                // 旧写法无条件 return r，既把 null 当成功交付，又提前删掉 srcLocal，
+                // 让后续候选编码器全部拿不到源文件 —— 候选回退形同虚设。
+                if (r == null) {
+                    runCatching { outFile.delete() }   // 删半成品，继续试下一个候选
+                } else {
+                    if (ownLocal) runCatching { srcLocal.delete() }
+                    return r
+                }
             } catch (e: EncoderDeadException) {
                 lastDead = e.message ?: "编码器输入阻塞"
                 DebugLog.log("ENC", "编码器死亡（$triedN/${candidates.size}）cand=${if (cand.isEmpty()) "默认" else cand}：$lastDead，换下一个")
@@ -337,6 +344,8 @@ object Mp4Exporter {
         var audioExt: MediaExtractor? = null  // v14.08 音频直通：函数级声明，finally 统一释放
         // 导出线程降一级调度：不抢主线程 UI（治导出时手机卡/烫），又不至于明显拖慢编码
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_LESS_FAVORABLE) }
+        // v15.25：按源色彩标准选 YUV 系数 + 标签，与 GPU 路径对齐（避免 BT.709/2020 源回退后偏色）
+        val std = sourceColorStandard(tmp, encW, encH)
         try {
             val enc = try {
                 if (cand.isEmpty()) MediaCodec.createEncoderByType(realCodec)
@@ -368,8 +377,9 @@ object Mp4Exporter {
                     .toLong().coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 val bitrate = maxOf(targetBitrate, sourceBitrate, 3_000_000)
                 efmt.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-                // argbToYuv420 below uses BT.601 limited-range coefficients.
-                efmt.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT601_NTSC)
+                // v15.25：按源色彩标准（std）打标签并选对应 YUV 系数，与 GPU 路径对齐。
+                // 旧硬编码 BT.601：BT.709/2020 源回退后会出现色相/饱和度偏移。
+                efmt.setInteger(MediaFormat.KEY_COLOR_STANDARD, std)
                 efmt.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
                 efmt.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
                 enc.configure(efmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -522,7 +532,7 @@ object Mp4Exporter {
                     "水印帧尺寸 ${bmp.width}x${bmp.height} 与输出 ${encW}x${encH} 不一致，拒绝缩放帧"
                 }
                 val src = bmp
-                val yuv = argbToYuv420(src, encW, encH, encPlanar)
+                val yuv = argbToYuv420(src, encW, encH, encPlanar, std)
                 val t0 = System.currentTimeMillis()
                 var idx = -1
                 while (System.currentTimeMillis() - t0 < 15_000) {
@@ -535,8 +545,12 @@ object Mp4Exporter {
                     throw EncoderDeadException("编码器输入阻塞")
                 }
                 val ib = enc.getInputBuffer(idx) ?: throw EncoderDeadException("编码器输入缓冲不可用")
-                ib.clear(); ib.put(yuv)
-                enc.queueInputBuffer(idx, 0, yuv.size, ptsUs.coerceAtLeast(0), 0)
+                // v15.24：argbToYuv420 复用缓冲只扩容不缩容，yuv.size 可能大于本帧实际字节数。
+                // 旧写法把上次导出的陈旧尾部写进编码器（跨分辨率导出花屏），或在输入缓冲
+                // 恰好等于 need 时抛 BufferOverflowException。必须按本帧精确长度写入。
+                val need = encW * encH * 3 / 2
+                ib.clear(); ib.put(yuv, 0, need)
+                enc.queueInputBuffer(idx, 0, need, ptsUs.coerceAtLeast(0), 0)
             }
 
             // 前缀帧（图片封面）：先于视频帧编码 prefixDurationMs 毫秒，pts 从 0 连续
@@ -789,6 +803,67 @@ object Mp4Exporter {
             vR[i] = (112 * i); vG[i] = (-94 * i); vB[i] = (-18 * i)
         }
     }
+    /** RGB→YUV(limited) 系数三元组；整数查表，与编码器输入 YUV420 字节布局对齐。 */
+    private data class YuvMat(
+        val yR: IntArray, val yG: IntArray, val yB: IntArray,
+        val uR: IntArray, val uG: IntArray, val uB: IntArray,
+        val vR: IntArray, val vG: IntArray, val vB: IntArray
+    )
+    // v15.25：逐帧回退路径此前硬编码 BT.601 系数 + 强制 BT.601 标签；若源是 BT.709/2020，
+    // 回退产出会与 GPU 路径（按源标准）色彩不一致。现按源标准选系数，与 GPU 路径对齐。
+    private val mat601 by lazy { YuvMat(yR, yG, yB, uR, uG, uB, vR, vG, vB) } // 现有 BT.601（旧默认，零回归）
+    private val mat709 by lazy {
+        val yR = IntArray(256); val yG = IntArray(256); val yB = IntArray(256)
+        val uR = IntArray(256); val uG = IntArray(256); val uB = IntArray(256)
+        val vR = IntArray(256); val vG = IntArray(256); val vB = IntArray(256)
+        for (i in 0..255) {
+            yR[i] = 47 * i; yG[i] = 157 * i; yB[i] = 16 * i
+            uR[i] = -29 * i; uG[i] = -99 * i; uB[i] = 128 * i
+            vR[i] = 128 * i; vG[i] = -116 * i; vB[i] = -12 * i
+        }
+        YuvMat(yR, yG, yB, uR, uG, uB, vR, vG, vB)
+    }
+    private val mat2020 by lazy {
+        val yR = IntArray(256); val yG = IntArray(256); val yB = IntArray(256)
+        val uR = IntArray(256); val uG = IntArray(256); val uB = IntArray(256)
+        val vR = IntArray(256); val vG = IntArray(256); val vB = IntArray(256)
+        for (i in 0..255) {
+            yR[i] = 58 * i; yG[i] = 149 * i; yB[i] = 13 * i
+            uR[i] = -42 * i; uG[i] = -146 * i; uB[i] = 188 * i
+            vR[i] = 188 * i; vG[i] = -174 * i; vB[i] = -14 * i
+        }
+        YuvMat(yR, yG, yB, uR, uG, uB, vR, vG, vB)
+    }
+    /** 按色彩标准选系数；未知/默认回退 BT.601，保证 BT.601 源零回归。 */
+    private fun matFor(standard: Int): YuvMat = when (standard) {
+        MediaFormat.COLOR_STANDARD_BT709 -> mat709
+        MediaFormat.COLOR_STANDARD_BT2020 -> mat2020
+        else -> mat601
+    }
+    /**
+     * 取源视频色彩标准：优先读源轨道 KEY_COLOR_STANDARD，缺失则按分辨率默认
+     * （≥720p 视为 BT.709，与 GPU 路径 GpuMp4Exporter 逻辑一致），消除逐帧回退路径的色彩偏移。
+     */
+    // v15.25：实际导出链路（export → exportWithEncoder）永远先落本地缓存文件 srcLocal，
+    // 并以该 File.absolutePath 作为数据源；setDataSource(Context, Uri) 在 Kotlin 重载解析下
+    // 无法稳定命中，故只走 setDataSource(String) 这一条无歧义路径。
+    private fun sourceColorStandard(tmp: File?, encW: Int, encH: Int): Int {
+        val std = runCatching {
+            val ex = MediaExtractor()
+            try {
+                if (tmp != null) ex.setDataSource(tmp.absolutePath) else return@runCatching null
+                for (i in 0 until ex.trackCount) {
+                    val f = ex.getTrackFormat(i)
+                    if (f.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) {
+                        return@runCatching f.getInteger(MediaFormat.KEY_COLOR_STANDARD)
+                    }
+                }
+                null
+            } finally { ex.release() }
+        }.getOrNull()
+        return std ?: if (encW >= 1280 || encH >= 720)
+            MediaFormat.COLOR_STANDARD_BT709 else MediaFormat.COLOR_STANDARD_BT601_NTSC
+    }
     // C5 修复：Mp4Exporter 是 object（单例），原来的可变单例缓冲 pxBuf/yuvBuf 在
     // "用户点保存导出" 与 "adb 触发 ExportBench.measureCpu 后台导出" 并发时会互相踩踏 →
     // YUV 数据错帧 → 输出花屏。改用 ThreadLocal，每个导出线程独占一份，性能与原实现一致。
@@ -826,7 +901,8 @@ object Mp4Exporter {
         }
     }.getOrNull()
 
-    private fun argbToYuv420(bmp: Bitmap, w: Int, h: Int, planar: Boolean): ByteArray {
+    private fun argbToYuv420(bmp: Bitmap, w: Int, h: Int, planar: Boolean,
+                              standard: Int = MediaFormat.COLOR_STANDARD_BT601_NTSC): ByteArray {
         val n = w * h
         // withInitial 保证非空；!! 仅用于把平台类型收窄为非空 IntArray，消除可空告警。
         var px = pxBufLocal.get()!!
@@ -838,9 +914,10 @@ object Mp4Exporter {
         var out = yuvBufLocal.get()!!
         if (out.size < need) { out = ByteArray(need); yuvBufLocal.set(out) }
         var yi = 0; var ui = ySize; var vi = ySize + uvSize
-        val rT = yR; val gT = yG; val bT = yB
-        val uRT = uR; val uGT = uG; val uBT = uB
-        val vRT = vR; val vGT = vG; val vBT = vB
+        val mat = matFor(standard)
+        val rT = mat.yR; val gT = mat.yG; val bT = mat.yB
+        val uRT = mat.uR; val uGT = mat.uG; val uBT = mat.uB
+        val vRT = mat.vR; val vGT = mat.vG; val vBT = mat.vB
         // v15.15 定点优化：把"是否偶数行"的判定从逐像素内层循环提到逐行外层（行判定每行算一次），
         // 奇数行走只算 Y 的紧凑循环（省掉每个像素一次 j%2 与 i%2 分支）；偶数行再按 planar 拆两种
         // 步进取样循环（把 if(planar) 从逐像素提到逐行）。纯循环改写，输出字节与旧实现逐字节一致。

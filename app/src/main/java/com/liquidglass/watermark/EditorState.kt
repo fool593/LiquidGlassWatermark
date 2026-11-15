@@ -581,7 +581,15 @@ object EditorState {
             e.putFloat(pk("titleSp"), d.titleSp); e.putFloat(pk("subSp"), d.subSp)
             e.putInt(pk("textColor"), d.textColor); e.putInt(pk("layoutMode"), d.layoutMode)
             e.putInt(pk("logoStyle"), d.logoStyle); e.putInt(pk("logoBrand"), d.logoBrand); e.putInt(pk("logoAlign"), d.logoAlign)
-            e.putString(pk("customLogoPath"), d.customLogoPath); e.putFloat(pk("brandScale"), d.brandScale); e.putFloat(pk("logoStretch"), d.logoStretch)
+            e.putString(pk("customLogoPath"), d.customLogoPath)
+            // v15.24：resetPlan 旧列表漏写这些键，switchPlan→restore 会把旧值读回，
+            // 表现为「重置方案后自定义 logo / 流体 / 导出模式又变回原样」。与 persist() 对齐。
+            e.putString(pk("customLogoName"), d.customLogoName)
+            e.putInt(pk("logoShape"), d.logoShape); e.putBoolean(pk("logoCrop"), d.logoCrop)
+            e.putString(pk("customLogos"), d.customLogos.joinToString("\u0001") { e0 ->
+                "${e0.name}\u0002${e0.path}\u0002${e0.shape}\u0002${e0.crop}"
+            })
+            e.putFloat(pk("brandScale"), d.brandScale); e.putFloat(pk("logoStretch"), d.logoStretch)
             e.putBoolean(pk("showDevice"), d.showDevice); e.putBoolean(pk("showTime"), d.showTime); e.putBoolean(pk("fontContrast"), d.fontContrast)
             e.putFloat(pk("borderW"), d.borderWidth); e.putInt(pk("borderA"), d.borderAlpha)
             e.putFloat(pk("relX"), d.relX); e.putFloat(pk("relY"), d.relY)
@@ -592,6 +600,8 @@ object EditorState {
             e.putBoolean(pk("modelCustom"), false); e.putBoolean(pk("modelCodeCustom"), false)
             if (pi == activePlan) { modelCustom = false; modelCodeCustom = false }
             e.putBoolean(pk("autoClean"), d.autoClean)
+            e.putBoolean(pk("fluidEnabled"), d.fluidEnabled); e.putInt(pk("fluidSpeed"), d.fluidSpeed)
+            e.putInt(pk("exportMode"), d.exportMode)
             e.apply()
         } catch (_: Throwable) {}
     }

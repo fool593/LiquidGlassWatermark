@@ -25,13 +25,11 @@ import com.liquidglass.watermark.ui.LiquidGlassTheme
 import com.liquidglass.watermark.ui.applyLiquidGlassStyle
 import java.io.File
 import java.util.Locale
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
     // ---- Compose 界面状态 ----
-    var tab by mutableStateOf(0)
     var rev by mutableStateOf(0)              // 全局重组触发器
     // 进度（-1 空闲隐藏）。setter 单一真源同步导出锁：progressPct>=0 即导出中，
     // 水印拖动（View 读 EditorState.isExporting）与所有编辑控件据此锁定，底部导航不受影响。
@@ -715,9 +713,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 显式导入视频（MP4 等）：选视频后【保持当前导出格式】（不再自动切 GIF——
-     *  v14.78 修复"选视频跳成 GIF"：要转 GIF 请走"视频转动图"独立入口） */
+    /** 显式导入视频（MP4 等）：按用户要求【选视频后自动切到 GIF（视频转动图）】；
+     *  若不想导出 GIF，可在导出栏手动切回 MP4 / HEVC。 */
     fun pickVideo() {
+        EditorState.motionExportFormat = "gif"
         // 用 */* + EXTRA_MIME_TYPES 而非 video/*：部分 ROM 对 type=video/* 的选择器返回空结果
         val mimes = arrayOf(
             "video/mp4", "video/quicktime", "video/3gpp",
@@ -823,13 +822,8 @@ class MainActivity : ComponentActivity() {
      */
     fun composeMotionPhoto() {
         if (EditorState.isExporting) { toast(getString(R.string.export_busy)); return }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            permLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            return
-        }
+        // v15.24：授权后回到本入口（旧 launcher 回调恒执行 doSave()，合成动作丢失）
+        if (!ensureStoragePermission { composeMotionPhoto() }) return
         if (!exporting.compareAndSet(false, true)) { toast(getString(R.string.export_busy)); return }
         try {
             // v15.10 动照片规范：视频超 5 秒【自动截取前 5 秒】生成（不再拒绝）；
@@ -1948,22 +1942,27 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- 保存 ----------
+    // 保存与「合成动态照片」共用同一个权限 launcher：授权后必须回到原入口，
+    // 旧实现回调恒执行 doSave()，导致动态照片在 API 26-28 授权后变成普通保存。
+    private var pendingPermAction: (() -> Unit)? = null
     private val permLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) doSave() else toast(getString(R.string.need_permission))
+            val action = pendingPermAction
+            pendingPermAction = null
+            if (granted) action?.invoke() else toast(getString(R.string.need_permission))
         }
 
-    fun save() {
-        // 导出进行中禁止重复触发（防止任务重叠/编码器与 MediaStore 并发写）
-        if (progressPct >= 0) return
+    /** API 26–28 写公共 DCIM 需要 WRITE_EXTERNAL_STORAGE；false 表示已发起授权、本次不继续。 */
+    private fun ensureStoragePermission(action: () -> Unit): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
+            pendingPermAction = action
             permLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            return
+            return false
         }
-        doSave()
+        return true
     }
 
     private fun publishProgress(v: Int) { runOnUiThread { progressPct = v } }
@@ -2048,7 +2047,12 @@ class MainActivity : ComponentActivity() {
     }
 
     fun doSave() {
-        if (EditorState.isExporting) { toast(getString(R.string.export_busy)); return }
+        // v15.24：save() 原为零调用死代码，顶栏直接调 doSave() 绕过了 API26-28 的
+        // WRITE_EXTERNAL_STORAGE 校验 → 老设备保存到公共 DCIM 必失败。校验下沉到所有入口共用的 doSave()。
+        if (progressPct >= 0 || EditorState.isExporting) {
+            toast(getString(R.string.export_busy)); return
+        }
+        if (!ensureStoragePermission { doSave() }) return
         if (!exporting.compareAndSet(false, true)) { toast(getString(R.string.export_busy)); return }
         try { doSaveNow() } finally { exporting.set(false) }
     }
@@ -2057,7 +2061,17 @@ class MainActivity : ComponentActivity() {
         cancelExportFlag.set(false)
         progressPct = 0
         when {
-            EditorState.isGif || EditorState.gifBytes != null -> { doSaveGif(); return }
+            EditorState.isGif || EditorState.gifBytes != null -> {
+                // v15.24：动图源只在用户明确选 GIF 时走 GIF 编码。GIF 源没有视频轨，
+                // 旧逻辑无条件 doSaveGif()，格式条上的 MP4/HEVC 被静默忽略（选了也导出 .gif）。
+                // 现在明确提示并停止，绝不产出与所选格式不符的文件。
+                if (EditorState.motionExportFormat != "gif") {
+                    progressPct = -1
+                    toast(getString(R.string.save_fail, "动图素材仅支持 GIF 导出，请切换为 GIF 或改选视频"))
+                    return
+                }
+                doSaveGif(); return
+            }
             // 只要有视频源就走动图导出（motionMp4 是权威依据；motionFrames 可能因上次解码失败为 null，
             // 但 doSaveMotion 内部直接用 motionMp4 重新解码，不依赖 motionFrames）
             EditorState.motionMp4 != null || EditorState.motionUri != null ||
@@ -2158,13 +2172,16 @@ class MainActivity : ComponentActivity() {
                     publishProgress(6 + (30 * (i + 1) / frames))
                 }
                 val palette = quant.build(256)
-                val enc = GifEncoder(outW, outH, frameCs[0], true)
+                val enc = GifEncoder(outW, outH, true)
                 for (i in 0 until frames) {
                     checkCancelled()
                     // v14.96 呼吸帧时间：GIF 帧播放时间（ms→秒），呼吸按播放节奏起伏
                     EditorState.exportTimeSec = frameTimes[i] / 1000f
                     val fr = ed.renderGifFrame(movie, frameTimes[i], outW, outH)
-                    enc.addFrame(palette.toIndices(fr), palette.rgb, frameCs[i])
+                    // v15.21 关闭 FS 抖动：全局 256 色调色板缺中间色时，抖动会把像素推向饱和红/蓝/白等
+                    // 远端色去"平均"，在平滑面（皮肤/墙面/垫子）上形成满屏彩色噪点。无抖动=就近映射，
+                    // 干净无斑点；6/6/6 量化台阶仅 ~4 级，色带极轻。
+                    enc.addFrame(palette.toIndices(fr, dither = false), palette.rgb, frameCs[i])
                     publishProgress(40 + (55 * (i + 1) / frames))
                 }
                 val gifBytes = enc.finish()
@@ -2187,6 +2204,102 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
+    /**
+     * 动态 WebP → GIF 导出（v15.26：回退为串行实现，修复 v15.25 的队列堆积回归）。
+     *
+     * v15.25 曾把「渲染 + 量化/索引 + LZW」丢到单线程 HandlerThread，但解码仍由
+     * AnimatedImageDrawable 在主线程按源帧率实时推进（Choreographer），两侧没有背压：
+     * 第二遍每帧 renderMotionFrame(960px)+toIndices+LZW 一旦慢于帧间隔，解码就会跑在前面，
+     * 把大量 960px 解码位图（每张约 3.7MB）堆积在 Handler 队列里 → 内存暴涨 / GC 抖动，
+     * 反而更慢，严重时 OOM 或帧错乱（渲染异常）。v15.26 回退为「onFrame 内同步消费」：
+     * 每帧渲染/量化/编码后立即 recycle，内存恒定有界，渲染结果与旧版一致。
+     *
+     * 解码回调仍在主线程（AnimatedImageDrawable 依赖主线程 Choreographer 推进）。
+     */
+    private fun exportWebpToGif(wp: ByteArray) {
+        val ed = preview ?: run {
+            ui.post { progressPct = -1; toast(getString(R.string.save_fail, "预览未就绪")) }
+            return
+        }
+        publishProgress(12)
+        val rot = ((EditorState.photoRotation % 360) + 360) % 360
+        val rotW = rot % 180 != 0
+        val gifMaxFrames = 3600
+        var outW = 0; var outH = 0
+        var decoded = 0
+        var quantTimeMs = 0L
+        val quant = GifQuant.Quantizer()
+        val mainH = Handler(Looper.getMainLooper())
+        val finishFail = { msg: String ->
+            ui.post { progressPct = -1; toast(getString(R.string.save_fail, msg)) }
+        }
+        WebPDecoder.decodeAsync(mainH, this, wp, 960, gifMaxFrames, 120_000,
+            onFrame = { bmp, delay ->
+                checkCancelled()
+                if (outW == 0) {
+                    val rw = bmp.width.coerceAtLeast(1); val rh = bmp.height.coerceAtLeast(1)
+                    outW = if (rotW) rh else rw
+                    outH = if (rotW) rw else rh
+                }
+                EditorState.exportTimeSec = quantTimeMs / 1000f
+                quantTimeMs += delay.coerceAtLeast(1)
+                val quantScale = minOf(1f, 360f / maxOf(outW, outH))
+                quant.feed(ed.renderMotionFrame(bmp,
+                    (outW * quantScale).roundToInt().coerceAtLeast(1),
+                    (outH * quantScale).roundToInt().coerceAtLeast(1)))
+                bmp.recycle()
+                decoded++
+                publishProgress(12 + (26 * decoded / gifMaxFrames).coerceAtMost(38))
+            },
+            onDone = { ok ->
+                if (cancelExportFlag.get()) {
+                    runCatching { clearExportCacheLight() }
+                    ui.post { progressPct = -1; toast(getString(R.string.export_cancelled)) }
+                    return@decodeAsync
+                }
+                if (!ok || decoded < 1) { finishFail(getString(R.string.webp_decode_fail)); return@decodeAsync }
+                if (decoded >= gifMaxFrames)
+                    ui.post { toast(getString(R.string.gif_truncated)) }
+                val palette = quant.build(256)
+                val enc = GifEncoder(outW, outH, true)
+                var d2 = 0
+                var encTimeMs = 0L   // v14.96 呼吸帧时间累计（WebP 帧播放时间）
+                WebPDecoder.decodeAsync(mainH, this, wp, 960, gifMaxFrames, 120_000,
+                    onFrame = { bmp2, delay2 ->
+                        checkCancelled()
+                        // v14.96 呼吸帧时间：累计帧延迟（ms→秒），呼吸按播放节奏起伏
+                        EditorState.exportTimeSec = encTimeMs / 1000f
+                        encTimeMs += delay2.coerceAtLeast(1)
+                        val fr = ed.renderMotionFrame(bmp2, outW, outH)
+                        enc.addFrame(palette.toIndices(fr, dither = false), palette.rgb,
+                            (delay2 / 10f).roundToInt().coerceIn(1, 100))
+                        // fr 是 renderMotionFrame 的 View 内部复用 bitmap，禁止回收（否则下一帧画到 recycled bitmap 崩溃）
+                        bmp2.recycle()
+                        d2++
+                        // 第二遍用第一遍真实帧数做分母，进度不虚高
+                        publishProgress((40 + 55 * d2 / decoded.coerceAtLeast(1)).coerceAtMost(95))
+                    },
+                    onDone = { ok2 ->
+                        if (cancelExportFlag.get()) {
+                            runCatching { clearExportCacheLight() }
+                            ui.post { progressPct = -1; toast(getString(R.string.export_cancelled)) }
+                            return@decodeAsync
+                        }
+                        if (!ok2 || d2 < 1) { finishFail(getString(R.string.webp_decode_fail)); return@decodeAsync }
+                        val gifBytes = enc.finish()
+                        publishProgress(98)
+                        val saved = runCatching { BitmapUtils.saveGifToGallery(this, gifBytes) }
+                        publishProgress(100)
+                        ui.postDelayed({
+                            clearExportCacheLight()
+                            progressPct = -1
+                            saved.onSuccess { toast(getString(R.string.saved_ok, it)) }
+                                .onFailure { toast(getString(R.string.save_fail, it.message ?: "")) }
+                        }, 250)
+                    })
+            })
+    }
+
     private fun doSaveMotion() {
         cancelExportFlag.set(false)
         Thread {
@@ -2205,85 +2318,15 @@ class MainActivity : ComponentActivity() {
                     return@Thread
                 }
                 if (webp != null) {
-                    val wp = webp!!
-                    // ---- 动态 WebP 源：流式抓帧导出 GIF（跟随源帧率；分辨率上限 960 防主线程量化卡顿与 OOM）----
-                    // 解码回调在主线程（AnimatedImageDrawable 依赖主线程动画推进），量化/编码随之在主线程执行
-                    publishProgress(12)
-                    val rot = ((EditorState.photoRotation % 360) + 360) % 360
-                    val rotW = rot % 180 != 0
-                    val gifMaxFrames = 3600
-                    var outW = 0; var outH = 0
-                    var decoded = 0
-                    var quantTimeMs = 0L
-                    val quant = GifQuant.Quantizer()
-                    val mainH = Handler(Looper.getMainLooper())
-                    val finishFail = { msg: String ->
-                        ui.post { progressPct = -1; toast(getString(R.string.save_fail, msg)) }
+                    // v15.24：动态 WebP 同样只有 GIF 编码路径，选 MP4/HEVC 不再静默改成 GIF
+                    if (EditorState.motionExportFormat != "gif") {
+                        ui.post { progressPct = -1; toast(getString(R.string.save_fail, "动态 WebP 仅支持 GIF 导出，请切换为 GIF 或改选视频")) }
+                        return@Thread
                     }
-                    WebPDecoder.decodeAsync(mainH, this, wp, 960, gifMaxFrames, 120_000,
-                        onFrame = { bmp, delay ->
-                            checkCancelled()
-                            if (outW == 0) {
-                                val rw = bmp.width.coerceAtLeast(1); val rh = bmp.height.coerceAtLeast(1)
-                                outW = if (rotW) rh else rw
-                                outH = if (rotW) rw else rh
-                            }
-                            EditorState.exportTimeSec = quantTimeMs / 1000f
-                            quantTimeMs += delay.coerceAtLeast(1)
-                            val quantScale = minOf(1f, 360f / maxOf(outW, outH))
-                            quant.feed(ed.renderMotionFrame(bmp,
-                                (outW * quantScale).roundToInt().coerceAtLeast(1),
-                                (outH * quantScale).roundToInt().coerceAtLeast(1)))
-                            bmp.recycle()
-                            decoded++
-                            publishProgress(12 + (26 * decoded / gifMaxFrames).coerceAtMost(38))
-                        },
-                        onDone = { ok ->
-                            if (cancelExportFlag.get()) {
-                                runCatching { clearExportCacheLight() }
-                                ui.post { progressPct = -1; toast(getString(R.string.export_cancelled)) }
-                                return@decodeAsync
-                            }
-                            if (!ok || decoded < 1) { finishFail(getString(R.string.webp_decode_fail)); return@decodeAsync }
-                            if (decoded >= gifMaxFrames)
-                                ui.post { toast(getString(R.string.gif_truncated)) }
-                            val palette = quant.build(256)
-                            val enc = GifEncoder(outW, outH, 5, true)
-                            var d2 = 0
-                            var encTimeMs = 0L   // v14.96 呼吸帧时间累计（WebP 帧播放时间）
-                            WebPDecoder.decodeAsync(mainH, this, wp, 960, gifMaxFrames, 120_000,
-                                onFrame = { bmp, delay ->
-                                    checkCancelled()
-                                    // v14.96 呼吸帧时间：累计帧延迟（ms→秒），呼吸按播放节奏起伏
-                                    EditorState.exportTimeSec = encTimeMs / 1000f
-                                    encTimeMs += delay.coerceAtLeast(1)
-                                    val fr = ed.renderMotionFrame(bmp, outW, outH)
-                                    enc.addFrame(palette.toIndices(fr), palette.rgb,
-                                        (delay / 10f).roundToInt().coerceIn(1, 100))
-                                    // fr 是 renderMotionFrame 的 View 内部复用 bitmap，禁止回收（否则下一帧画到 recycled bitmap 崩溃）
-                                    bmp.recycle()
-                                    d2++
-                                    // 第二遍用第一遍真实帧数做分母，进度不虚高
-                                    publishProgress((40 + 55 * d2 / decoded.coerceAtLeast(1)).coerceAtMost(95))
-                                },
-                                onDone = { ok2 ->
-                                    if (cancelExportFlag.get()) {
-                                        runCatching { clearExportCacheLight() }
-                                        ui.post { progressPct = -1; toast(getString(R.string.export_cancelled)) }
-                                        return@decodeAsync
-                                    }
-                                    if (!ok2 || d2 < 1) { finishFail(getString(R.string.webp_decode_fail)); return@decodeAsync }
-                                    val gifBytes = enc.finish()
-                                    publishProgress(98)
-                                    val path = runCatching { BitmapUtils.saveGifToGallery(this, gifBytes) }
-                                        .getOrElse { e -> error(e.message ?: "保存失败") }
-                                    publishProgress(100)
-                                    ui.postDelayed({
-                                        clearExportCacheLight()
-                    progressPct = -1; toast(getString(R.string.saved_ok, path))
-                                    }, 250)
-                                })
-                        })
+                    val wp = webp!!
+                    // v15.26：回退 v15.25 的 HandlerThread 方案（无背压导致解码跑在前面、位图堆积
+                    // → 内存暴涨/GC 抖动/更慢甚至花屏）。改回 onFrame 内同步消费、每帧即时回收，内存有界。
+                    exportWebpToGif(wp)
                     return@Thread
                 }
                 val rot = ((EditorState.photoRotation % 360) + 360) % 360
@@ -2356,7 +2399,8 @@ class MainActivity : ComponentActivity() {
                 checkCancelled()
                 // 先确定源尺寸：全分辨率解 1 帧（本地文件；minFrames=1 允许单帧探测）
                 val probe = runCatching {
-                    MotionDecoder.decode(this, ByteArray(0), 480, 30, 1, 15_000,
+                    // v15.21：全分辨率探测源尺寸（8192 上限），帧率跟随源（240=不超源帧率）
+                    MotionDecoder.decode(this, ByteArray(0), 8192, 240, 1, 15_000,
                         minFrames = 1, srcUri = gifLocalUri,
                         rotationOverride = EditorState.motionForceVideoRot)
                 }.getOrNull()
@@ -2365,10 +2409,9 @@ class MainActivity : ComponentActivity() {
                 val rawH = probe.frames[0].height.coerceAtLeast(1)
                 probe.frames.forEach { runCatching { it.recycle() } }
                 val rotW = rot % 180 != 0
-                // v14.23 修复"GIF 20MB+画质差"：旧代码全分辨率编码（1080×2340 GIF 必然 20MB+，
-                // 且大图 256 色量化处处噪点/色带）。GIF 是小图格式——长边封顶 480：
-                // 体积降 5-15 倍、色表覆盖更好=更干净，动照/朋友圈等场景观感最佳。
-                val gifMaxEdge = 480f
+                // v15.21 用户要求"GIF 保持原画质"：长边封顶 480→1080（≤1080p 源不再降采样，
+                // 4K 源封顶 1080 防体积/耗时爆炸）。噪点改由【关闭抖动】解决，不再靠降分辨率掩盖。
+                val gifMaxEdge = 1080f
                 val gsc = minOf(1f, gifMaxEdge / maxOf(rawW, rawH).toFloat())
                 val scaledW = maxOf(1, (rawW * gsc).toInt())
                 val scaledH = maxOf(1, (rawH * gsc).toInt())
@@ -2408,7 +2451,9 @@ class MainActivity : ComponentActivity() {
                     gifDurMs * 6 + (gifDurMs * 240L / 1000L) * 150L
                 ).coerceAtMost(30 * 60_000L).toInt()
                 val ok = MotionDecoder.decodeFrames(
-                    this, ByteArray(0), 480, 30, gifDecodeTimeoutMs, gifMaxFrames,
+                    // v15.22 满血速度：第一遍仅统计色表（直方图在 ≤360 宽算，与分辨率无关），
+                    // 解码用 480 即可，避免全分辨率解码白耗；第二遍才按 8192 全分辨率编码。
+                    this, ByteArray(0), 480, 240, gifDecodeTimeoutMs, gifMaxFrames,
                     srcUri = gifLocalUri,
                     rotationOverride = EditorState.motionForceVideoRot,
                     maxDurationMs = VideoGifTimeline.MAX_DURATION_MS.toLong(),
@@ -2441,11 +2486,11 @@ class MainActivity : ComponentActivity() {
                 val palette = quant.build(256)
 
                 // 第二遍：流式再解码，直接编码（每帧延迟=真实帧间隔，厘秒）
-                val enc = GifEncoder(outW, outH, 5, true)
+                val enc = GifEncoder(outW, outH, true)
                 var encoded = 0
                 val encodeTimeline = VideoGifTimeline()
                 val encodedOk = MotionDecoder.decodeFrames(
-                    this, ByteArray(0), 480, 30, gifDecodeTimeoutMs, gifMaxFrames,
+                    this, ByteArray(0), 8192, 240, gifDecodeTimeoutMs, gifMaxFrames,
                     srcUri = gifLocalUri,
                     rotationOverride = EditorState.motionForceVideoRot,
                     maxDurationMs = VideoGifTimeline.MAX_DURATION_MS.toLong(),
@@ -2454,7 +2499,7 @@ class MainActivity : ComponentActivity() {
                         EditorState.exportTimeSec = encodeTimeline.elapsedMs / 1000f
                         val delayCs = encodeTimeline.takeDelayCs(delayMs)
                         if (delayCs > 0) enc.addFrame(
-                            palette.toIndices(ed.renderMotionFrame(bmp, outW, outH)), palette.rgb, delayCs)
+                            palette.toIndices(ed.renderMotionFrame(bmp, outW, outH), dither = false), palette.rgb, delayCs)
                         encoded++
                         // 第二遍进度用第一遍已解码的真实总帧数做分母（40→95），帧数不虚高
                         publishProgress((40 + 55 * encoded / decoded.coerceAtLeast(1)).coerceAtMost(95))

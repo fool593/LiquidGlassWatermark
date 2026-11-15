@@ -143,7 +143,6 @@
     <string name="brand_section">ब्रांड लोगो</string>
     <string name="brand_none">कोई नहीं</string>
     <string name="brand_size">लोगो आकार</string>
-    <string name="logo_stretch">लोगो लंबाई</string>
     <string name="logo_align">लोगो स्थिति</string>
     <string name="logo_align_front">सामने</string>
     <string name="logo_align_back">पीछे</string>

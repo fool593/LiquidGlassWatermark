@@ -14,7 +14,11 @@ object GifQuant {
         ((r shr 2) shl 12) or ((g shr 2) shl 6) or (b shr 2)
     class Quantizer {
         private val hist = IntArray(TOTAL)
-        private var fed = 0
+        // v15.25：累计每个 6/6/6 桶内的实际 RGB 总和（Long 防溢出——GIF 可跨数千帧累加同一桶）。
+        // build() 用桶内质心（均值）代替固定网格中心，消除平滑渐变区的阶梯色带，且不引入噪声、不增加耗时。
+        private val sumR = LongArray(TOTAL)
+        private val sumG = LongArray(TOTAL)
+        private val sumB = LongArray(TOTAL)
         // 复用像素缓冲，避免每帧 new IntArray 造成 GC 压力（行为不变）
         private var pxBuf = IntArray(0)
         private fun pxOf(bmp: Bitmap): IntArray {
@@ -30,9 +34,12 @@ object GifQuant {
                 val c = px[i]
                 // 透明背景不入直方图：否则大量 alpha=0 的像素把调色板污染成黑色，画面发糊
                 if (c ushr 24 < 128) continue
-                hist[keyOf(c ushr 16 and 0xFF, c ushr 8 and 0xFF, c and 0xFF)]++
+                val k = keyOf(c ushr 16 and 0xFF, c ushr 8 and 0xFF, c and 0xFF)
+                hist[k]++
+                sumR[k] += (c ushr 16 and 0xFF).toLong()
+                sumG[k] += (c ushr 8 and 0xFF).toLong()
+                sumB[k] += (c and 0xFF).toLong()
             }
-            fed++
         }
 
         /**
@@ -51,9 +58,14 @@ object GifQuant {
             keys[0] = 0; rgb[0] = 0xFF000000.toInt() // 透明索引色（任意，显示时透明）
             for (i in 1 until m) {
                 val k = active[i - 1]; keys[i] = k
-                val r6 = k shr 12 and 63; val g6 = k shr 6 and 63; val b6 = k and 63
-                rgb[i] = (0xFF shl 24) or (((r6 shl 2) or 2) shl 16) or
-                        (((g6 shl 2) or 2) shl 8) or ((b6 shl 2) or 2)
+                // v15.25：桶内质心（实际 RGB 均值）替代固定网格中心 ((r6<<2)|2)。
+                // 6/6/6 桶覆盖 4×4×4 的 8-bit 色彩立方体，质心比桶中心的固定点更贴近桶内真实颜色，
+                // 平滑渐变区不再出现阶梯色带；纯色/离散色桶质心≈网格中心，行为不变。
+                val cnt = hist[k].toLong().coerceAtLeast(1)
+                val cr = (sumR[k] / cnt).toInt()
+                val cg = (sumG[k] / cnt).toInt()
+                val cb = (sumB[k] / cnt).toInt()
+                rgb[i] = (0xFF shl 24) or (cr shl 16) or (cg shl 8) or cb
             }
             val pr = IntArray(m); val pg = IntArray(m); val pb = IntArray(m)
             for (i in 0 until m) {
@@ -79,10 +91,10 @@ object GifQuant {
                   private val pr: IntArray, private val pg: IntArray, private val pb: IntArray) {
         private var pxBuf = IntArray(0)
         /**
-         * 转 8-bit 索引，带 Floyd–Steinberg 误差扩散抖动：
-         * 6/6/6 量化 + 无抖动会产生明显色带（渐变区发糊），FS 抖动把量化误差
-         * 扩散到相邻像素，视觉上以噪声换平滑，观感接近 256 色真实渐变。
-         * 抖动走查表（map）+ 两行滚动误差缓冲，开销约为纯查表的 1.3 倍，不放大内存。
+         * 转 8-bit 索引，带 Floyd–Steinberg 误差扩散抖动。
+         * v15.25 起调色板颜色用桶内质心（均值）而非固定网格中心，6/6/6 均匀量化在平滑渐变区的
+         * 阶梯色带已被大幅消除；无抖动（App 当前默认）已足够干净、零噪声。
+         * FS 抖动进一步把残余量化误差扩散到相邻像素，以细微噪声换更平滑的渐变观感，开销约为纯查表的 1.3 倍。
          */
         fun toIndices(bmp: Bitmap, dither: Boolean = true): ByteArray {
             val w = bmp.width; val h = bmp.height
@@ -118,9 +130,10 @@ object GifQuant {
                     val idx = map[((rq shr 2) shl 12) or
                         ((gq shr 2) shl 6) or (bq shr 2)].toInt() and 0xFF
                     out[rowBase + i] = idx.toByte()
-                    val er = rq - ((pr[idx] shl 2) or 2)
-                    val eg = gq - ((pg[idx] shl 2) or 2)
-                    val eb = bq - ((pb[idx] shl 2) or 2)
+                    // v15.25：误差参照改为实际质心色（rgb[idx]），与真正写入 GIF 的颜色一致，抖动扩散更精确。
+                    val er = rq - (rgb[idx] ushr 16 and 0xFF)
+                    val eg = gq - (rgb[idx] ushr 8 and 0xFF)
+                    val eb = bq - (rgb[idx] and 0xFF)
                     eR[ri + 1] += er * 112  // 7/16 * 256
                     eG[ri + 1] += eg * 112
                     eB[ri + 1] += eb * 112
@@ -145,10 +158,15 @@ object GifQuant {
         }
     }
 }
-class GifEncoder(private val width: Int, private val height: Int, private val delayCs: Int, loop: Boolean = true) {
+class GifEncoder(private val width: Int, private val height: Int, loop: Boolean = true) {
     private val out = ByteArrayOutputStream(64 * 1024)
-    // 复用 LZW 字典，避免每帧 new HashMap(5000) 造成 GC 压力（行为不变）
-    private val dict = HashMap<Int, Int>(5000)
+    // v15.27 性能优化：LZW 字典由 HashMap 改为「扁平 IntArray + 代次戳」。
+    // key=(prefix<<8)|k：prefix∈[0,4095]、k∈[0,255] → key 空间 1<<20=1048576。
+    // 用代次戳(lzwGen)做 O(1) reset（无需遍历 1048576 槽清零），全程零分配、无 GC 压力；
+    // 输出的 GIF 字节与旧 HashMap 版逐字节一致（已在桌面 Python 端口 720p~4K 验证）。
+    private val lzwArr = IntArray(1 shl 20)   // 存 nextCode，-1 表示空槽
+    private val lzwGen = IntArray(1 shl 20)   // 代次戳，匹配 thisGen 才视为有效
+    private var lzwCurGen = 1
     init {
         out.write("GIF89a".toByteArray(Charsets.US_ASCII))
         // 逻辑屏幕描述（使用每帧局部色表，全局色表标志=0）
@@ -161,15 +179,16 @@ class GifEncoder(private val width: Int, private val height: Int, private val de
         }
     }
     private fun writeShort(v: Int) { out.write(v and 0xFF); out.write(v ushr 8 and 0xFF) }
-    fun addFrame(indices: ByteArray, palette: IntArray) { addFrame(indices, palette, delayCs) }
     /** @param frameDelayCs 本帧停留时间（厘秒，1cs=10ms，最小1以支持高帧率） */
     fun addFrame(indices: ByteArray, palette: IntArray, frameDelayCs: Int) {
         val w = width; val h = height
         require(w > 0 && h > 0 && indices.size == w * h) { "GIF frame dimensions do not match" }
         require(palette.size in 2..256) { "GIF palette must contain 2..256 colors" }
-        // 图形控制扩展：packed=1 启用透明色（索引 0 为透明，背景不显示黑色）
+        // 图形控制扩展：packed = 透明标志(1) + disposal=2 恢复背景(2<<2=8) = 0x09。
+        // v15.24：旧值 1 只开透明、disposal=0（不处置），含透明区域的帧会残留上一帧形成拖影；
+        // 本编码器每帧都写完整画面 + 完整局部色表，disposal=2 安全且是标准做法。
         out.write(0x21); out.write(0xF9); out.write(4)
-        out.write(1)
+        out.write(0x09)
         writeShort(frameDelayCs.coerceIn(1, 1000))
         out.write(0); out.write(0)
         // 图像描述符
@@ -200,9 +219,9 @@ class GifEncoder(private val width: Int, private val height: Int, private val de
         val body = ByteArrayOutputStream(px.size * 3 / 2 + 64)
         var codeSize = minCode + 1
         var nextCode = end + 1
-        fun reset() {
-            dict.clear(); codeSize = minCode + 1; nextCode = end + 1
-        }
+        // 升一代次 = 逻辑清空字典（旧槽因 gen 不匹配而失效），O(1) 无遍历清零
+        lzwCurGen++
+        var thisGen = lzwCurGen
         var bitBuf = 0; var bitNum = 0
         fun emit(code: Int) {
             bitBuf = bitBuf or (code shl bitNum); bitNum += codeSize
@@ -210,23 +229,26 @@ class GifEncoder(private val width: Int, private val height: Int, private val de
                 body.write(bitBuf and 0xFF); bitBuf = bitBuf ushr 8; bitNum -= 8
             }
         }
-        reset(); emit(clear)
+        emit(clear)
         var prefix = px[0].toInt() and 0xFF
         for (idx in 1 until px.size) {
             val k = px[idx].toInt() and 0xFF
             val key = (prefix shl 8) or k
-            val found = dict[key]
-            if (found != null) {
-                prefix = found
+            if (lzwGen[key] == thisGen) {
+                prefix = lzwArr[key]
             } else {
                 emit(prefix)
                 if (nextCode < 4096) {
-                    dict[key] = nextCode
+                    lzwArr[key] = nextCode
+                    lzwGen[key] = thisGen
                     // 刚分配的码达到当前码长上限时升位（必须先判断再自增，否则错位）
                     if (nextCode == (1 shl codeSize) && codeSize < 12) codeSize++
                     nextCode++
                 } else {
-                    emit(clear); reset()
+                    emit(clear)
+                    // 字典满（4096 码）→ 发清除码并逻辑重置（升代次）
+                    lzwCurGen++; thisGen = lzwCurGen
+                    codeSize = minCode + 1; nextCode = end + 1
                 }
                 prefix = k
             }

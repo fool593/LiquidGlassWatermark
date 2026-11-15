@@ -344,6 +344,8 @@ object MotionDecoder {
         var mmr: MediaMetadataRetriever? = null
         // 提到 try 外：异常退出时 catch 回收已抽帧，避免 native Bitmap 泄漏
         val out = ArrayList<Bitmap>()
+        // v15.24：finally 要回收并行 worker 已抽出、但消费循环因取消/超时未取走的帧
+        var pendingQueue: java.util.concurrent.PriorityBlockingQueue<RetFrame>? = null
         try {
             mmr = MediaMetadataRetriever()
             if (srcUri != null && srcUri.scheme.equals("file", ignoreCase = true)) {
@@ -430,6 +432,7 @@ object MotionDecoder {
             // PriorityBlockingQueue 无界 → put 前手动轮询限流（<=16 帧 ≈ 160MB 峰值，防 OOM）。
             val pq = java.util.concurrent.PriorityBlockingQueue<RetFrame>(
                 16, Comparator.comparingInt { it.seq })
+            pendingQueue = pq
             val workers = 2
             val remainFrames = (nFrames - startI).coerceAtLeast(1)
             val chunk = (remainFrames + workers - 1) / workers
@@ -464,8 +467,20 @@ object MotionDecoder {
                                 if (abortP.get() || externalCancel ||
                                     System.currentTimeMillis() > deadline) break
                                 runCatching {
-                                    bmp = mmrW!!.getScaledFrameAtTime(i * intervalUs,
-                                        MediaMetadataRetriever.OPTION_CLOSEST, dw, dh)
+                                    // getScaledFrameAtTime 需 API 27；API 26 用 getFrameAtTime + 缩放兜底，
+                                    // 否则旧系统该兜底路径静默丢帧（导出残片）。
+                                    bmp = if (android.os.Build.VERSION.SDK_INT >= 27) {
+                                        mmrW!!.getScaledFrameAtTime(i * intervalUs,
+                                            MediaMetadataRetriever.OPTION_CLOSEST, dw, dh)
+                                    } else {
+                                        mmrW!!.getFrameAtTime(i * intervalUs,
+                                            MediaMetadataRetriever.OPTION_CLOSEST)?.let { f ->
+                                            if (f.width == dw && f.height == dh) f
+                                            else android.graphics.Bitmap
+                                                .createScaledBitmap(f, dw, dh, true)
+                                                .also { if (it !== f) f.recycle() }
+                                        }
+                                    }
                                 }
                                 if (bmp != null) break
                             }
@@ -579,6 +594,15 @@ object MotionDecoder {
         } finally {
             runCatching { mmr?.release() }
             runCatching { tmp?.delete() }
+            // v15.24：取消/超时/异常时，worker 已抽出但未消费的帧仍留在队列里，
+            // 旧实现只回收 out，最多 16 张 1080p 帧 native 内存直接泄漏。
+            pendingQueue?.let { q ->
+                var f = q.poll()
+                while (f != null) {
+                    f.bmp?.let { b -> if (!b.isRecycled) runCatching { b.recycle() } }
+                    f = q.poll()
+                }
+            }
         }
     }
 
