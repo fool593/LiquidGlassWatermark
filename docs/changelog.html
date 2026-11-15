@@ -34,6 +34,21 @@
 <h1>📜 更新日志 · Changelog</h1>
 <a class="back" href="./">← 返回首页 Back to home</a>
 
+<h2>v15.27</h2>
+<div class="entry">
+  <span class="ver">v15.27</span><span class="date">2026-11-15</span>
+  <ul>
+    <li>GIF 编码器性能与画质：LZW 压缩字典由 HashMap 改为扁平 IntArray(1&lt;&lt;20) + 代次戳，O(1) reset、全程零分配、无 GC 压力，GIF 导出更快更稳；输出字节与旧版逐字节一致（已在桌面 Python 端口 720p~4K 验证）。</li>
+    <li>GIF 调色板量化升级：6/6/6 桶改用桶内实际 RGB 质心替代固定网格中心，平滑渐变区阶梯色带大幅消除，零噪声、不增耗时。</li>
+    <li>MP4 / HEVC 导出绿幕修复：修正尾帧音频填充导致视频结束后整段绿幕的问题，并按真实解码终点校验，输出比真实终点短 800ms 以上一律丢弃 .tmp，绝不放行残缺 MP4。</li>
+    <li>GIF / 动图黑光晕修复：透明帧跳过阴影渲染（skipShadow），透明区域不再出现黑边光晕。</li>
+    <li>导出管线精简：GPU 导出路径重构瘦身，选择器候选顺序更稳健，异常自动回退 CPU 逐帧。</li>
+    <li>其它：移除不再引用的 RomGuard、内置字体与 NOTICE.txt；编辑器交互与多语言文案微调。</li>
+    <li class="en">v15.27: GIF encoder reworked (flat LZW dictionary + generation stamp, byte-identical output, zero GC); centroid-based palette quantization removes gradient banding; MP4/HEVC green-screen fix and GIF transparent-frame halo fix; slimmer, more robust export pipeline; dropped unused RomGuard/bundled fonts/NOTICE.</li>
+    <li>下载：<a href="https://github.com/fool593/LiquidGlassWatermark/releases/tag/v15.27" target="_blank" rel="noopener">GitHub Release <code>v15.27</code></a>（稳定版 / 测试版 / 源码 ZIP）。</li>
+  </ul>
+</div>
+
 <h2>v15.19</h2>
 <div class="entry">
   <span class="ver">v15.19</span><span class="date">2026-11-16</span>
