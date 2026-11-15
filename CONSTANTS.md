@@ -1,6 +1,6 @@
 # 项目常数（CONSTANTS）
 
-从源码直接提取的项目关键常数，版本对齐：v15.16（`versionCode 1516`）。
+从源码直接提取的项目关键常数，版本对齐：v15.27（`versionCode 1527`）。
 
 ## 构建 / 环境
 
@@ -9,8 +9,8 @@
 | `applicationId` | `com.liquidglass.watermark` | `app/build.gradle.kts` |
 | `compileSdk` / `targetSdk` | 34 | 同上 |
 | `minSdk` | 26 | 同上 |
-| `versionCode` | 1516 | 同上 |
-| `versionName` | `"15.16"` | 同上 |
+| `versionCode` | 1527 | 同上 |
+| `versionName` | `"15.27"` | 同上 |
 
 ## 玻璃光学（LiquidGlassEngine.kt — v15.15 基线系数，恢复版）
 
@@ -63,7 +63,7 @@
 
 | 常数 | 值 | 说明 |
 |---|---|---|
-| 内置字体 | `assets/fonts/NotoSansSC-Regular.otf` / `-Bold.otf` | 默认中文字体（加载失败回退 sans-serif） |
+| 内置字体 | 无（v15.27 起移除内置 NotoSansSC，统一使用系统 `sans-serif`，加载失败回退系统默认） | 默认中文字体 |
 | 系统字体源 | `/system/etc/fonts.xml` → `/system/fonts/fonts.xml` | sans-serif 族 weight=400 非斜体 |
 
 ## 动照片 / 输出（MotionPhotoWriter.kt）
@@ -74,4 +74,4 @@
 | 封面编码 | JPEG quality 95 / 92（motioncut 首帧） | 封面压缩 |
 | 5s 判定 | `vDur > 5000L` → `motionMaxMs = 5000L` | 主预览 uri > 主预览字节 > 手动面板 uri |
 
-*提取自 v15.16 光线恢复版源码（LiquidGlassWatermark 仓库 @ main）。*
+*提取自 v15.27 源码（LiquidGlassWatermark 仓库 @ main）。*

@@ -2,7 +2,7 @@
 
 在照片 / 视频上叠加带有真实光线折射与扭曲的「液态玻璃」水印的 Android 编辑器。
 
-> 版本：15.17（`versionCode 1517`） · 包名：`com.liquidglass.watermark`
+> 版本：15.27（`versionCode 1527`） · 包名：`com.liquidglass.watermark`
 > 环境：minSdk 26 / target & compile SDK 34 · Kotlin + Jetpack Compose + AGSL（Android 13+）
 
 ---
@@ -17,15 +17,15 @@
 
 > 🔒 **隐私承诺** — 不联网 · 照片不上传 · 免注册 · 无广告，水印全在本机处理。
 
-| Release 包（v15.17） | 说明 | 适合谁 |
+| Release 包（v15.27） | 说明 | 适合谁 |
 |---|---|---|
-| **修复版（推荐）** — `LiquidGlassWatermark-v15.17-romguard.apk` | 新增 ROM 兼容防护：修复小米/红米/POCO 澎湃系统（Android 13+）打开即闪退的问题（已在澎湃真机验证不再闪退）；其余手机默认全量光学，体验不变 | 所有新装用户（尤其澎湃/HyperOS 用户） |
-| 上一版本 v15.16 · `*export-speed-restored.apk` | 视频导出速度最顺滑（恢复旧版光线管线后） | 经常导出长视频 |
-| 上一版本 v15.15 · `*UI-performance.apk` | 编辑界面滑动更跟手（UI 渲染层优化） | 更在意编辑手感 |
+| **稳定版（推荐）** — GitHub Release `v15.27/app-release.apk` | 最新版：GIF 编码全面提速（LZW 字典扁平化、零 GC、输出逐字节一致）、调色板渐变色带消除；修复 MP4/HEVC 导出尾帧绿幕与 GIF 透明帧黑光晕；导出管线精简 | 所有用户（推荐新装 / 升级） |
+| 测试版 — GitHub Release `v15.27/app-debug.apk` | 橙图标「·测试」，可与稳定版共存，便于对照验证 | 需要对照 / 反馈问题的用户 |
+| 源码 ZIP — GitHub Release `v15.27/LiquidGlassWatermark_v15.27_source.zip` | 完整可构建源码（含签名材料占位与 Gradle wrapper） | 开发者 / 二次构建 |
 
-v15.17 与 v15.16、v15.15 各 APK 均内置使用知会条款（`NOTICE.txt`）；直链下载见上方官方网站。
+历史版本（v15.17 澎湃闪退修复 / v15.16 光线恢复 / v15.15 UI 优化 等）APK 见 [Releases](https://github.com/fool593/LiquidGlassWatermark/releases) 资产归档；直链下载见上方官方网站。
 
-**更新日志**：[changelog.html](https://fool593.github.io/LiquidGlassWatermark/changelog.html)（v15.17 澎湃闪退修复 / v15.16 光线恢复 / UI 优化 / YUV 定点优化 / 液态玻璃参数 / 动照片 5s 截断 / 字体持久化等）
+**更新日志**：[changelog.html](https://fool593.github.io/LiquidGlassWatermark/changelog.html)（v15.27 GIF 编码提速 + 渐变色带消除 + MP4/HEVC 绿幕修复 + GIF 黑光晕修复 + 导出管线精简 / v15.17 澎湃闪退修复 / v15.16 光线恢复 / UI 优化 等）
 
 ---
 
