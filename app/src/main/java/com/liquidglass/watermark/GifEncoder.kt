@@ -1,6 +1,7 @@
 package com.liquidglass.watermark
 import android.graphics.Bitmap
 import java.io.ByteArrayOutputStream
+import kotlin.math.min
 /**
  * 零依赖 GIF89a 动图编码器 + 6/6/6 色彩量化器。
  * 两遍流程：第一遍逐帧 [Quantizer.feed] 统计直方图建立全局 256 色调色板，
@@ -10,6 +11,19 @@ import java.io.ByteArrayOutputStream
 object GifQuant {
     private const val LEVELS = 64
     private const val TOTAL = LEVELS * LEVELS * LEVELS // 262144
+    // v15.28 性能优化：dither=false 的 toIndices 每像素独立（无行依赖），大帧按行分带多线程。
+    // 线程池懒加载、核心线程=CPU 数、非守护：导出线程结束后随调用方清理（见 GifEncoder）
+    private val pool: java.util.concurrent.ThreadPoolExecutor by lazy {
+        val n = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        java.util.concurrent.ThreadPoolExecutor(
+            n, n, 30L, java.util.concurrent.TimeUnit.SECONDS,
+            java.util.concurrent.LinkedBlockingQueue(),
+            java.util.concurrent.Executors.defaultThreadFactory()
+        ).apply { allowCoreThreadTimeOut(true) }
+    }
+    /** 大帧并行阈值：≥8 行且 ≥64K 像素才值得开线程（小帧串行更快） */
+    private const val PAR_ROWS = 8
+    private const val PAR_PIXELS = 64 * 1024
     private fun keyOf(r: Int, g: Int, b: Int): Int =
         ((r shr 2) shl 12) or ((g shr 2) shl 6) or (b shr 2)
     class Quantizer {
@@ -102,12 +116,18 @@ object GifQuant {
             if (pxBuf.size < n) pxBuf = IntArray(n)
             bmp.getPixels(pxBuf, 0, w, 0, 0, w, h)
             val out = ByteArray(n)
+            // v15.31：恢复纯串行逐像素查表（v15.28 的分带并行在多线程共享 pxBuf/out 时存在
+            // 像素级数据竞争风险，某些设备上表现为 GIF 灰白/花点。画质第一，串行与 v15.27
+            // 逐字节一致，且本段是 O(1) 查表，性能影响可忽略。）
             if (!dither) {
-                for (i in 0 until n) {
+                var i = 0
+                while (i < n) {
                     val c = pxBuf[i]
-                    if (c ushr 24 < 128) { out[i] = 0; continue }
-                    val k = ((c ushr 18 and 63) shl 12) or ((c ushr 10 and 63) shl 6) or (c ushr 2 and 63)
-                    out[i] = map[k]
+                    if (c ushr 24 < 128) { out[i] = 0 } else {
+                        val k = ((c ushr 18 and 63) shl 12) or ((c ushr 10 and 63) shl 6) or (c ushr 2 and 63)
+                        out[i] = map[k]
+                    }
+                    i++
                 }
                 return out
             }

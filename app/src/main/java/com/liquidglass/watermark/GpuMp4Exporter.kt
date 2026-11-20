@@ -116,7 +116,9 @@ object GpuMp4Exporter {
         // （Google/vivo 动照片标准视频轨不含音频，避免破坏生态识别）
         includeAudio: Boolean = true,
         // v15.10 动态照片 5 秒截断：>0 时源帧 PTS 达到该毫秒数即停止编码（输出=前 maxDurationMs）
-        maxDurationMs: Long = 0L
+        maxDurationMs: Long = 0L,
+        // v15.30 剪辑起点（相对源 PTS 起点的微秒偏移）：>0 时解码器 seek 到该点，起点前帧不渲染
+        startPtsUs: Long = 0L
     ): Result? {
         var extractor: MediaExtractor? = null
         var decoder: MediaCodec? = null
@@ -169,6 +171,13 @@ object GpuMp4Exporter {
             // Source PTS remain authoritative for variable-rate footage.
             val timeline = VideoTimeline(fps)
             extractor.selectTrack(trackIndex)
+            // v15.30 剪辑起点：seek 到片段起点前一个关键帧，起点前样本在喂帧循环里丢弃
+            val startPtsUsEff = startPtsUs.coerceAtLeast(0L)
+            if (startPtsUsEff > 0L) {
+                extractor.seekTo((startPtsUsEff - 100_000L).coerceAtLeast(0L),
+                    MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                DebugLog.log("GPU", "剪辑起点 seek=${startPtsUsEff / 1000}ms")
+            }
 
             // ── 1b. 音频轨道（v14.08：音频直通——视频经液态玻璃处理后不得丢弃原音频）──
             //     MediaExtractor 同一时刻只能 select 一个轨道，音频用独立 extractor 读取；
@@ -328,7 +337,10 @@ object GpuMp4Exporter {
                     val inIdx = decoder.dequeueInputBuffer(10000)
                     if (inIdx >= 0) {
                         val ib = decoder.getInputBuffer(inIdx)
-                        if (ib == null) { decoder.queueInputBuffer(inIdx, 0, 0, 0, 0); continue }
+                        // v15.28：输入缓冲暂不可用时空样本（0 长度 + PTS=0）会让部分解码器
+                        // 误判为损坏/停滞。不 queue 直接 continue——该索引留待下一轮重新
+                        // dequeue 填充，不会泄漏缓冲（MediaCodec 对未入队输入缓冲循环复用）。
+                        if (ib == null) continue
                         ib.clear()
                         val sampleSize = extractor.readSampleData(ib, 0)
                         if (sampleSize < 0) {
@@ -360,12 +372,16 @@ object GpuMp4Exporter {
                             // 编解码配置数据：不渲染到 Surface
                             decoder.releaseOutputBuffer(outIdx, false)
                         } else {
-                            // v15.10 动态照片 5 秒截断：源帧 PTS 达到上限 → 提前收尾（不再渲染后续帧）
-                            if (maxDurationMs > 0 && bufferInfo.presentationTimeUs >= maxDurationMs * 1000L) {
+                            // v15.30 剪辑起点：seek 提前到关键帧的过冲帧（PTS < 起点）不渲染、不编码
+                            if (startPtsUsEff > 0 && bufferInfo.presentationTimeUs < startPtsUsEff) {
+                                decoder.releaseOutputBuffer(outIdx, false)
+                            } else if (maxDurationMs > 0 &&
+                                (bufferInfo.presentationTimeUs - startPtsUsEff) >= maxDurationMs * 1000L) {
+                                // v15.10 动态照片 5 秒截断：源帧 PTS 达到【片段内】上限 → 提前收尾
                                 decoder.releaseOutputBuffer(outIdx, false)
                                 runCatching { encoder.signalEndOfInputStream() }
                                 outputEos = true
-                                DebugLog.log("GPU", "时长截断 max=${maxDurationMs}ms 于 PTS=${bufferInfo.presentationTimeUs / 1000}ms")
+                                DebugLog.log("GPU", "时长截断 max=${maxDurationMs}ms 于 PTS=${bufferInfo.presentationTimeUs / 1000}ms 起点=${startPtsUsEff / 1000}ms")
                             } else {
                             // 真正的视频帧：渲染到 SurfaceTexture
                             decoder.releaseOutputBuffer(outIdx, true)
@@ -390,7 +406,7 @@ object GpuMp4Exporter {
                             // 确保编码器 EGL 上下文当前
                             inputSurface.makeCurrent()
                             textureRender.setTextureTransform(outputSurface.texMatrix)
-                            val outPtsUs = timeline.next(bufferInfo.presentationTimeUs)
+                            val outPtsUs = timeline.next(bufferInfo.presentationTimeUs - startPtsUsEff)
                             EditorState.exportTimeSec = outPtsUs / 1_000_000f
                             // GL 绘制：视频帧 + 玻璃蒙版 + 水印前景叠加 → 编码器 InputSurface
                             // v14.13：barH = 水印条高度（bbox 高），供 shader 按条尺寸缩放扭曲位移
@@ -503,6 +519,8 @@ object GpuMp4Exporter {
                         while (!audioEos) {
                             val at = aex.sampleTime
                             if (aex.sampleTrackIndex < 0) { audioEos = true; break }
+                            // v15.30：音频与视频同片段——起点前音频跳过，PTS 归零到片段起点
+                            if (at < startPtsUsEff) { aex.advance(); continue }
                             if (timeline.audioTimeUs(at) < 0L) { aex.advance(); continue }
                             if (timeline.audioTimeUs(at) > lastPtsUs + 200_000L) break   // 超前视频 >200ms 则暂停，等视频追上
                             audioBuf.clear()
@@ -621,7 +639,8 @@ object GpuMp4Exporter {
             // v15.16 定点修复：maxDurationMs>0（动态照片 5 秒截断）时，输出时长应接近
             // min(源时长, 截断点)，而不是强行等于源时长——旧比对把"截断成功"误判为
             // "封装失败"，误删输出并回退逐帧慢路径（截断后比源短是预期行为）
-            val expectDurMs = if (maxDurationMs > 0) minOf(srcDurMs, maxDurationMs) else srcDurMs
+            // v15.30：裁剪片段后预期时长 = 片段长度（起点偏移不影响），避免"截取成功"被判封装失败
+            val expectDurMs = if (maxDurationMs > 0) maxDurationMs else srcDurMs
             if (outDurMs <= 0 || (srcDurMs > 0 && kotlin.math.abs(outDurMs - expectDurMs) > maxOf(250L, 2000L / fps.coerceAtLeast(1)))) {
                 DebugLog.log("GPU", "输出时长异常 out=${outDurMs}ms src=${srcDurMs}ms expect=${expectDurMs}ms frames=$framesEncoded，判定封装失败")
                 runCatching { tmpOut?.delete() }

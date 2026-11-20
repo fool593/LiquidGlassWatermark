@@ -1,120 +1,90 @@
-# Liquid Glass Watermark（液态玻璃水印）
+# LiquidGlass Watermark · 液态玻璃水印 v15.38
 
-在照片 / 视频上叠加带有真实光线折射与扭曲的「液态玻璃」水印的 Android 编辑器。
+Android 图片 / 视频水印编辑器。Kotlin + Jetpack Compose，底部导航为 **KernelSU 管理器真源码移植的液态玻璃悬浮 Dock**。
 
-> 版本：15.27（`versionCode 1527`） · 包名：`com.liquidglass.watermark`
-> 环境：minSdk 26 / target & compile SDK 34 · Kotlin + Jetpack Compose + AGSL（Android 13+）
+- 包名：`com.liquidglass.watermark`（debug 包为 `com.liquidglass.watermark.debug`）
+- 版本：**versionCode 1538 / versionName 15.38**
+- 平台：minSdk 26 / targetSdk 37 / compileSdk 37，JVM 17
 
 ---
 
-## 官方网站与下载 / Official Site & Download
+## 1. 本版更新
 
-> 🔗 官方网站（效果图 / 更新日志 / 扫码下载）：**https://fool593.github.io/LiquidGlassWatermark/**
+### 1.1 Dock 精简：6 项 → 5 项（合并方案）
 
-> 🧊 **一句话介绍** — 这层玻璃是真的：背景透过水印会弯曲，像透过一块真正的水滴透镜看世界，不是贴图。
-
-> 🎯 **项目目标** — 每一台安卓手机都能摸到真正的「液态玻璃」：低版本不降级成磨砂，高版本用满光学。
-
-> 🔒 **隐私承诺** — 不联网 · 照片不上传 · 免注册 · 无广告，水印全在本机处理。
-
-| Release 包（v15.27） | 说明 | 适合谁 |
+| Dock 项 | 承载的原有功能 | 合并理由 |
 |---|---|---|
-| **稳定版（推荐）** — GitHub Release `v15.27/app-release.apk` | 最新版：GIF 编码全面提速（LZW 字典扁平化、零 GC、输出逐字节一致）、调色板渐变色带消除；修复 MP4/HEVC 导出尾帧绿幕与 GIF 透明帧黑光晕；导出管线精简 | 所有用户（推荐新装 / 升级） |
-| 测试版 — GitHub Release `v15.27/app-debug.apk` | 橙图标「·测试」，可与稳定版共存，便于对照验证 | 需要对照 / 反馈问题的用户 |
-| 源码 ZIP — GitHub Release `v15.27/LiquidGlassWatermark_v15.27_source.zip` | 完整可构建源码（含签名材料占位与 Gradle wrapper） | 开发者 / 二次构建 |
+| **形状** | 水印外形（圆角 / 胶囊 / 椭圆 / 直角）；裁剪比例（原图 / 16:9 / 4:3 / 3:2 / 1:1 / 9:16 / 3:4 / 2:3）；素材管理（删除图片 / 删除视频） | 全部是「水印条几何外形」，调整对象同一，属于同一组互斥选项，拆开只是把一组单选散成两处 |
+| **玻璃** | 子页签「玻璃」：iOS 27 风格通道、流体液态玻璃（开关 + 流速）、呼吸动效（开关 + 强度）、高级光学折叠面板（边缘透镜 / 边缘高光 / 色散 / 悬浮高度 / 流光速度）、模糊、玻璃对比度、通透度、折射强度、边缘折射高度、统一扭曲、色散、色彩分离、着色强度、边框宽度；子页签「光泽」：高光强度、边缘光、内阴影、投影、鲜艳度、高光样式 | 两项都是同一块玻璃的「材质 + 光学」表现，且参数互相复用同一字段（`edgeLight` / `shadow` 两边共用），原本就是同一组参数的两个入口 |
+| **文字** | 三行文案与来源（自定义名称 / 型号 / 时间日期；地理位置：关闭 / 相册 EXIF / 当前位置 / 自定义）；字体（默认字体 / 系统字体 / 斜体 / 樱花字体）、各块字号倍率、字间距、行间距、文字阴影；行排布（位置行放到时间上方、型号/时间/位置上下微调、左右偏移） | 文案输入、字体、字号、行排布是一条连续的「内容 → 排版 → 偏移」链路，拆开会让每次微调都要来回切页 |
+| **位置** | 水印整体水平位置、垂直位置（在画面中的落点） | 属于「整条水印放哪儿」，与文字内部的排版是两件事，保持独立 |
+| **设置** | 深浅色 / 界面缩放 / 字体策略 / 导出默认参数 / 性能与调试开关 | 系统级偏好，改动频率最低，占一格但点击频次最低 |
 
-历史版本（v15.17 澎湃闪退修复 / v15.16 光线恢复 / v15.15 UI 优化 等）APK 见 [Releases](https://github.com/fool593/LiquidGlassWatermark/releases) 资产归档；直链下载见上方官方网站。
+**收益**：Dock 由 6 格变 5 格，1080p 下每格可用宽度约 172px → 206px（+20%），标签与图标不再挤压；原「光泽」的 6 个滑块与「玻璃」的全部参数**零丢失**，通过页内子页签（玻璃 / 光泽）承载。
 
-**更新日志**：[changelog.html](https://fool593.github.io/LiquidGlassWatermark/changelog.html)（v15.27 GIF 编码提速 + 渐变色带消除 + MP4/HEVC 绿幕修复 + GIF 黑光晕修复 + 导出管线精简 / v15.17 澎湃闪退修复 / v15.16 光线恢复 / UI 优化 等）
+### 1.2 一并修复的问题（真机反馈）
+
+| # | 现象 | 根因 | 修复方式 |
+|---|---|---|---|
+| 1 | 「选择照片或视频」一次只能导入 1 项，无法直接配对成动态照片 | 各家相册的 Photo Picker 即便声明多选，也会「点一下即返回」，长按只进单张预览 | 空态新增独立入口「一次选「照片 + 视频」配对动态照片」，走 `ACTION_OPEN_DOCUMENT + EXTRA_ALLOW_MULTIPLE`（系统文件选择器，任何机型都支持多选）；勾选 2 项后自动配对为动态照片（封面 + 视频）并直接打开合成面板 |
+| 2 | 方案2（左右分栏）下「型号上下」滑块无效 | 绘制端该分支完全没有消费 `fontCodeDy` | 型号行基线计入 `dyC`，`measure()` 的块高同步 |
+| 3 | 字号调大后，i 卡旁的竖向分隔线冲出玻璃条上下沿 | 竖线高度按 `timeBlockH × 1.1` 估算，而块高未计入上下偏移，估算值大于实际条高 | 竖线高度取「块高」与「玻璃内高 − 上下留白 − 2px」的较小值，经典 / 方案2 两条分支都加钳制；另加 `fitTop()` 把文字块硬夹在条内 |
+| 4 | 「位置行放到时间上方」开关无效 | 方案2 右侧文字块写死「时间在上、位置永远最后」 | 按 `geoAboveTime` 排序，块高随两行真实行高计算 |
+| 5 | 「时间上下 / 位置上下」要拉到极限才换行，中段几乎不动 | 旧换算 `值 × density × sUnit`，2.75 密度下满行程约 110px ≈ 2~3 行高 | 满行程 ±40 精确等于 **±1 行高**：拉到极限正好落到邻行位置（视觉互换），中段线性可感知；配合块高含 `abs(dy)` 与 `fitTop()`，条内一定放得下 |
+| 6 | 「默认字体」与「系统字体」切不出差别 | 旧实现两种字体取自同一 `Typeface` 源 | 默认字体 = 出厂字库（直读 `/system/fonts`，主题 overlay 不覆盖源文件）；系统字体 = `Typeface.DEFAULT`（被主题替换后即第三方字体）；用「同段文字渲染 96×44 位图逐像素比对」自动判定是否被主题替换；界面字族单独钉死为出厂字体，避免主题字体把界面文字压窄 |
+| 7 | 手机上 Dock 胶囊「短而圆」、模拟器上「长且真胶囊」；整体界面显扁显长 | Dock 高度与左右留白写死；界面字族被主题字体接管导致行高测量走样 | Dock 高度 = 屏宽 × 15.5% 夹在 46~58dp，左右留白 16dp → 10dp；界面字族固定出厂字体 |
+
+### 1.3 已知问题与限制
+
+- **主题字体判定未全机型实测**：像素比对法在模拟器与原生字体上正确，vivo / OPPO / 小米各代主题字库尚未逐一真机验证；若某机型判定错误，切换「系统字体」时观感可能与预期不一致。
+- **「真实地名」依赖定位权限**：无权限或模拟器无地理数据时会提示「获取当前位置失败」，此时地理位置行不绘制（方案2 右块只剩日期，属正常）。
+- **超大字号未做横向自适应**：单行字号 > 100sp 且文案很长时，标题可能横向超出玻璃条左右边界（本版只保证纵向不溢出，横向排版未做自动缩字 / 换行）。
+- **单元测试目录不可编译**：`app/src/test/java/...core/**` 引用不存在的 `com.liquidglass.wiquidmark.core.export` 包，`testDebugUnitTest` 会失败；不影响 `assembleDebug` / `assembleRelease`。
+- **平板横向布局未专门适配**：Dock 宽度封顶 560dp 居中，超宽屏两侧留白较大；参数面板仍为单列布局。
+- **签名固定**：release 固定 keystore，已装旧版可直接覆盖升级；若换了签名需先卸载。
+- **包体**：release 约 14.3 MB；debug 约 19.2 MB（含调试符号，仅用于排障）。
 
 ---
 
-## 语言 / Language
+## 2. 安装
 
-**中文** — 本软件内置**中英文切换**（另含印地语资源）。默认语言为中文；在「设置」页切换语言后立即生效并记住选择，
-重启 / 切换主题 / 切换方案后保持不变。语言通过 `prefs` 键 `lang` 持久化，`attachBaseContext` 按所选语言加载资源。
+1. 下载 `LiquidGlassWatermark_v15.38_release.apk`（Release 页附件或 `docs/downloads/`）。
+2. 直接安装（与 15.3x 系列同签名，可覆盖）。
+3. 首次进入为空态：点「选择照片或视频」，或用「一次选「照片 + 视频」配对动态照片」一次性导入封面 + 视频。
 
-**English** — This app supports **built-in Chinese / English language switching** (Hindi resources included as well).
-Default language is Chinese; switch it on the **Settings** page and the change applies immediately and is remembered —
-it survives app restart, theme switches and plan switches. Language preference is persisted under the `lang` key in
-`SharedPreferences`, and resources are loaded per selected language via `attachBaseContext`.
-
-| Resource | Locale | 说明 / Notes |
-|---|---|---|
-| `values/strings.xml` | 中文（默认） | 简体中文 |
-| `values-en/strings.xml` | English | 英文界面 |
-| `values-hi/strings.xml` | हिन्दी | 印地语资源 |
-
----
-
-## 这是什么
-
-本应用把玻璃光学效果作为**照片水印 / 视频水印**使用：
-
-- **液态玻璃透镜效果** —— 水印区域不是一个平面贴图，而是一块会**折射背景**的玻璃：
-  边缘有真正的 UV 折射位移、内部放大扭曲、色散（chromatic aberration）、菲涅尔边缘光与高光，
-  背后内容透过玻璃变形，而不是简单的 alpha 混合。
-- **照片水印** —— 文字 / 机型标识 / 品牌 Logo / 自定义 Logo / 布局排版，一行行像印在玻璃片上。
-- **视频水印** —— 把静态水印渲染并烧录进视频（支持 MP4 硬编），或让水印随时间缓慢流动。
-- **动态照片（Motion Photo）** —— 生成 vivo 双文件 / Google XMP 两种动照片格式，
-  视频部分超过 5 秒时自动截取前 5 秒。
-- **玻璃参数全开放** —— 折射强度、边缘厚度、色散、景深、高光、阴影、明暗、缩放补偿、画质档位全部可调。
-
-## 快速预览
-
-| 能力 | 说明 |
-|---|---|
-| 水印布局 | 经典（机型+时间双行）、单行胶囊、双行无标识、左右分栏 4 种 |
-| 品牌 Logo | Leica / Zeiss / Hasselblad / Huawei / Xiaomi / vivo / XMAGE / ARRI / Sony / Samsung / Apple / Google / OPPO / OnePlus / 自定义 14 种 |
-| 照片支持 | 单张编辑 + 批量保存（JPEG / PNG） |
-| 视频支持 | 导入 / 编辑 / 导出 MP4（H.264 / H.265 硬编），GPU 快路径 + 逐帧兜底 |
-| 动照片 | vivo 双文件（`.MP.jpg`）/ Google XMP 双格式输出 |
-| 画质档 | High：3 抽样色散 + pow 菲涅尔 + 逐像素 bevel；Low：保留法线 UV 折射，色散/菲涅尔走廉价近似 |
-| 缩放补偿 | 水印缩小时光学尺度自动反比补偿（参考 220px），小视口 / 低分辨率下效果不消失 |
-
-## 构建
+## 3. 从源码构建
 
 ```bash
-# Android Studio：打开仓库根目录，等待 Gradle 同步后 Run（或 assembleDebug）
-# 命令行：
-./gradlew :app:assembleDebug
+# JDK 17 + Android SDK 37
+./gradlew :app:assembleDebug     # 调试包，applicationId 带 .debug 后缀
+./app/build/outputs/apk/debug/app-debug.apk
+
+./gradlew :app:assembleRelease   # 正式包（需 keystore.properties）
+./app/build/outputs/apk/release/app-release.apk
 ```
 
-首次构建需联网拉取依赖；离线环境请对齐 `app/build.gradle.kts` 中的依赖版本到本地缓存。
+`keystore.properties` 不入库，参考 `keystore.properties.example` 自建。
 
-## 验证 / 自动化钩子（debug 构建，`am start --es ljgAutoTest ...`）
+## 4. 版本信息
 
-| 命令 | 作用 |
+| 项 | 值 |
 |---|---|
-| `bench:5,14,15,16,30,60,300` | 视频导出性能基准（7 档时长 × gpu/gpuraw/cpu 三路径，CSV 落盘） |
-| `exportgpu` / `exportgpu_cut` | GPU 路径导出 `auto_test.mp4`（第二个带 5 秒截断） |
-| `motioncut` | 手动面板动照片全链路（5 秒截断 + 落盘 `.MP.jpg`） |
-| `font:0\|1` / `planswitch:0\|1` | 字体模式切换 / 方案切换（验证字体持久化） |
-| `glassperf` | 玻璃渲染层录制/跳过计数器（40s 采样窗口） |
+| versionCode / versionName | 1538 / 15.38 |
+| minSdk / targetSdk / compileSdk | 26 / 37 / 37 |
+| release 包大小 | 14.31 MB |
+| debug 包大小 | 19.24 MB |
+| 签名 | V3，证书 SHA-256 `22bd1ff1…04a439` |
+| 渲染入口 | `WatermarkRenderer.kt`（CLASSIC / SINGLE / STACK / SPLIT 四种布局） |
+| Dock | `ui/ksu/FloatingBottomBar.kt`（KSU 真源码移植） |
 
-## 许可证 / License
+## 5. 历史版本
 
-本仓库源码以 **MIT 许可证**发布（[LICENSE](LICENSE)）。项目不引用任何第三方 GitHub 开源库，
-仅依赖 Google AndroidX / JetBrains 生态。MIT 许可之外，作者保留一条**非强制**的礼貌请求：
-拉取或使用前知会作者一声（详见 [NOTICE.md](NOTICE.md)）。
+- **v15.37** — 真机实测 bug 修复：多选配对、上下滑块量程、竖线钳制、「位置行放到时间上方」、默认/系统字体分离、Dock 跨机型自适应。
+- **v15.36** — Dock 宽度自适应（铺满可用宽度、封顶 560dp）、UiScale 密度归一。
+- **v15.35** — Dock 压缩、参数面板高度调整。
+- **v15.34** — KSU 液态玻璃 Dock 真源码移植，Dock 按实测高度为导出栏留位。
+- **v15.28 ~ v15.33** — iOS 27 风格通道、流体 / 呼吸动效、高级光学面板、四行独立字号。
 
-This repository is released under the **MIT License** ([LICENSE](LICENSE)). It references no
-third-party GitHub open-source libraries (only Google AndroidX / JetBrains components). Beyond the
-MIT license, the author keeps one **non-binding** courtesy request: kindly notify the author when
-you pull or use it. See [NOTICE.md](NOTICE.md).
+## 6. 许可
 
-## 目录结构
-
-```
-app/src/main/java/com/liquidglass/watermark/
-├── MainActivity.kt            # 入口：编辑/导出/自动测试钩子
-├── EditorState.kt             # 全局状态 + Params（所有可调参数与方案）
-├── LiquidGlassEngine.kt       # 玻璃光学核心（逐像素物理：折射/色散/菲涅尔/高光）
-├── WatermarkRenderer.kt       # 水印渲染（文字/Logo/玻璃合成/缓存）
-├── GpuMp4Exporter.kt          # GPU 视频导出快路径（帧截图→水印→硬编）
-├── Mp4Exporter.kt             # 视频导出（含逐帧兜底/动态照片 5s 截断）
-├── MotionDecoder.kt           # 视频解码（双 worker 帧队列）
-├── MotionPhotoWriter.kt       # vivo 双文件 / Google XMP 动照片封装
-├── glass/                     # Compose 玻璃 UI 层（离屏层/阴影/高光/backdrop）
-└── ui/                        # 编辑器界面（参数面板/滑块/开关/底栏）
-```
+见 `LICENSE` 与 `NOTICE.md`。

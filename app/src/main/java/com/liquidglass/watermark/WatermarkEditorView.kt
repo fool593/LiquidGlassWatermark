@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.roundToInt
 /**
  * 照片 / GIF + 液态玻璃水印预览。软件画布渲染，保证 API26-34 阴影/发光效果完全一致。
  * 支持直接拖动水印；GIF 会循环播放并实时叠加水印；导出复用同一渲染器，所见即所得。
@@ -38,6 +39,8 @@ class WatermarkEditorView @JvmOverloads constructor(
     private var outFrame: Bitmap? = null
     // MP4 逐帧水印复用帧（同一次导出尺寸恒定，避免每帧 new 整帧 ARGB 的 GC 卡顿）
     private var wmOut: Bitmap? = null
+    // v15.32 裁剪复用缓冲：按 cropRatio 裁源帧时避免每帧 new Bitmap
+    private var cropBuf: Bitmap? = null
     private var maskOut: Bitmap? = null
     // 旋转后的独立源层：必须与 outFrame 分离，否则 Canvas(bmp).drawBitmap(bmp) 自绘导致撕裂
     private var rotatedSrc: Bitmap? = null
@@ -48,6 +51,8 @@ class WatermarkEditorView @JvmOverloads constructor(
     private val sourcePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     // 纯色占位底（无图案）
     private var placeBmp: Bitmap? = null
+    // v15.35：占位底按画布比例生成，避免横屏画布下 3:4 占位图两侧留黑
+    private var placeBmpKey = -1
     // v14.05：模糊留边打底（照片 cover 铺满后 1/8 缩小再放大=廉价高斯），
     // 按 photo 位图身份缓存；动画内容（GIF/动图）跳过走普通拉伸兜底
     private var backdropBmp: Bitmap? = null
@@ -79,8 +84,29 @@ class WatermarkEditorView @JvmOverloads constructor(
     }
     /** 纹理丰富占位底：渐变 + 细密点阵 + 斜向丝带 + 彩斑 —— 无照片时玻璃的模糊/折射/扭曲清晰可见 */
     private fun placeholderPhoto(): Bitmap {
+        // v15.35：按当前画布比例出图（横屏 16:9 / 竖屏 9:16 / 自动=视口比例），
+        // 占位底与画布同比例 → fit() 后满幅铺满，不会四周留黑。
+        val orient = EditorState.params.canvasOrient
+        val ratio = when (orient) {
+            EditorState.CANVAS_LANDSCAPE -> 9f / 16f
+            EditorState.CANVAS_PORTRAIT -> 16f / 9f
+            else -> {
+                val vw = width; val vh = height
+                if (vw > 0 && vh > 0) vh.toFloat() / vw else 4f / 3f
+            }
+        }
+        val key = (ratio * 1000f).toInt()
+        if (key != placeBmpKey) {
+            placeBmp?.let { if (!it.isRecycled) it.recycle() }
+            placeBmp = null
+            placeBmpKey = key
+        }
         placeBmp?.let { if (!it.isRecycled) return it }
-        val w = 1080; val h = 1440
+        val long = 1440
+        val w: Int; val h: Int
+        // ratio = 高/宽：<1 为横屏（宽>高），>1 为竖屏
+        if (ratio <= 1f) { w = long; h = (long * ratio).toInt().coerceAtLeast(320) }
+        else { h = long; w = (long / ratio).toInt().coerceAtLeast(320) }
         val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(b)
         val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -140,6 +166,23 @@ class WatermarkEditorView @JvmOverloads constructor(
         val s = minOf(vw.toFloat() / rw, vh.toFloat() / rh)
         val dw = rw * s; val dh = rh * s
         rect.set((vw - dw) / 2f, (vh - dh) / 2f, (vw + dw) / 2f, (vh + dh) / 2f)
+        // v15.32 自定义裁剪比例：在等比 fit 基础上，按显示方向比例中心裁剪显示矩形。
+        // WatermarkRenderer 侧已用同一 cropRect 采样源图，预览即导出所见，无拉伸。
+        val aspect = EditorState.cropAspect((EditorState.params.cropRatio))
+        if (aspect > 0f && rect.width() > 1f && rect.height() > 1f) {
+            val cur = rect.width() / rect.height()
+            if (cur > aspect) {
+                // 显示区更宽：裁左右
+                val nh = rect.height(); val nw = nh * aspect
+                val nx = rect.centerX() - nw / 2f
+                rect.set(nx, rect.top, nx + nw, rect.bottom)
+            } else {
+                // 显示区更高：裁上下
+                val nw = rect.width(); val nh = nw / aspect
+                val ny = rect.centerY() - nh / 2f
+                rect.set(rect.left, ny, rect.right, ny + nh)
+            }
+        }
     }
     /** 按各帧停留时长循环选择动态照片当前帧 */
     private fun pickMotionIndex(): Int {
@@ -215,7 +258,7 @@ class WatermarkEditorView @JvmOverloads constructor(
                 // 之前误用全幅 dst → 横屏视频被拉伸成竖屏 → 保存途中预览一直显示竖屏拉伸。
                 val dst = RectF(photoDst)
                 WatermarkRenderer.render(c, photo, dst, EditorState.renderParams(), density,
-                    WatermarkRenderer.unitForPhotoWidth(dst.width(), density), null, 480)
+                    WatermarkRenderer.unitForPhoto(dst.width(), dst.height(), density), null, 480)
                 // 渲染成功：原子交换（旧快照仅在确认新图可用后才回收）
                 val old = exportSnapshot
                 exportSnapshot = work
@@ -342,18 +385,12 @@ class WatermarkEditorView @JvmOverloads constructor(
             }
             val effEdge = if (interacting) (previewEdge / 2).coerceAtLeast(160) else previewEdge
             // ── v14.06 预览框整体绘制（照片/视频/GIF/动图统一一条路径，任意比例适配）──
-            //  ① 背景：当前画面 模糊 cover 铺满（旋转跟随内容方向，四周无黑边/硬切/接缝）；
+            //  ① 背景：v15.31 取消"模糊铺满"（旧版把画面模糊拉伸填满四周，
+            //     竖屏左右 / 横屏上下会出现一片虚化色块，用户反馈为"多余的东西"）。
+            //     现在画布只呈现媒体本身，四周是干净的衬底色，所见即所得。
             //  ② 内容：WatermarkRenderer.render 按正确比例绘制（含照片旋转/玻璃/文字）。
-            //  打底按画面位图身份缓存：静态图零开销；GIF 复用同一帧对象命中缓存；
-            //  动图逐帧小图重建（135×160 级，成本可忽略）。
-            val rotPreview = (((EditorState.photoRotation % 360) + 360) % 360).toFloat()
-            runCatching {
-                if (!photo.isRecycled) {
-                    drawBackdrop(canvas, photo, rotPreview)
-                }
-            }
             WatermarkRenderer.render(canvas, photo, photoDst, EditorState.renderParams(),
-                density, WatermarkRenderer.unitForPhotoWidth(photoDst.width(), density),
+                density, WatermarkRenderer.unitForPhoto(photoDst.width(), photoDst.height(), density),
                 cache, effEdge, lite = interacting)
             if (animated) postInvalidateDelayed(performanceProfile.animationIntervalMs)
             else if (EditorState.params.fluidEnabled ||
@@ -429,23 +466,30 @@ class WatermarkEditorView @JvmOverloads constructor(
     /** 全分辨率合成静态图（必须在后台线程调用）。照片旋转90/270时输出尺寸自动互换。 */
     fun export(full: Bitmap): Bitmap {
         check(!full.isRecycled) { "source bitmap recycled" }
+        // v15.32 自定义裁剪：先在【原始方向】按 cropRatio 中心裁剪，再旋转渲染。
+        // 用 CropMath 保证输出尺寸 = 裁后尺寸，预览/导出一致（cropApplied=true 通知渲染层不再二次裁）。
+        val cropAspect = EditorState.cropAspect(EditorState.params.cropRatio)
+        val cropped = if (cropAspect > 0f) {
+            CropMath.cropToAspect(full, 0, cropAspect)
+        } else full
         val rot = ((EditorState.photoRotation % 360) + 360) % 360
-        val outW = if (rot % 180 != 0) full.height else full.width
-        val outH = if (rot % 180 != 0) full.width else full.height
-        val source = if (rot == 0) full else Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888).also {
-            drawRotatedSource(Canvas(it), full, outW, outH)
+        val outW = if (rot % 180 != 0) cropped.height else cropped.width
+        val outH = if (rot % 180 != 0) cropped.width else cropped.height
+        val source = if (rot == 0) cropped else Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888).also {
+            drawRotatedSource(Canvas(it), cropped, outW, outH)
         }
         try {
             val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
             val dst = RectF(0f, 0f, outW.toFloat(), outH.toFloat())
-            val unit = WatermarkRenderer.unitForPhotoWidth(outW.toFloat(), density)
+            val unit = WatermarkRenderer.unitForPhoto(outW.toFloat(), outH.toFloat(), density)
             // Rotate only the scene. The watermark keeps the same screen-space orientation,
             // normalized position and dimensions as preview, even for 90/270 degree rotations.
             WatermarkRenderer.render(Canvas(out), source, dst, EditorState.renderParams(),
-                density, unit, null, 1600, photoPreRotated = true)
+                density, unit, null, 1600, photoPreRotated = true, cropApplied = cropAspect > 0f)
             return out
         } finally {
-            if (source !== full) source.recycle()
+            if (cropped !== full) cropped.recycle()
+            if (source !== cropped) source.recycle()
         }
     }
     /** 确保 frameRaw 尺寸匹配（movie 原始帧尺寸），无变换 canvas 供 movie.draw 使用 */
@@ -482,6 +526,34 @@ class WatermarkEditorView @JvmOverloads constructor(
         c.drawBitmap(src, 0f, 0f, sourcePaint)
         c.restore()
     }
+    /**
+     * v15.32 裁剪源帧到显示比例（复用 cropBuf 防每帧分配）。返回裁后 bitmap；
+     * 未启用裁剪时原样返回 src（不拷贝）。
+     */
+    private fun cropFrame(src: Bitmap): Bitmap {
+        val aspect = EditorState.cropAspect(EditorState.params.cropRatio)
+        if (aspect <= 0f) return src
+        val rect = CropMath.centerCropRect(src.width, src.height, aspect)
+        val left = rect.left.roundToInt().coerceIn(0, src.width - 1)
+        val top = rect.top.roundToInt().coerceIn(0, src.height - 1)
+        val w = rect.width().roundToInt().coerceIn(1, src.width - left)
+        val h = rect.height().roundToInt().coerceIn(1, src.height - top)
+        if (left == 0 && top == 0 && w == src.width && h == src.height) return src
+        if (cropBuf == null || cropBuf!!.width != w || cropBuf!!.height != h ||
+            cropBuf!!.isRecycled) {
+            runCatching { cropBuf?.recycle() }
+            cropBuf = Bitmap.createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1),
+                Bitmap.Config.ARGB_8888)
+        }
+        val cb = cropBuf!!
+        // 从源复制裁剪区域到 cropBuf
+        val c = Canvas(cb)
+        c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        val srcRect = android.graphics.Rect(left, top, left + w, top + h)
+        val dstRect = android.graphics.Rect(0, 0, w, h)
+        c.drawBitmap(src, srcRect, dstRect, sourcePaint)
+        return cb
+    }
     /** 确保独立源层尺寸匹配（旋转缩放后的源图，必须与输出 outFrame 分离防自绘撕裂） */
     private fun ensureRotated(w: Int, h: Int): Bitmap {
         if (rotatedSrc == null || rotatedSrc!!.width != w || rotatedSrc!!.height != h ||
@@ -513,22 +585,25 @@ class WatermarkEditorView @JvmOverloads constructor(
         rawC.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         movie.setTime(timeMs.coerceIn(0, EditorState.gifDuration.coerceAtLeast(1)))
         movie.draw(rawC, 0f, 0f)
+        // v15.32：GIF 源帧按 cropRatio 中心裁剪后再旋转缩放（预览所见即导出）
+        val work = cropFrame(raw)
         // 2. 旋转缩放画到独立源层 rotatedSrc（不能直接画进 outFrame，否则下一步 render 自绘撕裂）
         val src = ensureRotated(outW, outH)
-        drawRotatedSource(Canvas(src), raw, outW, outH)
+        drawRotatedSource(Canvas(src), work, outW, outH)
+        if (work !== raw) { /* cropBuf 复用缓存，不回收 */ }
         // 3. render 把独立源层 src 画到输出 outFrame 并叠加水印（src≠outFrame，无自绘）
         val bmp = outFrame!!
         val c = Canvas(bmp)
         c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         val dst = RectF(0f, 0f, outW.toFloat(), outH.toFloat())
-        val unit = WatermarkRenderer.unitForPhotoWidth(outW.toFloat(), density)
+        val unit = WatermarkRenderer.unitForPhoto(outW.toFloat(), outH.toFloat(), density)
         // 逐帧导出：帧内容逐帧变 → 强制重算玻璃（key 命中会返回旧帧玻璃块），缓存跨帧复用位图省分配；
         // maxEdge 480：玻璃是模糊背景，半分辨率采样视觉无损，速度约 ×2（文字/logo 独立绘制保持全分辨率）
         frameCache.invalidateKey()
         // skipShadow=true：动图/GIF 逐帧导出为透明帧，关闭黑色外阴影（消除黑光晕 + 满足"字体不能有阴影"）
         WatermarkRenderer.render(c, src, dst, EditorState.renderParams(), density, unit, frameCache,
             performanceProfile.videoFrameEdge, photoPreRotated = true,
-            skipShadow = true)  // 逐帧导出：src 已旋转就绪
+            skipShadow = true, cropApplied = EditorState.cropAspect(EditorState.params.cropRatio) > 0f)  // 逐帧导出：src 已旋转就绪
         return bmp
     }
     /**
@@ -541,21 +616,24 @@ class WatermarkEditorView @JvmOverloads constructor(
             outFrame = Bitmap.createBitmap(outW.coerceAtLeast(1), outH.coerceAtLeast(1),
                 Bitmap.Config.ARGB_8888)
         }
+        // v15.32：先按 cropRatio 裁源帧（若未裁剪原样返回），再旋转缩放绘制
+        val work = cropFrame(srcFrame)
         // 旋转缩放画到独立源层，再 render 到输出（防自绘撕裂）
         val src = ensureRotated(outW, outH)
-        drawRotatedSource(Canvas(src), srcFrame, outW, outH)
+        drawRotatedSource(Canvas(src), work, outW, outH)
+        if (work !== srcFrame) { /* cropBuf 复用，不回收 */ }
         val bmp = outFrame!!
         val c = Canvas(bmp)
         c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         val dst = RectF(0f, 0f, outW.toFloat(), outH.toFloat())
-        val unit = WatermarkRenderer.unitForPhotoWidth(outW.toFloat(), density)
+        val unit = WatermarkRenderer.unitForPhoto(outW.toFloat(), outH.toFloat(), density)
         // 逐帧导出：帧内容逐帧变 → 强制重算玻璃（key 命中会返回旧帧玻璃块），缓存跨帧复用位图省分配；
         // maxEdge 480：玻璃是模糊背景，半分辨率采样视觉无损，速度约 ×2（文字/logo 独立绘制保持全分辨率）
         frameCache.invalidateKey()
         // skipShadow=true：动态照片逐帧导出为透明帧，关闭黑色外阴影（消除黑光晕 + 满足"字体不能有阴影"）
         WatermarkRenderer.render(c, src, dst, EditorState.renderParams(), density, unit, frameCache,
             performanceProfile.videoFrameEdge, photoPreRotated = true,
-            skipShadow = true)  // 逐帧导出：src 已旋转就绪
+            skipShadow = true, cropApplied = EditorState.cropAspect(EditorState.params.cropRatio) > 0f)  // 逐帧导出：src 已旋转就绪
         return bmp
     }
     /**
@@ -575,7 +653,7 @@ class WatermarkEditorView @JvmOverloads constructor(
         val c = Canvas(out)
         c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         val dst = RectF(0f, 0f, w.toFloat(), h.toFloat())
-        val unit = WatermarkRenderer.unitForPhotoWidth(w.toFloat(), density)
+        val unit = WatermarkRenderer.unitForPhoto(w.toFloat(), h.toFloat(), density)
         // 逐帧导出：强制重算玻璃（视频帧内容逐帧变），跨帧复用玻璃输出位图省分配
         frameCache.invalidateKey()
         WatermarkRenderer.render(c, src, dst, EditorState.renderParams(), density, unit, frameCache,
@@ -595,7 +673,7 @@ class WatermarkEditorView @JvmOverloads constructor(
         val c = Canvas(out)
         c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         val dst = RectF(0f, 0f, w.toFloat(), h.toFloat())
-        val unit = WatermarkRenderer.unitForPhotoWidth(w.toFloat(), density)
+        val unit = WatermarkRenderer.unitForPhoto(w.toFloat(), h.toFloat(), density)
         WatermarkRenderer.render(c, out, dst, EditorState.renderParams(), density, unit, null, 720,
             photoPreRotated = true, maskOnly = true)
         // v14.67 关键修复：距离场【不再写进 mask 蓝通道】——真机 Adreno 上 mask alpha 读回为 0 时
@@ -676,6 +754,12 @@ class WatermarkEditorView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         animHandler.removeCallbacks(animTick)
+        // v15.28：导出线程持有本 View 引用并按帧调用 renderWatermarkOnly/renderMotionFrame，
+        // 这些方法读同一批复用位图（wmOut/outFrame/gifFrame/rotatedSrc 等）。Activity 重建期间
+        // onDetachedFromWindow 若在导出中无条件 recycle，导出线程下一帧就会写到已回收位图
+        // （IllegalStateException 被外层 catch 静默吞掉 → 导出突然失败）。导出进行中跳过回收，
+        // 缓冲区随进程释放（导出结束由调用方 clearExportCache 兜底），避免竞态。
+        if (EditorState.isExporting) return
         cache.reset()
         runCatching {
             gifFrame?.recycle(); outFrame?.recycle(); wmOut?.recycle(); maskOut?.recycle()

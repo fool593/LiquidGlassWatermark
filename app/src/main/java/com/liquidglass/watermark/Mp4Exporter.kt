@@ -65,7 +65,10 @@ object Mp4Exporter {
         includeAudio: Boolean = true,
         // v15.10 动态照片 5 秒截断：>0 时源帧 PTS 达到该毫秒数即停止编码（输出=前 maxDurationMs）。
         // GPU 与逐帧两条路径均生效；截断是有意行为，跳过"解码未完成/时长不足"失败判定
-        maxDurationMs: Long = 0L
+        maxDurationMs: Long = 0L,
+        // v15.30 剪辑起点（相对源 PTS 起点的微秒偏移）：>0 时从片段起点解码/编码，
+        // 起点前帧丢弃，输出 PTS 归零到片段起点（GPU 与逐帧路径均生效）
+        startPtsUs: Long = 0L
     ): File? {
         lastFailReason = ""
         // ---- 源文件统一落盘【只做一次】：probe / 正式解码 / mmr 全程复用同一个本地文件 ----
@@ -247,7 +250,7 @@ object Mp4Exporter {
                 GpuMp4Exporter.export(ctx, srcLocal, gpuOut, encW, encH, fps, (rotation + ur) % 360, realCodec,
                     watermarkRenderer, onProgress, isCancelled,
                     cpuWatermark = true, includeAudio = includeAudio,
-                    maxDurationMs = maxDurationMs)
+                    maxDurationMs = maxDurationMs, startPtsUs = startPtsUs)
             }.onFailure { e -> gpuFailReason = "${e.javaClass.simpleName}: ${e.message}" }.getOrNull()
             if (gpuResult != null && gpuOut.exists() && gpuOut.length() > 1024) {
                 val ms = (System.currentTimeMillis() - t0).coerceAtLeast(1)
@@ -288,7 +291,7 @@ object Mp4Exporter {
                     ctx, srcLocal, outFile, cand, realCodec, encW, encH, fps,
                     rotation, onFrame, onProgress,
                     prefixFrame, prefixDurationMs, ByteArray(0), localUri, reuseOutput,
-                    includeAudio, maxDurationMs, srcBitrate)
+                    includeAudio, maxDurationMs, startPtsUs, srcBitrate)
                 // v15.24：exportWithEncoder 内部多处失败是 return null（无异常）。
                 // 旧写法无条件 return r，既把 null 当成功交付，又提前删掉 srcLocal，
                 // 让后续候选编码器全部拿不到源文件 —— 候选回退形同虚设。
@@ -336,6 +339,8 @@ object Mp4Exporter {
         includeAudio: Boolean = true,
         // v15.10 动态照片 5 秒截断（逐帧路径）：>0 时源帧 PTS 达到该毫秒数即停止编码
         maxDurationMs: Long = 0L,
+        // v15.30 剪辑起点（相对源 PTS 起点的微秒偏移）：>0 时解码器 seek 到该点起解，起点前帧不编码
+        startPtsUs: Long = 0L,
         sourceBitrate: Int = 0
     ): File? {
         var encoder: MediaCodec? = null
@@ -423,7 +428,18 @@ object Mp4Exporter {
                     }
                 } finally { originExtractor.release() }
             }
-            val audioBuf = ByteBuffer.allocateDirect(512 * 1024).order(ByteOrder.nativeOrder())
+            val audioBuf0 = ByteBuffer.allocateDirect(512 * 1024).order(ByteOrder.nativeOrder())
+            // v15.28：超大音频样本（罕见：极长 PCM/无损轨）超过固定 512KB 时按样本大小扩容，
+            // 否则 readSampleData 返回 -1 被误判为 EOS，整段剩余音频静默丢弃
+            var audioBuf = audioBuf0
+            fun ensureAudioBuf(ext: MediaExtractor): ByteBuffer {
+                val need = try { ext.sampleSize.toLong() } catch (_: Throwable) { 0L }
+                if (need > audioBuf.capacity().toLong()) {
+                    audioBuf = ByteBuffer.allocateDirect(need.toInt() + 4096).order(ByteOrder.nativeOrder())
+                    DebugLog.log("AUDIO", "audioBuf 扩容到 ${audioBuf.capacity()}B（样本 ${need}B）")
+                }
+                return audioBuf
+            }
             if (includeAudio && tmp != null && tmp.exists()) {
                 runCatching {
                     val ae = MediaExtractor()
@@ -458,6 +474,7 @@ object Mp4Exporter {
                         val audioPts = at - sourceOriginUs + prefixPts
                         if (audioPts < prefixPts) { ae.advance(); continue }
                         if (audioPts > upToUs + 200_000L) return   // 超前视频 >200ms 则暂停
+                        audioBuf = ensureAudioBuf(ae)
                         audioBuf.clear()
                         val n = ae.readSampleData(audioBuf, 0)
                         if (n < 0) { audioEos = true; return }
@@ -609,7 +626,9 @@ object Mp4Exporter {
                 rotationOverride = rotation,
                 srcUri = srcUri,
                 // v15.10 动态照片 5 秒截断（逐帧路径）：解码层优雅停在 maxDurationMs（ok=true 不判失败）
+                // v15.30 剪辑起点：startPtsUs>0 时从片段起点解码，起点前帧不回调、不编码
                 maxDurationMs = maxDurationMs,
+                startPtsUs = startPtsUs,
                 onFrame = { bmp, delayMs ->
                     videoPts = prefixPts + MotionDecoder.currentFrameTimeUs
                     // v14.96 呼吸/流体帧时间：视频播放 PTS（微秒→秒）——呼吸按真实播放节奏走，
@@ -696,6 +715,7 @@ object Mp4Exporter {
                                 "${(audioPts - audioCapUs) / 1000}ms，防绿幕）")
                             break
                         }
+                        audioBuf = ensureAudioBuf(audioExt!!)
                         audioBuf.clear()
                         val n = audioExt!!.readSampleData(audioBuf, 0)
                         if (n < 0) break
@@ -735,7 +755,8 @@ object Mp4Exporter {
                 // 位置——解码提前中断时这条恒成立；容器时长又被音频轨撑满（音频直通 + 尾部无上限
                 // 排空）→ "视频轨只有开头几帧、音频全量"的坏文件被判成功，播放器放完开头就没有
                 // 可解码帧，剩余整段绿幕。增加覆盖率校验：实际解码终点必须覆盖预期时长。
-                val expectEndMs = if (maxDurationMs > 0) minOf(durEstMs, maxDurationMs) else durEstMs
+                val expectEndMs = if (maxDurationMs > 0) maxDurationMs else durEstMs
+                // v15.30：裁剪片段后预期时长 = 片段长度（起点偏移不影响），避免"截取成功"被判封装失败
                 val coversSource = expectEndMs <= 0L ||
                     decodedEndMs >= expectEndMs - maxOf(500L, expectEndMs / 10L)
                 val verifyOk = outDur >= 0L && outDur >= decodedEndMs - 800L && coversSource

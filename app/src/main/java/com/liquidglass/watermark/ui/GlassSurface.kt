@@ -70,6 +70,6 @@ fun SectionLabel(text: String) {
         text = text,
         color = if (darkModeState) LG.TextSub else Color(0xFF5A6478),
         fontSize = 12.sp,
-        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp, top = 2.dp)
+        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp, top = 12.dp)
     )
 }

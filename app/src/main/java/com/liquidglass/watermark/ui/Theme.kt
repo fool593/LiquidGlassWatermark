@@ -6,6 +6,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.font.FontFamily
+import com.liquidglass.watermark.FontSupport
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -179,11 +183,23 @@ private fun rememberLiquidGlowBrush(dark: Boolean): Modifier {
     return liquidGlowOverlay
 }
 
+/**
+ * v15.37：界面字族固定为**出厂字体**。
+ * 国产 ROM 换主题字后，Compose 的默认字族会被主题字体接管，界面文字被压窄、
+ * 各种行高/宽度测量一起走样（用户实测"整个应用看起来变扁变长"）。界面属于工具 UI，
+ * 不应跟随主题字体；只有水印文字的「系统字体」选项才使用系统当前字体。
+ */
+private val UiFontFamily: FontFamily by lazy { FontFamily(FontSupport.factory(false)) }
+
 @Composable
 fun LiquidGlassTheme(content: @Composable () -> Unit) {
+    // 界面基样式统一挂出厂字族：所有未显式指定 fontFamily 的 Text 都会继承（字号/颜色各自覆盖）
+    val uiStyle = LocalTextStyle.current.copy(fontFamily = UiFontFamily)
     MaterialTheme(
         colorScheme = if (darkModeState) GlassColorScheme else LightGlassColorScheme,
         typography = MaterialTheme.typography,
-        content = content
+        content = {
+            CompositionLocalProvider(LocalTextStyle provides uiStyle, content = content)
+        }
     )
 }

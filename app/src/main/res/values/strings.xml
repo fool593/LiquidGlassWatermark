@@ -154,6 +154,28 @@
     <string name="motion_format_vivo">vivo-style 双文件</string>
     <string name="motion_format_google">单文件 · XMP + MP4</string>
 
+    <!-- v15.28 GIF 导出自定义参数 -->
+    <string name="gif_params_title">GIF 导出参数（自定义分辨率与帧率）</string>
+    <string name="gif_res_480">480p</string>
+    <string name="gif_res_720">720p</string>
+    <string name="gif_trim_title">剪辑时间轴（拖动选择片段）</string>
+    <string name="gif_trim_reset">重置为默认 5 秒</string>
+    <string name="gif_trim_hint">默认截取前 5 秒；拖动手柄自定义起始与时长</string>
+    <string name="gif_tool_subtitle">视频 → GIF：选片段转动图</string>
+    <string name="gif_pick_video">选择视频</string>
+    <string name="gif_preview_clip">预览选中片段</string>
+    <string name="gif_pick_hint">支持 MP4 / MOV / 3GP / WEBM / MKV\n选择后即可调参数与剪辑时间轴</string>
+    <string name="gif_change_video">换视频</string>
+    <string name="gif_export_btn">导出 GIF</string>
+
+    <!-- v15.28 iOS27 风格 -->
+    <string name="ios27_style">iOS 27 风格</string>
+    <string name="ios27_style_hint">更通透的液态玻璃：边缘芯线高光、克制色散、轻内阴影</string>
+
+    <!-- v15.31 画布空态选择入口 -->
+    <string name="canvas_pick_media">选择照片或视频</string>
+    <string name="canvas_pick_hint">从相册选取图片、视频或 GIF，加水印后导出</string>
+
     <!-- 保存流程 -->
     <string name="saved_ok">已保存到系统相册：%1$s</string>
     <string name="save_fail">保存失败：%1$s</string>
@@ -182,7 +204,7 @@
     <string name="webp_loaded">动态 WebP 已载入</string>
     <string name="webp_decode_fail">动态 WebP 解码失败，请换一张试试</string>
     <string name="export_fmt">导出</string>
-    <string name="mp_title">动照</string>
+    <string name="mp_title">动态照片</string>
     <string name="cleaning">清理中…</string>
     <string name="clean_done">已清理 %1$s</string>
     <string name="clean_auto_short">导出后自动清理</string>
@@ -245,15 +267,63 @@
     <string name="logo_shape_none">原图（不裁剪）</string>
     <string name="mp_pick_whole">整段动图导入（封面+视频自动填满）</string>
     <string name="mp_import_ok_both">封面+视频已自动配对</string>
+    <string name="export_mode_label">模式</string>
     <string name="export_mode_title">导出模式（三选一）</string>
     <string name="export_mode_fast">快速</string>
     <string name="export_mode_hybrid">混合</string>
     <string name="export_mode_cpu2">CPU</string>
-    <string name="gif_entry">视频转动图</string>
+    <string name="gif_entry">GIF</string>
     <string name="custom_logo_import_new">导入新的自定义 Logo</string>
     <string name="custom_logo_delete_active">删除当前自定义 Logo</string>
     <string name="glass_tier">画质档位（high/low）</string>
     <string name="glass_tier_high">high（全量色散+菲涅尔）</string>
     <string name="glass_tier_low">low（保留折射+扭曲）</string>
     <string name="scale_comp">缩小补偿</string>
+    <string name="crop_section">裁剪比例</string>
+    <string name="crop_original">原图</string>
+    <string name="crop_16_9">16:9</string>
+    <string name="crop_4_3">4:3</string>
+    <string name="crop_3_2">3:2</string>
+    <string name="crop_1_1">1:1</string>
+    <string name="crop_9_16">9:16</string>
+    <string name="crop_3_4">3:4</string>
+    <string name="crop_2_3">2:3</string>
+    <string name="geo_section">地理位置</string>
+    <string name="geo_mode_off">关闭</string>
+    <string name="geo_mode_exif">相册EXIF</string>
+    <string name="geo_mode_current">当前位置</string>
+    <string name="geo_mode_custom">自定义</string>
+    <string name="geo_read_exif">读取相册原文件位置</string>
+    <string name="geo_use_current">使用当前设备位置</string>
+    <string name="geo_clear">清除</string>
+    <string name="geo_hint">位置会显示在水印日期行下方</string>
+    <string name="geo_no_gps">该照片原文件不含 GPS 信息</string>
+    <string name="geo_exif_ok">已读取照片地理位置</string>
+    <string name="geo_no_loc">获取当前位置失败，请检查定位开关</string>
+    <string name="geo_current_ok">已使用当前位置</string>
+    <string name="font_panel_section">字体调节（大小/位置/间距）</string>
+    <string name="font_title_line">主字体</string>
+    <string name="font_code_line">型号</string>
+    <string name="font_time_line">时间</string>
+    <string name="font_geo_line">地理位置</string>
+    <string name="font_size">大小</string>
+    <string name="font_shift">左右</string>
+    <string name="font_block_shift">整体偏移</string>
+    <string name="font_line_gap">行间距</string>
+    <string name="font_letter_spacing">字间距</string>
+    <string name="font_shadow">字体阴影</string>
+    <string name="auto_tz">自动时区/语言</string>
+    <!-- v15.35 真实地名 / 位置上下 / 画布方向 -->
+    <string name="geo_style_place">真实地名</string>
+    <string name="geo_style_coord">经纬度</string>
+    <string name="geo_place_ok">已定位：%1$s</string>
+    <string name="geo_place_fail">地名解析失败，已显示经纬度</string>
+    <string name="geo_above_time">位置行放到时间上方</string>
+    <string name="font_time_dy">时间上下</string>
+    <string name="font_geo_dy">位置上下</string>
+    <string name="font_code_dy">型号上下</string>
+    <string name="canvas_orient">画布方向</string>
+    <string name="canvas_auto">自动</string>
+    <string name="canvas_land">横屏</string>
+    <string name="canvas_port">竖屏</string>
 </resources>

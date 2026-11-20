@@ -7,6 +7,7 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -32,6 +33,7 @@ import com.liquidglass.watermark.glass.backdrops.LayerBackdrop
 import com.liquidglass.watermark.glass.highlight.Highlight
 import com.liquidglass.watermark.glass.highlight.HighlightElement
 import com.liquidglass.watermark.glass.internal.ShapeProvider
+import com.liquidglass.watermark.glass.internal.clipOutline
 import com.liquidglass.watermark.glass.internal.recordLayer
 import com.liquidglass.watermark.glass.shadow.InnerShadow
 import com.liquidglass.watermark.glass.shadow.InnerShadowElement
@@ -259,6 +261,9 @@ private class DrawBackdropNode(
 
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
 
+    /** padding>0 时裁剪外溢 backdrop 像素用的复用 Path。 */
+    private var clipPath: Path? = null
+
     private var padding by mutableFloatStateOf(0f)
 
     private val recordBackdropBlock: (DrawScope.() -> Unit) = {
@@ -301,7 +306,22 @@ private class DrawBackdropNode(
             layer.topLeft =
                 if (padding != 0f) IntOffset(-padding.toInt(), -padding.toInt())
                 else IntOffset.Zero
-            drawLayer(layer)
+
+            // v15.34：padding>0 的玻璃（模糊/折射外溢区）必须按 shape 裁剪后再合成。
+            // 修复前 backdrop 图层以 -padding 偏移整块贴出，外溢的 blur/折射像素直接画到控件
+            // 边界之外 —— 液态玻璃 Dock 上表现为一个横跨数格、超出胶囊上下沿的"放大圆斑"。
+            // 裁剪只作用于外溢像素，shape 内部（含边缘折射）完全不变；padding==0 时无额外开销。
+            if (padding > 0f) {
+                val canvas = drawContext.canvas
+                val outline = shapeProvider.shape.createOutline(size, layoutDirection, this)
+                val path = clipPath ?: Path().also { clipPath = it }
+                canvas.save()
+                canvas.clipOutline(outline, path)
+                drawLayer(layer)
+                canvas.restore()
+            } else {
+                drawLayer(layer)
+            }
         }
     }
 

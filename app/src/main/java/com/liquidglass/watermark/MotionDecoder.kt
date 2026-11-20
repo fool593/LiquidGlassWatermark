@@ -122,11 +122,13 @@ object MotionDecoder {
         minFrames: Int = 2,
         rotationOverride: Int = -1,
         srcUri: android.net.Uri? = null,
-        maxDurationMs: Long = 0L
+        maxDurationMs: Long = 0L,
+        // v15.31：缓冲模式也支持剪辑起点（相对源 PTS 微秒偏移），预览/导出片段统一
+        startPtsUs: Long = 0L
     ): Frames? {
         abortFlag = false  // 重置上次导出的中止标记，避免跨次误判"解码失败"
         return try {
-            decodeWithFallback(ctx, mp4, maxEdge, targetFps, maxFrames, timeoutMs, minFrames, null, rotationOverride, srcUri, maxDurationMs)
+            decodeWithFallback(ctx, mp4, maxEdge, targetFps, maxFrames, timeoutMs, minFrames, null, rotationOverride, srcUri, maxDurationMs, startPtsUs)
         } catch (e: ExternalCancelException) { null }
     }
 
@@ -144,7 +146,10 @@ object MotionDecoder {
         onFrame: (Bitmap, Int) -> Boolean,
         rotationOverride: Int = -1,
         srcUri: android.net.Uri? = null,
-        maxDurationMs: Long = 0L
+        maxDurationMs: Long = 0L,
+        // v15.28 时间轴剪辑：片段起点（相对源 PTS 起点，微秒，0=片头）。
+        // 解码器从起点 seek 起解、起点前帧不回调；maxDurationMs 按片段内时长判定。
+        startPtsUs: Long = 0L
     ): Boolean {
         abortFlag = false
         var consumed = 0
@@ -156,6 +161,12 @@ object MotionDecoder {
         fun emitPending(nextTimeUs: Long? = null): Boolean {
             val frame = pending ?: return true
             pending = null
+            // v15.28 时间门兜底：起点前的帧（seek 提前到关键帧时可能偶现）不回调、直接回收。
+            // 主过滤已在 decodeImpl/retriever 层完成（性能），这里只保证正确性。
+            if (pendingTimeUs < startPtsUs.coerceAtLeast(0L)) {
+                if (!frame.isRecycled) frame.recycle()
+                return true
+            }
             val endTimeUs = nextTimeUs ?: pendingEndUs.takeIf { it > pendingTimeUs }
                 ?: (pendingTimeUs + pendingDelayMs * 1000L)
             val delay = FrameTiming.delayMs(pendingTimeUs, endTimeUs)
@@ -184,7 +195,7 @@ object MotionDecoder {
                         pendingEndUs = sourceEnd
                         true
                     }
-                }, rotationOverride, srcUri, maxDurationMs
+                }, rotationOverride, srcUri, maxDurationMs, startPtsUs
             ) != null
             decoded && emitPending()
         } catch (e: ExternalCancelException) { false }
@@ -203,7 +214,8 @@ object MotionDecoder {
         ctx: Context, mp4: ByteArray, maxEdge: Int, targetFps: Int, maxFrames: Int,
         timeoutMs: Int, minFrames: Int, onFrame: ((Bitmap, Int) -> Boolean)?,
         rotationOverride: Int = -1, srcUri: android.net.Uri? = null,
-        maxDurationMs: Long = 0L
+        maxDurationMs: Long = 0L,
+        startPtsUs: Long = 0L
     ): Frames? {
         // 总超时预算：所有解码层共享，避免多解码器失败时层层 8 秒把用户等死
         lastRunReachedEnd = false
@@ -215,7 +227,9 @@ object MotionDecoder {
             (deadline - System.currentTimeMillis()).coerceIn(1L, timeoutMs.toLong()).toInt()
         // 流式（onFrame 有副作用）：层失败后下层从 attempt.resumeUs seek 续解，帧不重复；
         // 缓冲模式：每层从头解，失败层的局部帧直接丢弃
-        val attempt = DecodeAttempt(maxDurationMs.coerceAtLeast(0L) * 1000L)
+        val attempt = DecodeAttempt(maxDurationMs.coerceAtLeast(0L) * 1000L).also {
+            it.startUs = startPtsUs.coerceAtLeast(0L)
+        }
 
         // 第 1 层：系统默认解码器（createDecoderByType，硬件优先）
         val r0 = System.currentTimeMillis()
@@ -293,6 +307,13 @@ object MotionDecoder {
     val currentFrameTimeUs: Long get() = frameClockUs.get()
 
     private class DecodeAttempt(val maxDurationUs: Long = 0L) {
+        /** v15.28 时间轴剪辑：片段起点（相对源 PTS 起点的微秒偏移，0=片头）。
+         *  decodeImpl 首次 seek 到该点、丢弃其前帧；limit（maxDurationUs）按片段内时间判定。 */
+        @Volatile var startUs: Long = 0L
+        /** v15.28 H1 修复：content:// 源在 fallback 链中每个候选解码器重复整拷。
+         *  首次落盘后写入本路径，同一次 decodeWithFallback 内后续候选直接复用本地文件
+         *  （文件带 lgw_ 前缀，由调用方 export 结束的 clearExportCache 统一清理）。 */
+        @Volatile var sharedLocalPath: String? = null
         @Volatile var resumeUs: Long = -1L
         @Volatile var sourceOriginUs: Long = 0L
         /** 源真实帧率（MediaExtractor 轨道 KEY_FRAME_RATE，比 mmr CAPTURE_FRAMERATE 可信）：
@@ -384,8 +405,11 @@ object MotionDecoder {
                 mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLong()?.times(1000L)
             }.getOrNull() ?: 0L
-            val durUs = if (attempt.maxDurationUs > 0L)
-                minOf(sourceDurationUs, attempt.maxDurationUs) else sourceDurationUs
+            // v15.28 时间轴剪辑（retriever 兜底）：片段 [segStartUs, segEndUs)，durUs=片段内长度
+            val segStartUs = attempt.startUs.coerceAtLeast(0L)
+            val segEndUs = if (attempt.maxDurationUs > 0L)
+                minOf(sourceDurationUs, segStartUs + attempt.maxDurationUs) else sourceDurationUs
+            val durUs = (segEndUs - segStartUs).coerceAtLeast(0L)
             if (durUs <= 0) return null
             val rotation0 = runCatching {
                 mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toInt() ?: 0
@@ -416,9 +440,11 @@ object MotionDecoder {
             // 续解：前层已消费到 resumeUs，从其后第一个抽帧位开始，不重复回调
             val resumeFromUs = if (onFrame != null && attempt.resumeUs >= 0L)
                 attempt.resumeUs - attempt.sourceOriginUs else -1L
-            val startI = if (resumeFromUs > 0L)
-                ((resumeFromUs + intervalUs) / intervalUs).toInt().coerceAtLeast(0) else 0
-            DebugLog.log("DEC", "兜底retriever durUs=$durUs fps=$fps nFrames=$nFrames startI=$startI w=$w h=$h rotation=$rotation")
+            // v15.28：抽帧起点 = 续解点 与 片段起点（segStartUs/intervalUs）的较大者
+            val startI = maxOf(
+                if (resumeFromUs > 0L) ((resumeFromUs + intervalUs) / intervalUs).toInt().coerceAtLeast(0) else 0,
+                (segStartUs / intervalUs.coerceAtLeast(1L)).toInt())
+            DebugLog.log("DEC", "兜底retriever durUs=$durUs segStart=${segStartUs/1000}ms fps=$fps nFrames=$nFrames startI=$startI w=$w h=$h rotation=$rotation")
             val s = maxEdge.toFloat() / maxOf(w, h).toFloat()
             val dw = (w * minOf(1f, s)).toInt().coerceAtLeast(1)
             val dh = (h * minOf(1f, s)).toInt().coerceAtLeast(1)
@@ -521,9 +547,9 @@ object MotionDecoder {
                 // MediaMetadataRetriever already applies container rotation.
                 val bmp = rotateIfNeeded(rawBmp, ((rotation - rotation0) % 360 + 360) % 360)
                 if (onFrame != null) {
-                    frameEndUs.set(durUs)
+                    frameEndUs.set(segEndUs)
                     frameClockUs.set(f.seq * intervalUs)
-                    val boundedDelay = minOf(delayMs.toLong(), ((durUs - f.seq * intervalUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
+                    val boundedDelay = minOf(delayMs.toLong(), ((segEndUs - f.seq * intervalUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
                     if (!onFrame(bmp, boundedDelay)) {
                         runCatching { bmp.recycle() }
                         abortP.set(true)
@@ -552,9 +578,9 @@ object MotionDecoder {
                 // MediaMetadataRetriever already applies container rotation.
                 val bmp = rotateIfNeeded(rawBmp, ((rotation - rotation0) % 360 + 360) % 360)
                 if (onFrame != null) {
-                    frameEndUs.set(durUs)
+                    frameEndUs.set(segEndUs)
                     frameClockUs.set(f.seq * intervalUs)
-                    val boundedDelay = minOf(delayMs.toLong(), ((durUs - f.seq * intervalUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
+                    val boundedDelay = minOf(delayMs.toLong(), ((segEndUs - f.seq * intervalUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
                     if (!onFrame(bmp, boundedDelay)) {
                         runCatching { bmp.recycle() }
                         abortP.set(true)
@@ -584,7 +610,8 @@ object MotionDecoder {
                 return null
             }
             return Frames(out, IntArray(got) { i ->
-                minOf(delayMs.toLong(), ((durUs - i * intervalUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
+                // v15.28：缓冲模式也按片段右界（segEndUs）截尾；帧号=startI+i（绝对源时间）
+                minOf(delayMs.toLong(), ((segEndUs - (startI + i) * intervalUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
             }, w, h, rotation)
         } catch (t: Throwable) {
             // 外部取消：回收帧后重抛（不能吞，否则 MainActivity 收不到取消信号、被当失败）
@@ -647,17 +674,41 @@ object MotionDecoder {
                 if (!f.exists()) return null
                 extractor.setDataSource(f.absolutePath)
             } else if (srcUri != null) {
-                val t = File(ctx.cacheDir, "lgw_src_${System.currentTimeMillis()}.mp4")
-                tmp = t
-                val copied = runCatching { copyUriToFile(ctx, srcUri, t); t.length() > 0 }.getOrDefault(false)
-                if (!copied || t.length() <= 0) {
-                    // 复制失败回退流式（极少数超大文件），但记录日志便于排查
-                    DebugLog.log("DEC", "srcUri 落盘失败，回退流式（可能截断）")
-                    runCatching { t.delete() }; tmp = null
-                    runCatching { extractor.setDataSource(ctx, srcUri, null) }
+                // v15.28 H1：同一 fallback 链内首次落盘后共享，后续候选不再重复整拷
+                val shared = attempt.sharedLocalPath
+                if (shared != null) {
+                    val sf = File(shared)
+                    if (sf.exists() && sf.length() > 0) {
+                        extractor.setDataSource(shared)
+                        DebugLog.log("DEC", "复用共享源文件 ${sf.length() / 1024}KB（避免重复拷贝）")
+                    } else {
+                        attempt.sharedLocalPath = null
+                        val t = File(ctx.cacheDir, "lgw_src_${System.currentTimeMillis()}.mp4")
+                        tmp = t
+                        val copied = runCatching { copyUriToFile(ctx, srcUri, t); t.length() > 0 }.getOrDefault(false)
+                        if (!copied || t.length() <= 0) {
+                            runCatching { t.delete() }; tmp = null
+                            runCatching { extractor.setDataSource(ctx, srcUri, null) }
+                        } else {
+                            attempt.sharedLocalPath = t.absolutePath
+                            DebugLog.log("DEC", "srcUri 落盘 ${t.length()/1024}KB（链内共享）")
+                            extractor.setDataSource(t.absolutePath)
+                        }
+                    }
                 } else {
-                    DebugLog.log("DEC", "srcUri 落盘 ${t.length()/1024}KB 本地解码")
-                    extractor.setDataSource(t.absolutePath)
+                    val t = File(ctx.cacheDir, "lgw_src_${System.currentTimeMillis()}.mp4")
+                    tmp = t
+                    val copied = runCatching { copyUriToFile(ctx, srcUri, t); t.length() > 0 }.getOrDefault(false)
+                    if (!copied || t.length() <= 0) {
+                        // 复制失败回退流式（极少数超大文件），但记录日志便于排查
+                        DebugLog.log("DEC", "srcUri 落盘失败，回退流式（可能截断）")
+                        runCatching { t.delete() }; tmp = null
+                        runCatching { extractor.setDataSource(ctx, srcUri, null) }
+                    } else {
+                        attempt.sharedLocalPath = t.absolutePath
+                        DebugLog.log("DEC", "srcUri 落盘 ${t.length()/1024}KB 本地解码")
+                        extractor.setDataSource(t.absolutePath)
+                    }
                 }
             } else {
                 val t = File(ctx.cacheDir, "lgw_motion_${System.currentTimeMillis()}.mp4")
@@ -724,7 +775,12 @@ object MotionDecoder {
             format.setInteger(MediaFormat.KEY_ROTATION, 0)
             // 续解：前层已消费到 resumeUs，seek 到其前一个 sync frame 起解，输出按 PTS 去重
             val resumeFromUs = if (onFrame != null) attempt.resumeUs else -1L
-            if (resumeFromUs > 0L) extractor.seekTo(resumeFromUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            // v15.28 时间轴剪辑：片段起点 Gate = 源起点 + startUs。seek 点取「续解点」与「片段起点」
+            // 的较大者（首次解码时 resumeUs=-1，直接 seek 到片段起点前一个关键帧，起点前帧循环内丢弃）
+            val startGateUs = attempt.sourceOriginUs + attempt.startUs.coerceAtLeast(0L)
+            val seekPointUs = maxOf(resumeFromUs, startGateUs)
+            if (seekPointUs > 0L) extractor.seekTo(
+                (seekPointUs - 100_000L).coerceAtLeast(0L), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
             codec = CodecSelector.createDecoder(mime, codecName)
             if (codec == null) return null
             // ── Surface + ImageReader 模式（性能核心）：解码器直接硬件/驱动合成 RGBA_8888 输出，
@@ -787,7 +843,7 @@ object MotionDecoder {
             var stalled = false
             var lastKeptUs = Long.MIN_VALUE
             var kept = 0
-            var nextSampleUs = attempt.sourceOriginUs
+            var nextSampleUs = startGateUs
             var guard = 0
             var lastOutputMs = System.currentTimeMillis()
             // Surface 模式取帧失败计数：连续 N 帧取不到 Image → 判定该实例 Surface 输出不可用
@@ -839,8 +895,15 @@ object MotionDecoder {
                         }
                         lastOutputMs = outWall // 任何输出都算解码器活性（含去重丢弃帧）
                         val eos = (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
-                        val relativeUs = (info.presentationTimeUs - attempt.sourceOriginUs).coerceAtLeast(0L)
-                        val reachedLimit = attempt.maxDurationUs > 0L && relativeUs >= attempt.maxDurationUs
+                        // v15.28 时间轴剪辑：片段起点前的帧（seek 提前到关键帧的过冲帧）不回调、直接释放
+                        if (info.presentationTimeUs < startGateUs) {
+                            c.releaseOutputBuffer(outIndex, false)
+                            if (eos) outputEos = true
+                            continue
+                        }
+                        // 片段内播放时间：limit（maxDurationUs）按片段内判定，起点偏移不影响截断点
+                        val relPlayUs = (info.presentationTimeUs - startGateUs).coerceAtLeast(0L)
+                        val reachedLimit = attempt.maxDurationUs > 0L && relPlayUs >= attempt.maxDurationUs
                         if (reachedLimit) {
                             c.releaseOutputBuffer(outIndex, false)
                             outputEos = true
@@ -1007,8 +1070,9 @@ object MotionDecoder {
                             }.getOrNull()
                             if (bmp != null) {
                                 if (useSurface) surfaceNullFrames = 0 // 取帧成功：重置失败计数
-                                nextSampleUs = attempt.sourceOriginUs +
-                                    ((relativeUs + 500L) / frameIntervalUs + 1L) * frameIntervalUs
+                                // 抽帧网格以片段起点重对齐（相对 startGateUs），起点偏移不产生相位漂移
+                                nextSampleUs = startGateUs +
+                                    ((relPlayUs + 500L) / frameIntervalUs + 1L) * frameIntervalUs
                                 if (onFrame != null) {
                                     // 流式：回调携带真实帧延迟（首帧按源帧率近似），消费完立即回收。
                                     // 间隔不人为截断（旧 16..500ms 会让 VFR/低帧率视频累计缩短时长）；
@@ -1027,9 +1091,10 @@ object MotionDecoder {
                                         if (sourceEndUs > 0L) minOf(sourceEndUs, attempt.maxDurationUs)
                                         else attempt.maxDurationUs
                                     else sourceEndUs)
-                                    frameClockUs.set(relativeUs)
+                                    // 相对源起点的播放时间（与 startPtsUs 同一基准，供 decodeFrames 时间门过滤）
+                                    frameClockUs.set((info.presentationTimeUs - attempt.sourceOriginUs).coerceAtLeast(0L))
                                     val boundedDelay = if (attempt.maxDurationUs > 0L)
-                                        minOf(delayMs.toLong(), ((attempt.maxDurationUs - relativeUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
+                                        minOf(delayMs.toLong(), ((attempt.maxDurationUs - relPlayUs + 999L) / 1000L).coerceAtLeast(1L)).toInt()
                                     else delayMs
                                     if (!onFrame(bmp, boundedDelay)) {
                                         runCatching { bmp.recycle() }
@@ -1104,7 +1169,8 @@ object MotionDecoder {
                     else -> 1000 / effFps.coerceAtLeast(1)
                 }
                 val remainingMs = if (attempt.maxDurationUs > 0L)
-                    ((attempt.maxDurationUs - (pickedPts[i] - attempt.sourceOriginUs) + 999L) / 1000L).coerceAtLeast(1L)
+                    // v15.28：片段内剩余（相对 startGateUs），裁剪起点不影响尾帧延迟
+                    ((attempt.maxDurationUs - (pickedPts[i] - startGateUs) + 999L) / 1000L).coerceAtLeast(1L)
                     else 60_000L
                 delays[i] = minOf(d.coerceAtLeast(1).toLong(), remainingMs).toInt()
             }
@@ -1185,7 +1251,13 @@ object MotionDecoder {
                 val y = yBuf.get(yRowBase + (cropX + sx) * yPix).toInt() and 255
                 val uvIdx = uvY + ((cropX + sx) / 2) * uvPix
                 val u = uBuf.get(uvIdx).toInt() and 255
-                val v = vBuf.get(vRowBase + ((cropX + sx) / 2) * vPix).toInt() and 255
+                // v15.28 修复 NV12（semi-planar）色度中和 bug：NV12 的 U/V 共享同一 ByteBuffer，
+                // V 以紧凑偏移 +1 落在同一 buffer 内；旧实现用 vBuf.get(vRowBase + idx*vPix)，
+                // 而 vBuf 与 uBuf 是同一对象时 vRowBase 与 uvY 相同、又按 vPix(2) 取相邻位 →
+                // 取到的仍是 U（或越位），V 恒等于 U → 画面掉色偏灰。共享 buffer 时改从 uBuf+1 读 V。
+                val v = if (uvPix >= 2 && vBuf === uBuf)
+                    (uBuf.get(uvIdx + 1).toInt() and 255)
+                else (vBuf.get(vRowBase + ((cropX + sx) / 2) * vPix).toInt() and 255)
                 argb[oi++] = converter.argb(y, u, v)
                 sx += step
             }

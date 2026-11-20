@@ -251,46 +251,58 @@ object ExportBench {
      * 跑一组时长 × 三条导出路径。
      * @return CSV 文件
      */
-    fun run(ctx: Context, renderer: WatermarkEditorView?, durationsSec: List<Int>): File? {
+    /**
+     * 跑一组 时长 × 帧率 × 三条导出路径。
+     * v15.28：新增 fps 维度（默认 [30]），样片按指定帧率生成，CSV 增列
+     * fps / speedup（实时倍率=exportMs 相对视频时长，衡量"导出不能慢"的达标依据）。
+     * @return CSV 文件
+     */
+    fun run(ctx: Context, renderer: WatermarkEditorView?, durationsSec: List<Int>,
+            fpsList: List<Int> = listOf(30)): File? {
         if (renderer == null) {
             DebugLog.log("BENCH", "renderer 为空，基准中止")
             return null
         }
         val dir = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "bench").apply { mkdirs() }
         val csv = File(dir, "bench_${System.currentTimeMillis()}.csv")
-        csv.writeText("phase,durationSec,path,exportMs,frames,msPerFrame,cpuMs,readKB,writeKB,heapMB,probes\n")
-        DebugLog.log("BENCH", "开始 时长=$durationsSec 设备=API${android.os.Build.VERSION.SDK_INT} 模型=${android.os.Build.MODEL}")
-        for (sec in durationsSec) {
-            val sample = File(dir, "bench_sample_${sec}s.mp4")
-            if (!makeSample(ctx, sec, sample)) {
-                csv.appendText("generate,$sec,-,FAILED,0,0,0,0,0,0,\n"); continue
-            }
-            val paths: List<Pair<String, () -> Sample?>> = listOf(
-                "gpu" to { measureGpu(ctx, renderer, sample, true, "${sec}s/gpu") },
-                "gpuraw" to { measureGpu(ctx, renderer, sample, false, "${sec}s/gpuraw") },
-                "cpu" to { measureCpu(ctx, renderer, sample, "${sec}s/cpu") }
-            )
-            for ((label, fn) in paths) {
-                val s = fn()
-                if (s == null) {
-                    csv.appendText("export,$sec,$label,FAILED,0,0,0,0,0,0,\n"); continue
+        csv.writeText("phase,durationSec,fps,path,exportMs,frames,msPerFrame,speedupX,cpuMs,readKB,writeKB,heapMB,probes\n")
+        DebugLog.log("BENCH", "开始 时长=$durationsSec 帧率=$fpsList 设备=API${android.os.Build.VERSION.SDK_INT} 模型=${android.os.Build.MODEL}")
+        for (fps in fpsList) {
+            for (sec in durationsSec) {
+                val sample = File(dir, "bench_sample_${sec}s_${fps}fps.mp4")
+                if (!makeSample(ctx, sec, sample, fps = fps)) {
+                    csv.appendText("generate,$sec,$fps,-,FAILED,0,0,0,0,0,0,0,\n"); continue
                 }
-                val perFrame = if (s.frames > 0) "%.2f".format(s.ms.toDouble() / s.frames) else "0"
-                val probeStr = s.probes.joinToString(" ") { "${it.pct}:${it.elapsedMs}" }.replace(",", ";")
-                csv.appendText("export,$sec,$label,${s.ms},${s.frames},$perFrame," +
-                    "${s.cpuMs},${s.readKb},${s.writeKb},${s.peakHeapMb},\"$probeStr\"\n")
-                DebugLog.log("BENCH",
-                    "RESULT sec=$sec path=$label exportMs=${s.ms} frames=${s.frames} msPerFrame=$perFrame " +
-                        "cpuMs=${s.cpuMs} readKB=${s.readKb} writeKB=${s.writeKb} heapMB=${s.peakHeapMb}")
-                // 台阶定位：按 10 个百分点分桶
-                val pts = s.probes.map { it.pct to it.elapsedMs }.distinctBy { it.first }
-                val sb = StringBuilder()
-                for (i in 1 until pts.size) {
-                    val a = pts[i - 1]; val b = pts[i]
-                    val dp = b.first - a.first
-                    if (dp > 0) sb.append("${a.first}-${b.first}:${(b.second - a.second) / dp} ")
+                val paths: List<Pair<String, () -> Sample?>> = listOf(
+                    "gpu" to { measureGpu(ctx, renderer, sample, true, "${sec}s@${fps}fps/gpu") },
+                    "gpuraw" to { measureGpu(ctx, renderer, sample, false, "${sec}s@${fps}fps/gpuraw") },
+                    "cpu" to { measureCpu(ctx, renderer, sample, "${sec}s@${fps}fps/cpu") }
+                )
+                for ((label, fn) in paths) {
+                    val s = fn()
+                    if (s == null) {
+                        csv.appendText("export,$sec,$fps,$label,FAILED,0,0,0,0,0,0,0,\n"); continue
+                    }
+                    val perFrame = if (s.frames > 0) "%.2f".format(s.ms.toDouble() / s.frames) else "0"
+                    // v15.28：实时倍率 = 视频时长 / 导出耗时（>1 表示比实时快，达标线见导出性能报告）
+                    val speedup = if (sec > 0 && s.ms > 0) "%.2f".format(sec * 1000.0 / s.ms) else "0"
+                    val probeStr = s.probes.joinToString(" ") { "${it.pct}:${it.elapsedMs}" }.replace(",", ";")
+                    csv.appendText("export,$sec,$fps,$label,${s.ms},${s.frames},$perFrame,$speedup," +
+                        "${s.cpuMs},${s.readKb},${s.writeKb},${s.peakHeapMb},\"$probeStr\"\n")
+                    DebugLog.log("BENCH",
+                        "RESULT sec=${sec}s fps=$fps path=$label exportMs=${s.ms} frames=${s.frames} " +
+                            "msPerFrame=$perFrame speedup=${speedup}x " +
+                            "cpuMs=${s.cpuMs} readKB=${s.readKb} writeKB=${s.writeKb} heapMB=${s.peakHeapMb}")
+                    // 台阶定位：按 10 个百分点分桶
+                    val pts = s.probes.map { it.pct to it.elapsedMs }.distinctBy { it.first }
+                    val sb = StringBuilder()
+                    for (i in 1 until pts.size) {
+                        val a = pts[i - 1]; val b = pts[i]
+                        val dp = b.first - a.first
+                        if (dp > 0) sb.append("${a.first}-${b.first}:${(b.second - a.second) / dp} ")
+                    }
+                    DebugLog.log("BENCH", "SEG sec=${sec}s fps=$fps path=$label $sb")
                 }
-                DebugLog.log("BENCH", "SEG sec=$sec path=$label $sb")
             }
         }
         DebugLog.log("BENCH", "完成 → ${csv.absolutePath}")

@@ -132,6 +132,28 @@
     <string name="motion_format_vivo">vivo-style pair</string>
     <string name="motion_format_google">Single JPEG · XMP + MP4</string>
 
+    <!-- v15.28 GIF export custom params -->
+    <string name="gif_params_title">GIF export (custom resolution &amp; fps)</string>
+    <string name="gif_res_480">480p</string>
+    <string name="gif_res_720">720p</string>
+    <string name="gif_trim_title">Trim timeline (drag to select clip)</string>
+    <string name="gif_trim_reset">Reset to default 5s</string>
+    <string name="gif_trim_hint">Defaults to first 5s; drag handles to customise start &amp; length</string>
+    <string name="gif_tool_subtitle">Video → GIF: pick a clip</string>
+    <string name="gif_pick_video">Choose video</string>
+    <string name="gif_preview_clip">Preview selected clip</string>
+    <string name="gif_pick_hint">MP4 / MOV / 3GP / WEBM / MKV\nPick one, then adjust params and trim</string>
+    <string name="gif_change_video">Change video</string>
+    <string name="gif_export_btn">Export GIF</string>
+
+    <!-- v15.28 iOS 27 style -->
+    <string name="ios27_style">iOS 27 style</string>
+    <string name="ios27_style_hint">More translucent liquid glass: edge core highlight, restrained dispersion, lighter inner shadow</string>
+
+    <!-- v15.31 canvas empty-state picker -->
+    <string name="canvas_pick_media">Choose photo or video</string>
+    <string name="canvas_pick_hint">Pick an image, video or GIF from your gallery</string>
+
     <string name="saved_ok">Saved to gallery: %1$s</string>
     <string name="save_fail">Save failed: %1$s</string>
     <string name="need_permission">Storage permission is required to save</string>
@@ -159,7 +181,7 @@
     <string name="webp_loaded">Animated WebP loaded</string>
     <string name="webp_decode_fail">Failed to decode animated WebP, please try another</string>
     <string name="export_fmt">Export</string>
-    <string name="mp_title">Motion</string>
+    <string name="mp_title">Motion photo</string>
     <string name="cleaning">Cleaning…</string>
     <string name="clean_done">Cleaned %1$s</string>
     <string name="clean_auto_short">Auto clean after export</string>
@@ -227,15 +249,28 @@
     <string name="logo_shape_none">Original (no crop)</string>
     <string name="mp_pick_whole">Import motion photo (fill cover and video automatically)</string>
     <string name="mp_import_ok_both">Cover and video paired automatically</string>
+    <string name="export_mode_label">Mode</string>
     <string name="export_mode_title">Export mode (choose one)</string>
     <string name="export_mode_fast">Fast</string>
     <string name="export_mode_hybrid">Hybrid</string>
     <string name="export_mode_cpu2">CPU</string>
-    <string name="gif_entry">Video to GIF</string>
+    <string name="gif_entry">GIF</string>
     <string name="custom_logo_import_new">Import a new custom logo</string>
     <string name="custom_logo_delete_active">Delete the current custom logo</string>
     <string name="glass_tier">Quality tier (high/low)</string>
     <string name="glass_tier_high">high (full dispersion + fresnel)</string>
     <string name="glass_tier_low">low (keeps refraction + warp)</string>
     <string name="scale_comp">Scale compensation</string>
+    <string name="geo_style_place">Real place</string>
+    <string name="geo_style_coord">Lat / Lon</string>
+    <string name="geo_place_ok">Located: %1$s</string>
+    <string name="geo_place_fail">Place lookup failed, showing coordinates</string>
+    <string name="geo_above_time">Place above time</string>
+    <string name="font_time_dy">Time vertical</string>
+    <string name="font_geo_dy">Place vertical</string>
+    <string name="font_code_dy">Code vertical</string>
+    <string name="canvas_orient">Canvas</string>
+    <string name="canvas_auto">Auto</string>
+    <string name="canvas_land">Landscape</string>
+    <string name="canvas_port">Portrait</string>
 </resources>

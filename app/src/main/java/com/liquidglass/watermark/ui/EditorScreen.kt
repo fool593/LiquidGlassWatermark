@@ -9,17 +9,22 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -74,22 +79,32 @@ import com.liquidglass.watermark.glass.drawBackdrop
 import com.liquidglass.watermark.glass.effects.blur
 import com.liquidglass.watermark.glass.effects.lens
 import com.liquidglass.watermark.glass.effects.vibrancy
-import com.liquidglass.watermark.ui.kyant0.LiquidBottomTab
-import com.liquidglass.watermark.ui.kyant0.LiquidBottomTabs
 import com.liquidglass.watermark.ui.kyant0.LiquidButton
 import com.liquidglass.watermark.ui.kyant0.LiquidSlider
 import com.liquidglass.watermark.ui.kyant0.LiquidToggle
+import androidx.compose.foundation.layout.widthIn
+import com.liquidglass.watermark.ui.ksu.DockBottomGap
+import com.liquidglass.watermark.ui.ksu.DockMaxWidth
+import com.liquidglass.watermark.ui.ksu.DockPillHeight
+import com.liquidglass.watermark.ui.ksu.DockSideMargin
+import com.liquidglass.watermark.ui.ksu.KsuDockIcon
+import com.liquidglass.watermark.ui.ksu.KsuDockLabel
+import com.liquidglass.watermark.ui.ksu.KsuFloatingBottomBar
+import com.liquidglass.watermark.ui.ksu.KsuFloatingBottomBarItem
 import kotlin.math.roundToInt
 
 @Composable
 private fun tabNames(): List<String> = listOf(
     stringResource(R.string.tab_shape),
+    // v15.38：Dock 精简到 5 项——「光泽」并进「玻璃」，作为玻璃页内的子页签
     stringResource(R.string.tab_glass),
-    stringResource(R.string.tab_gloss),
     stringResource(R.string.tab_text),
     stringResource(R.string.tab_pos),
     stringResource(R.string.tab_settings)
 )
+
+/** v15.38：Dock 图标显式映射，避免精简项数后图标按序错位（0 形状 / 1 玻璃 / 3 文字 / 4 位置 / 5 设置）。 */
+private val DOCK_ICON_IDS = listOf(0, 1, 3, 4, 5)
 
 // 深色模式白字 / 浅色模式黑字，跟随应用内 darkModeState（非系统主题）
 @Composable
@@ -166,6 +181,16 @@ fun EditorScreen(act: MainActivity) {
 @Composable
 private fun EditorContent(act: MainActivity) {
     var tab by remember { mutableIntStateOf(0) }
+    // v15.34：底部悬浮 Dock 是覆盖层，必须按它【实际测量高度】给 Column 留出占位，
+    // 否则常驻在 Column 末尾的导出栏（MP4/HEVC/GIF + 快速/混合/CPU + 动照…）会被 Dock 整条压住。
+    // 用 onSizeChanged 实测（含 navigationBarsPadding 与底部间距），不依赖写死的常量，
+    // 换机型 / 字体缩放 / 导航栏高度变化都自动对齐。
+    val density = LocalDensity.current
+    var dockHeightPx by remember { mutableIntStateOf(-1) }
+    val dockSlot: androidx.compose.ui.unit.Dp =
+        // +6dp：给 Dock 自身的 dropShadow（radius 10dp）留出余量，不让阴影压到导出栏下沿
+        if (dockHeightPx >= 0) with(density) { dockHeightPx.toDp() } + 6.dp
+        else DockPillHeight + DockBottomGap + 6.dp
 
     // v15.16 任务3：不再在 EditorContent 顶层读 act.rev。
     //
@@ -246,7 +271,9 @@ private fun EditorContent(act: MainActivity) {
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .height(190.dp)
+                    // v15.28 UI 重构：参数面板由固定 190dp 加高到 224dp，6 个 tab 内容更舒展。
+                    // v15.35：Dock 压缩后把省下的高度还给画布，面板 268→232dp（内部仍可滚动）。
+                    .height(232.dp)
                     .glassSurface()
                     .padding(horizontal = 10.dp, vertical = 8.dp)
                     // 导出中：在 Initial 阶段消费全部指针，冻结滑块/开关/参数按钮（触摸不到下层控件）；
@@ -271,27 +298,37 @@ private fun EditorContent(act: MainActivity) {
                 //   · 导入素材后素材行不刷新 → 「删除图片 / 删除视频」按钮不出现
                 // 现在 6 个面板函数各自在函数体首行读 act.rev，自己的重组作用域记录该依赖，
                 // rev 一变作用域即失效，跳过被绕过。容器这里无需再读（避免整块重组）。
+                // v15.38：Dock 由 6 项精简为 5 项（形状 / 玻璃 / 文字 / 位置 / 设置），
+                // 原「光泽」并入「玻璃」，在玻璃页顶部以子页签承载，功能零丢失。
                 when (tab) {
                     0 -> ShapeTab(act)
-                    1 -> GlassTab(act)
-                    2 -> GlossTab(act)
-                    3 -> TextTab(act)
-                    4 -> PosTab(act)
+                    1 -> GlassGroupTab(act)
+                    2 -> TextTab(act)
+                    3 -> PosTab(act)
                     else -> SettingsTab(act)
                 }
             }
             // 导出栏（常驻）：格式（MP4/HEVC/GIF）可先选好再选素材，不依赖是否已选视频
             ExportBar(act)
-            BottomNav(tab, { tab = it })
+            // v15.34：Dock 高度占位。原来只有 14dp，Dock 实际 ~74dp（含间距/导航栏）→ 整条导出栏被盖住。
+            Spacer(Modifier.height(dockSlot))
+        }
+        Box(Modifier.align(Alignment.BottomCenter)) {
+            BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it })
         }
         // 动态照片合成面板（覆盖层）
         if (act.showMotionPhotoPanel) {
             MotionPhotoPanel(act)
         }
+        // v15.30：GIF 工具面板（覆盖层，独立于动照片）
+        if (act.showGifPanel) {
+            GifPanel(act)
+        }
     }
 }
 
-/** 导出栏：导出格式切换（MP4/HEVC/GIF）+ 动态照片合成入口。独立一行，避免顶栏被挤变形。 */
+/** 导出栏（v15.28 重构）：按「格式 / 模式 / 动作」三组竖线分隔，按钮高度与间距统一。
+ *  液态玻璃按钮视觉不变；横向可滚动保证任何设备宽度都不裁剪。 */
 @Composable
 private fun ExportBar(act: MainActivity) {
     val b = LocalGlassBackdrop.current
@@ -320,14 +357,19 @@ private fun ExportBar(act: MainActivity) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        // ── 组 1：导出格式 ──
         Text(stringResource(R.string.export_fmt), color = tSub(), fontSize = 12.sp)
         // v14.72 格式切换即持久化（修复"导出格式没记住"）
         FormatChip(act, b, "mp4", "MP4", cur) { EditorState.motionExportFormat = "mp4"; EditorState.persist(act) }
         if (Mp4Exporter.hasHevcEncoder())
             FormatChip(act, b, "hevc", "HEVC", cur) { EditorState.motionExportFormat = "hevc"; EditorState.persist(act) }
-        FormatChip(act, b, "gif", "GIF", cur) { EditorState.motionExportFormat = "gif"; EditorState.persist(act) }
-        Spacer(Modifier.width(4.dp))
-        // v14.50 导出模式三段（显眼位置）：快速（默认纯GPU）/ 混合 / CPU，单选
+        FormatChip(act, b, "gif", "GIF", cur) {
+            // v15.30：点 GIF 立即弹出 GIF 工具面板（参数 + 选视频），不再只是静默切格式
+            act.openGifPanel()
+        }
+        GroupDivider()
+        // ── 组 2：导出模式（快速默认纯GPU / 混合 / CPU 纯软） ──
+        Text(stringResource(R.string.export_mode_label), color = tSub(), fontSize = 12.sp)
         listOf(
             stringResource(R.string.export_mode_fast) to 0,
             stringResource(R.string.export_mode_hybrid) to 1,
@@ -342,7 +384,8 @@ private fun ExportBar(act: MainActivity) {
                 tint = if (EditorState.params.exportMode == mode) Color(0xFF0091FF) else Color.Unspecified)
             { Text(label, color = tMain(), fontSize = 11.sp, fontWeight = FontWeight.Medium) }
         }
-        Spacer(Modifier.width(8.dp))
+        GroupDivider()
+        // ── 组 3：动作（动图合成 / 清缓存 / 删除日志） ──
         // 动态照片合成：主预览已载入运动内容（选动态照片自动配对）时直接合成，
         // 无运动内容才弹手动面板（选封面+视频）
         LiquidButton(
@@ -353,10 +396,10 @@ private fun ExportBar(act: MainActivity) {
                 if (hasMotion) act.composeMotionPhoto() else act.showMotionPhotoPanel = true
             },
             backdrop = b,
-            modifier = Modifier.height(34.dp),
+            modifier = Modifier.height(32.dp),
             tint = if (act.mpImageSet && act.mpVideoSet) Color(0xFF0091FF) else Color.Unspecified
         ) {
-            Text(stringResource(R.string.mp_title), color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.mp_title), color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
         // 清理缓存（手动）：点击立即清理，进行中变蓝，完成后提示释放量并恢复透明
         var cleaning by remember { mutableStateOf(false) }
@@ -371,13 +414,13 @@ private fun ExportBar(act: MainActivity) {
                 }
             },
             backdrop = b,
-            modifier = Modifier.height(34.dp),
+            modifier = Modifier.height(32.dp),
             tint = if (cleaning) Color(0xFF0091FF) else Color.Unspecified
         ) {
             Text(
                 if (cleaning) stringResource(R.string.cleaning)
                 else stringResource(R.string.auto_clean_short),
-                color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium
+                color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium
             )
         }
         // 删除日志（用户要求）：一键删除 Download/lgw_debug.log 及 Download/导出日志/ 全部日志，
@@ -393,16 +436,27 @@ private fun ExportBar(act: MainActivity) {
                 }
             },
             backdrop = b,
-            modifier = Modifier.height(34.dp),
+            modifier = Modifier.height(32.dp),
             tint = if (clearingLogs) Color(0xFF0091FF) else Color.Unspecified
         ) {
             Text(
                 if (clearingLogs) stringResource(R.string.cleaning)
                 else stringResource(R.string.delete_logs),
-                color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium
+                color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium
             )
         }
     }
+}
+
+/** 导出栏组分隔竖线：液态玻璃浅淡描边，1dp 宽 20dp 高 */
+@Composable
+private fun GroupDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(20.dp)
+            .background(Color(0x26FFFFFF))
+    )
 }
 
 /** 字节数 → 人类可读（"12.5 MB"） */
@@ -445,9 +499,10 @@ private fun MotionPhotoPanel(act: MainActivity) {
             Text(stringResource(R.string.mp_title), color = tMain(), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.mp_subtitle), color = tSub(), fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))
-            // v14.39 视频转动图独立入口：直接选视频 → 转 GIF（无需先选封面）
+            // v15.30：动态照片 ≠ GIF。「GIF」是独立工具（自身面板：选视频+参数+时间轴），
+            // 不再塞在动照片面板里；入口按钮改为打开 GIF 工具面板。
             LiquidButton(
-                onClick = { act.pickVideoToGif() },
+                onClick = { act.openGifPanel() },
                 backdrop = b,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(44.dp)
             ) {
@@ -492,6 +547,13 @@ private fun MotionPhotoPanel(act: MainActivity) {
                     }
                 }
             }
+            Spacer(Modifier.height(10.dp))
+            // 槽位3：动照剪辑时间轴（v15.30）
+            GifTimelineEditor(
+                durationMs = act.mpVideoDurationMs(),
+                onChanged = { act.updateMotionTrim() },
+                mode = 1 // 1=动态照片剪辑模式
+            )
             Spacer(Modifier.height(10.dp))
             // 槽位2：视频片段（已选时显示删除）
             Row(
@@ -547,7 +609,7 @@ private fun MotionPhotoPanel(act: MainActivity) {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            // 合成保存
+            // 合成保存（动照片容器：vivo-style / Google XMP —— 动态照片不是 GIF）
             LiquidButton(
                 onClick = { act.composeMotionPhoto() },
                 backdrop = b,
@@ -568,6 +630,152 @@ private fun MotionPhotoPanel(act: MainActivity) {
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             )
             Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+/**
+ * v15.30 GIF 工具面板：与动态照片完全独立。
+ * 点导出栏「GIF」（或动照片面板的「GIF」入口）弹出：选择视频 → 参数（帧率/分辨率）→
+ * 剪辑时间轴 → 导出 GIF。动态照片走 MotionPhotoPanel（MP4/容器），不在此列。
+ */
+@Composable
+private fun GifPanel(act: MainActivity) {
+    val b = LocalGlassBackdrop.current
+    // 订阅素材版本号：导入视频后本面板刷新为「已选视频」状态
+    EditorState.mediaRev
+    EditorState.exportBarRev
+    val hasVideoSource = EditorState.motionUri != null ||
+        EditorState.motionMp4 != null ||
+        (EditorState.motionFrames?.size ?: 0) >= 2
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.72f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp, vertical = 24.dp)
+                .glassSurface(backdrop = b, shape = RoundedCornerShape(24.dp), prominent = true),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.gif_entry), color = tMain(), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.gif_tool_subtitle), color = tSub(), fontSize = 12.sp)
+            Spacer(Modifier.height(12.dp))
+            if (!hasVideoSource) {
+                // 未选视频：大按钮引导
+                LiquidButton(
+                    onClick = { act.pickVideoToGif() },
+                    backdrop = b,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(48.dp),
+                    tint = Color(0xFF0091FF)
+                ) {
+                    Text(stringResource(R.string.gif_pick_video), color = tMain(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Text(stringResource(R.string.gif_pick_hint), color = tSub(), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+            } else {
+                // 已选视频：参数 + 时间轴 + 导出
+                Text(stringResource(R.string.gif_params_title), color = tSub(), fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(15 to "15", 25 to "25", 30 to "30").forEach { (fps, label) ->
+                        LiquidButton(
+                            onClick = {
+                                EditorState.gifFps = fps
+                                EditorState.persist(act)
+                                EditorState.bumpExportBar()
+                                act.bump()
+                            },
+                            backdrop = b,
+                            modifier = Modifier.weight(1f).height(34.dp),
+                            tint = if (EditorState.gifFps == fps) Color(0xFF0091FF) else Color.Unspecified
+                        ) {
+                            Text("$label fps", color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(480 to stringResource(R.string.gif_res_480), 720 to stringResource(R.string.gif_res_720)).forEach { (edge, label) ->
+                        LiquidButton(
+                            onClick = {
+                                EditorState.gifEdgePx = edge
+                                EditorState.persist(act)
+                                EditorState.bumpExportBar()
+                                act.bump()
+                            },
+                            backdrop = b,
+                            modifier = Modifier.weight(1f).height(34.dp),
+                            tint = if (EditorState.gifEdgePx == edge) Color(0xFF0091FF) else Color.Unspecified
+                        ) {
+                            Text(label, color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(stringResource(R.string.gif_trim_title), color = tSub(), fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+                GifTimelineEditor(
+                    durationMs = act.gifSourceDurationMs(),
+                    onChanged = {
+                        EditorState.persist(act)
+                        EditorState.bumpExportBar()
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                // v15.31：预览选中的片段（剪辑软件核心体验）——点击后画布播放该片段
+                LiquidButton(
+                    onClick = { act.previewGifTrim() },
+                    backdrop = b,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(38.dp),
+                    tint = Color(0xFF5AC8FA)
+                ) {
+                    Text(stringResource(R.string.gif_preview_clip), color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(10.dp))
+                // 换视频 / 导出
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    LiquidButton(
+                        onClick = { act.pickVideoToGif() },
+                        backdrop = b,
+                        modifier = Modifier.weight(1f).height(42.dp)
+                    ) {
+                        Text(stringResource(R.string.gif_change_video), color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                    LiquidButton(
+                        onClick = { act.exportGifFromPanel() },
+                        backdrop = b,
+                        modifier = Modifier.weight(1.6f).height(42.dp),
+                        tint = Color(0xFF0091FF)
+                    ) {
+                        Text(stringResource(R.string.gif_export_btn), color = tMain(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            // 关闭
+            Text(
+                stringResource(R.string.mp_close),
+                color = tSub(), fontSize = 13.sp,
+                modifier = Modifier
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(interactionSource = null, indication = null) { act.showGifPanel = false }
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -618,10 +826,11 @@ private fun MaterialRow(act: MainActivity) {
     val hasVideoSource = EditorState.isGif || EditorState.motionMp4 != null ||
         EditorState.motionUri != null || (EditorState.motionFrames?.size ?: 0) >= 2
     val items = ArrayList<Triple<String, () -> Unit, Color?>>()
-    items.add(Triple(stringResource(R.string.pick_photo), { act.pickMedia() }, null))
+    // v15.31：添加入口移到画布空态（选照片/视频直达相册），这里只保留已导入素材的管理按钮
     if (hasStillPhoto) items.add(Triple(stringResource(R.string.pick_image_delete), { act.deleteImportedImage() }, Color(0xFFE04545)))
-    items.add(Triple(stringResource(R.string.pick_video), { act.pickVideo() }, null))
     if (hasVideoSource) items.add(Triple(stringResource(R.string.pick_video_delete), { act.deleteImportedVideo() }, Color(0xFFE04545)))
+    // 空态时整行隐藏（画布空态按钮即选择入口）
+    if (items.isEmpty()) return
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -641,42 +850,129 @@ private fun MaterialRow(act: MainActivity) {
 
 @Composable
 private fun PreviewArea(modifier: Modifier, act: MainActivity) {
-    Box(modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-        AndroidView(
-            factory = { ctx ->
-                WatermarkEditorView(ctx).also { v ->
-                    v.layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    act.preview = v
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+    // v15.31：订阅素材版本号，空态覆盖层随导入/删除即时出现/消失
+    EditorState.mediaRev
+    // v15.35：单独订阅画布方向信号（拖动参数滑块时预览区不重组，切换方向时立即生效）
+    EditorState.canvasOrientRev
+    val b = LocalGlassBackdrop.current
+    val hasMedia = (EditorState.previewBitmap != null && !EditorState.isDemo) ||
+        EditorState.motionUri != null || EditorState.motionMp4 != null
+    // v15.35：画布方向自适应——自动铺满 / 横屏 16:9 / 竖屏 9:16，照片与视频都按画布等比 contain
+    val canvasAspect = when (params.canvasOrient) {
+        EditorState.CANVAS_LANDSCAPE -> 16f / 9f
+        EditorState.CANVAS_PORTRAIT -> 9f / 16f
+        else -> 0f
     }
+    Box(modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        // v15.35：画布尺寸显式计算（不依赖 aspectRatio 的约束传递，weight 固定高度下也稳定）：
+        // 有比例时按可用区域 contain，无比例（自动）时铺满。
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val availW = maxWidth
+            val availH = maxHeight
+            val cw: androidx.compose.ui.unit.Dp
+            val ch: androidx.compose.ui.unit.Dp
+            if (canvasAspect > 0f) {
+                val hFromW = availW / canvasAspect
+                if (hFromW <= availH) { cw = availW; ch = hFromW }
+                else { ch = availH; cw = availH * canvasAspect }
+            } else { cw = availW; ch = availH }
+            Box(Modifier.size(cw, ch)) {
+            AndroidView(
+                factory = { ctx ->
+                    WatermarkEditorView(ctx).also { v ->
+                        v.layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        act.preview = v
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            // v15.31：空态覆盖层 —— 画布本身就是选择入口。
+            // 还没添加任何照片/视频时，中央显示「选择照片或视频」，点击直达系统相册
+            // （Photo Picker：缩略图九宫格，图片+视频一屏选完）。选了之后覆盖层消失，进入预览。
+            if (!hasMedia) {
+                Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        LiquidButton(
+                            onClick = { act.pickMediaFromGallery() },
+                            backdrop = b,
+                            modifier = Modifier.height(50.dp).padding(horizontal = 20.dp),
+                            tint = Color(0xFF0091FF)
+                        ) {
+                            Text(
+                                stringResource(R.string.canvas_pick_media),
+                                color = tMain(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            stringResource(R.string.canvas_pick_hint),
+                            color = tSub(), fontSize = 12.sp
+                        )
+                        // v15.37：一次多选入口——1 张照片 + 1 段视频 直接配对成动态照片，
+                        // 不必再绕去「动态照片」面板分两次选（系统文件多选，任何机型都支持）
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "一次选「照片 + 视频」配对动态照片",
+                            color = Color(0xFF7EB8FF),
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .padding(vertical = 6.dp)
+                                .clickable { act.pickPairMedia() }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 }
 
 @Composable
-private fun BottomNav(tab: Int, onSelect: (Int) -> Unit) {
+private fun BottomNav(tab: Int, onSelect: (Int) -> Unit, onDockHeight: (Int) -> Unit = {}) {
     val b = LocalGlassBackdrop.current
     val tabs = tabNames()
-    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        LiquidBottomTabs(
-            selectedTabIndex = { tab },
-            onTabSelected = onSelect,
+    // v15.35：Dock 已压缩（52dp 胶囊 + 10dp 底距），底部占位同步变小；有导航栏时用 6dp + inset。
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomPadding = if (bottomInset != 0.dp) 6.dp + bottomInset else DockBottomGap
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onSizeChanged { onDockHeight(it.height) },
+        contentAlignment = Alignment.Center
+    ) {
+        KsuFloatingBottomBar(
+            modifier = Modifier
+                // KSU 源码原样：吞掉底栏空白区域的点击，避免穿透到底层画布
+                .pointerInput(Unit) { detectTapGestures { } }
+                // v15.36：宽度自适应。真机上原来 Row 是「按内容包住」→ 胶囊短而圆；
+                // 这里改为铺满可用宽度（手机 ≈ 满宽真胶囊），平板超宽时封顶并居中。
+                .widthIn(max = DockMaxWidth)
+                .fillMaxWidth()
+                .padding(start = DockSideMargin, end = DockSideMargin, bottom = bottomPadding),
+            selectedIndex = tab,
+            onSelected = onSelect,
             backdrop = b,
             tabsCount = tabs.size,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            tabs.forEachIndexed { i, label ->
-                LiquidBottomTab(onClick = { onSelect(i) }) {
-                    Text(
-                        label,
-                        color = if (i == tab) tMain() else tSub(),
-                        fontSize = 12.sp,
-                        fontWeight = if (i == tab) FontWeight.Medium else FontWeight.Normal
-                    )
+        ) { activateTab ->
+            tabs.forEachIndexed { index, label ->
+                KsuFloatingBottomBarItem(
+                    selected = tab == index,
+                    onClick = { activateTab(index) },
+                ) {
+                    KsuDockIcon(DOCK_ICON_IDS.getOrElse(index) { 5 })
+                    KsuDockLabel(label)
                 }
             }
         }
@@ -709,6 +1005,30 @@ private fun ShapeTab(act: MainActivity) {
                     backdrop = b, modifier = Modifier.height(34.dp).weight(1f),
                     tint = if (p.shape == shp) Color(0xFF0091FF) else Color.Unspecified)
                 { Text(name, color = tMain(), fontSize = 11.sp) }
+            }
+        }
+        // v15.32 自定义裁剪比例：预览与导出同一几何（中心裁剪，仅影响照片展示，不裁剪原图数据）
+        SectionLabel(stringResource(R.string.crop_section))
+        val cropNames = listOf(
+            stringResource(R.string.crop_original), stringResource(R.string.crop_16_9),
+            stringResource(R.string.crop_4_3), stringResource(R.string.crop_3_2),
+            stringResource(R.string.crop_1_1), stringResource(R.string.crop_9_16),
+            stringResource(R.string.crop_3_4), stringResource(R.string.crop_2_3)
+        )
+        val cropValues = listOf(
+            EditorState.CROP_ORIGINAL, EditorState.CROP_16_9, EditorState.CROP_4_3,
+            EditorState.CROP_3_2, EditorState.CROP_1_1, EditorState.CROP_9_16,
+            EditorState.CROP_3_4, EditorState.CROP_2_3
+        )
+        cropNames.chunked(4).forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEachIndexed { i, name ->
+                    val v = cropValues[cropNames.indexOf(name)]
+                    LiquidButton(onClick = { p.cropRatio = v; act.bump() },
+                        backdrop = b, modifier = Modifier.height(32.dp).weight(1f),
+                        tint = if (p.cropRatio == v) Color(0xFF0091FF) else Color.Unspecified)
+                    { Text(name, color = tMain(), fontSize = 11.sp) }
+                }
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -762,6 +1082,30 @@ private fun ShapeTab(act: MainActivity) {
     }
 }
 
+/**
+ * v15.38：玻璃 / 光泽合并页。
+ * 原来 Dock 上「玻璃」「光泽」是两个独立入口，两项都属于「玻璃材质观感」，
+ * 合并后共用 Dock 上的一格，页内用子页签切换——玻璃：iOS27 风格 / 流体 / 模糊 / 色调 等；
+ * 光泽：高光强度 / 边缘光 / 内阴影 / 投影 / 鲜艳度 / 高光样式。子页签互不覆盖，功能全保留。
+ */
+@Composable
+private fun GlassGroupTab(act: MainActivity) {
+    var sub by remember { mutableIntStateOf(0) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BrandChip(stringResource(R.string.tab_glass), sub == 0) { sub = 0 }
+            BrandChip(stringResource(R.string.tab_gloss), sub == 1) { sub = 1 }
+        }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            if (sub == 0) GlassTab(act) else GlossTab(act)
+        }
+    }
+}
+
 @Composable
 private fun GlassTab(act: MainActivity) {
     // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
@@ -773,6 +1117,24 @@ private fun GlassTab(act: MainActivity) {
     val p = params
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         SectionLabel(stringResource(R.string.glass_section))
+        // v15.28 iOS27 风格通道：默认关闭（观感与旧版一致）；开启后玻璃更通透、
+        // 边缘多一条高亮"芯线"、色散更克制、内阴影更轻（引擎内低成本增强，不重写算法）
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.ios27_style),
+                    color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.ios27_style_hint),
+                    color = tSub(), fontSize = 10.sp, maxLines = 2)
+            }
+            Spacer(Modifier.width(8.dp))
+            LiquidToggle(selected = { p.ios27Style }, backdrop = b, onSelect = { on ->
+                p.ios27Style = on
+                act.bump()
+            })
+        }
         // v14.29 流体液态玻璃：胶囊开关（开→重载应用生效）+ 流速滑块（快/慢频率）
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -971,6 +1333,82 @@ private fun TextTab(act: MainActivity) {
                 backdrop = b, modifier = Modifier.width(58.dp).height(48.dp))
             { Text(resetStr, color = tMain(), fontSize = 10.sp) }
         }
+        // v15.32 地理位置：关闭 / 相册EXIF / 当前位置 / 自定义，显示在水印日期行下方
+        SectionLabel(stringResource(R.string.geo_section))
+        val geoNames = listOf(
+            stringResource(R.string.geo_mode_off),
+            stringResource(R.string.geo_mode_exif),
+            stringResource(R.string.geo_mode_current),
+            stringResource(R.string.geo_mode_custom)
+        )
+        val geoValues = listOf(
+            EditorState.GEO_OFF, EditorState.GEO_EXIF,
+            EditorState.GEO_CURRENT, EditorState.GEO_CUSTOM
+        )
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            geoNames.zip(geoValues).forEach { (name, v) ->
+                LiquidButton(onClick = {
+                    p.geoMode = v
+                    if (v == EditorState.GEO_OFF) p.geoText = ""
+                    act.bump()
+                }, backdrop = b, modifier = Modifier.height(32.dp),
+                    tint = if (p.geoMode == v) Color(0xFF0091FF) else Color.Unspecified)
+                { Text(name, color = tMain(), fontSize = 11.sp) }
+            }
+        }
+        if (p.geoMode == EditorState.GEO_CUSTOM) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlassTextField(
+                    value = p.geoText,
+                    onValueChange = { p.geoText = it; act.bumpLight() },
+                    label = stringResource(R.string.geo_mode_custom),
+                    backdrop = b,
+                    modifier = Modifier.weight(1f).padding(vertical = 3.dp)
+                )
+                LiquidButton(onClick = { p.geoText = ""; act.bump() },
+                    backdrop = b, modifier = Modifier.width(58.dp).height(48.dp))
+                { Text(resetStr, color = tMain(), fontSize = 10.sp) }
+            }
+        } else if (p.geoMode == EditorState.GEO_EXIF) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                LiquidButton(onClick = { act.readExifGeoFromSource() },
+                    backdrop = b, modifier = Modifier.height(34.dp).weight(1f))
+                { Text(stringResource(R.string.geo_read_exif), color = tMain(), fontSize = 11.sp) }
+            }
+        } else if (p.geoMode == EditorState.GEO_CURRENT) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                LiquidButton(onClick = { act.useCurrentLocation() },
+                    backdrop = b, modifier = Modifier.height(34.dp).weight(1f))
+                { Text(stringResource(R.string.geo_use_current), color = tMain(), fontSize = 11.sp) }
+            }
+        }
+        // v15.35：位置写法二选一——真实地名（省/市/区县/街道、村）或经纬度；切换用缓存坐标，不重新定位
+        if (p.geoMode != EditorState.GEO_OFF && p.geoMode != EditorState.GEO_CUSTOM) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    stringResource(R.string.geo_style_place) to EditorState.GEO_STYLE_PLACE,
+                    stringResource(R.string.geo_style_coord) to EditorState.GEO_STYLE_COORD
+                ).forEach { (label, v) ->
+                    LiquidButton(onClick = { act.applyGeoStyle(v) },
+                        backdrop = b, modifier = Modifier.height(32.dp).weight(1f),
+                        tint = if (p.geoStyle == v) Color(0xFF0091FF) else Color.Unspecified)
+                    { Text(label, color = tMain(), fontSize = 11.sp) }
+                }
+            }
+        }
+        if (p.geoMode != EditorState.GEO_OFF) {
+            if (p.geoText.isNotBlank()) {
+                Text(p.geoText, color = tMain(), fontSize = 12.sp,
+                    modifier = Modifier.padding(vertical = 2.dp))
+            }
+            LiquidButton(onClick = { act.clearGeo() },
+                backdrop = b, modifier = Modifier.height(32.dp),
+                tint = Color(0xFFE04545))
+            { Text(stringResource(R.string.geo_clear), color = tMain(), fontSize = 11.sp) }
+            Text(stringResource(R.string.geo_hint), color = tSub(0.4f), fontSize = 11.sp)
+        }
         // ponytail: 文字颜色选择器（白/黑/赤橙黄绿青蓝紫），textColor 已持久化
         Spacer(Modifier.height(6.dp))
         Text(stringResource(R.string.text_color), color = tMain(), fontSize = 12.sp)
@@ -1071,6 +1509,35 @@ private fun TextTab(act: MainActivity) {
         Spacer(Modifier.height(6.dp))
         FloatSlider(stringResource(R.string.title_size_short), p.titleSp, 1f..160f, "%.1fsp", b) { p.titleSp = it; act.bump() }
         FloatSlider(stringResource(R.string.sub_size_short), p.subSp, 1f..120f, "%.1fsp", b) { p.subSp = it; act.bump() }
+        // v15.33 字体集成面板：主/型号/时间/地理位置 各自「大小 + 左右」，再加整体偏移/行距/字间距
+        SectionLabel(stringResource(R.string.font_panel_section))
+        // 主字体
+        Text(stringResource(R.string.font_title_line), color = tSub(0.7f), fontSize = 12.sp)
+        FloatSlider(stringResource(R.string.font_size), p.fontTitleScale, 0.5f..2.5f, "%.2fx", b) { p.fontTitleScale = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_shift), p.fontTitleShift, -60f..60f, "%.0f", b) { p.fontTitleShift = it; act.bump() }
+        // 型号
+        Text(stringResource(R.string.font_code_line), color = tSub(0.7f), fontSize = 12.sp)
+        FloatSlider(stringResource(R.string.font_size), p.fontCodeScale, 0.5f..2.5f, "%.2fx", b) { p.fontCodeScale = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_shift), p.fontCodeShift, -60f..60f, "%.0f", b) { p.fontCodeShift = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_code_dy), p.fontCodeDy, -40f..40f, "%.0f", b) { p.fontCodeDy = it; act.bump() }
+        // 时间
+        Text(stringResource(R.string.font_time_line), color = tSub(0.7f), fontSize = 12.sp)
+        FloatSlider(stringResource(R.string.font_size), p.fontTimeScale, 0.5f..2.5f, "%.2fx", b) { p.fontTimeScale = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_shift), p.fontTimeShift, -60f..60f, "%.0f", b) { p.fontTimeShift = it; act.bump() }
+        // 地理位置
+        Text(stringResource(R.string.font_geo_line), color = tSub(0.7f), fontSize = 12.sp)
+        FloatSlider(stringResource(R.string.font_size), p.fontGeoScale, 0.5f..2.5f, "%.2fx", b) { p.fontGeoScale = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_shift), p.fontGeoShift, -60f..60f, "%.0f", b) { p.fontGeoShift = it; act.bump() }
+        // v15.35：型号/时间/位置上下排布——开关把位置行放到时间上方，滑块微调各行上下
+        ToggleRow(stringResource(R.string.geo_above_time), p.geoAboveTime, b) { p.geoAboveTime = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_time_dy), p.fontTimeDy, -40f..40f, "%.0f", b) { p.fontTimeDy = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_geo_dy), p.fontGeoDy, -40f..40f, "%.0f", b) { p.fontGeoDy = it; act.bump() }
+        // 整体
+        FloatSlider(stringResource(R.string.font_block_shift), p.fontBlockShift, -60f..60f, "%.0f", b) { p.fontBlockShift = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_line_gap), p.fontLineGap, -8f..24f, "%.0f", b) { p.fontLineGap = it; act.bump() }
+        FloatSlider(stringResource(R.string.font_letter_spacing), p.fontLetterSpacing, 0f..0.6f, "%.2f", b) { p.fontLetterSpacing = it; act.bump() }
+        ToggleRow(stringResource(R.string.font_shadow), p.fontShadow, b) { p.fontShadow = it; act.bump() }
+        ToggleRow(stringResource(R.string.auto_tz), p.autoTz, b) { p.autoTz = it; act.bump() }
         ToggleRow(stringResource(R.string.show_device_name), p.showDevice, b) { p.showDevice = it; act.bump() }
         ToggleRow(stringResource(R.string.show_time_sec), p.showTime, b) { p.showTime = it; act.bump() }
         ToggleRow(stringResource(R.string.live_seconds), EditorState.liveSeconds, b) { EditorState.liveSeconds = it; act.bump() }
@@ -1117,6 +1584,25 @@ private fun PosTab(act: MainActivity) {
         FloatSlider(stringResource(R.string.pos_x), p.relX * 100, 0f..100f, "%.0f%%", b) { p.relX = it / 100f; act.bump() }
         FloatSlider(stringResource(R.string.pos_y), p.relY * 100, 0f..100f, "%.0f%%", b) { p.relY = it / 100f; act.bump() }
         Spacer(Modifier.height(8.dp))
+        // v15.35：画布方向（自动铺满 / 横屏 16:9 / 竖屏 9:16），照片与视频都按画布 contain
+        Text(stringResource(R.string.canvas_orient), color = tSub(0.7f), fontSize = 13.sp)
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                stringResource(R.string.canvas_auto) to EditorState.CANVAS_AUTO,
+                stringResource(R.string.canvas_land) to EditorState.CANVAS_LANDSCAPE,
+                stringResource(R.string.canvas_port) to EditorState.CANVAS_PORTRAIT
+            ).forEach { (label, v) ->
+                LiquidButton(onClick = {
+                    p.canvasOrient = v
+                    EditorState.canvasOrientRev++
+                    act.bump()
+                },
+                    backdrop = b, modifier = Modifier.height(34.dp).weight(1f),
+                    tint = if (p.canvasOrient == v) Color(0xFF0091FF) else Color.Unspecified)
+                { Text(label, color = tMain(), fontSize = 11.sp) }
+            }
+        }
         Text(stringResource(R.string.drag_hint_short), color = tSub(0.4f), fontSize = 12.sp)
     }
 }
@@ -1460,7 +1946,7 @@ private fun IntSlider(
     // 实际值 → 滑块物理位置（反向 gamma）
     val sliderPos = if (gamma == 1f) pos else Math.pow(pos.toDouble(), 1.0 / gamma).toFloat()
     // v14.50 滑块间距加大（8dp）：防拖动误触相邻滑块
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = tMain(), fontSize = 12.sp)
             Spacer(Modifier.weight(1f))
@@ -1509,7 +1995,7 @@ private fun FloatSlider(
     val pos = ((value - min) / span).coerceIn(0f, 1f)
     val sliderPos = if (gamma == 1f) pos else Math.pow(pos.toDouble(), 1.0 / gamma).toFloat()
     // v14.50 滑块间距加大（8dp）：拖动一个滑块不会误触相邻滑块/页面滚动
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = tMain(), fontSize = 12.sp)
             Spacer(Modifier.weight(1f))
@@ -1550,7 +2036,7 @@ private fun FloatSlider(
 
 @Composable
 private fun ToggleRow(title: String, checked: Boolean, backdrop: Backdrop, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = tMain(), fontSize = 12.sp)
         Spacer(Modifier.weight(1f))
         LiquidToggle(selected = { checked }, onSelect = onChange, backdrop = backdrop)

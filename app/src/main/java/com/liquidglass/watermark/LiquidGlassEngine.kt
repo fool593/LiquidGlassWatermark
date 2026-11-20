@@ -90,7 +90,13 @@ object LiquidGlassEngine {
         breathEnv: Float = 1f, edgeGlow01: Float = 0f,
         ellipse: Boolean = false,
         effectScale: Float = 1f,
-        tier: Int = TIER_HIGH
+        tier: Int = TIER_HIGH,
+        // v15.28 iOS27 风格通道（默认关闭=既有像素级行为完全不变）：玻璃更通透、
+        // 边缘多一条窄而亮的"芯线"高光、色散更克制、内阴影更轻。
+        ios27: Boolean = false,
+        // v15.29 液态流动开关：true=流体启用（允许正弦波调制边缘位移产生流动感）；
+        // false=静止玻璃，边缘位移为纯平滑高度场压缩，杜绝静态正弦波造成的边缘"波浪状"。
+        fluidActive: Boolean = false
     ): Bitmap? {
         if (sharp.isRecycled || sharp.width < 2 || sharp.height < 2 || gW < 2 || gH < 2) return null
         val w = sharp.width
@@ -110,7 +116,9 @@ object LiquidGlassEngine {
             hlAngleRad, falloff, tintArgb, tint01, innerShadow01, contrast01,
             phase, refractionModel, breathEnv, edgeGlow01,
             if (effectScale.isFinite()) effectScale.coerceIn(0.5f, 4f) else 1f,
-            tier
+            tier,
+            ios27,
+            fluidActive
         )
         val out = buffer(outBuf, count)
         renderPixels(base, out, w, h, options, gL, gT, gW, gH)
@@ -134,7 +142,11 @@ object LiquidGlassEngine {
         val breath: Float = 1f, val edgeGlow: Float = .5f,
         /** >1 widens the optical band/displacement, used for small-render compensation. */
         val effectScale: Float = 1f,
-        val tier: Int = TIER_HIGH
+        val tier: Int = TIER_HIGH,
+        /** v15.28 iOS27 风格通道：true 时在既有算法上叠加低成本观感增强（见 renderRows） */
+        val ios27: Boolean = false,
+        /** v15.29 液态流动：true 时允许正弦波边缘调制（流体动效）；false 时静态玻璃去波浪 */
+        val fluidActive: Boolean = false
     )
 
     internal fun renderPixels(
@@ -203,6 +215,7 @@ object LiquidGlassEngine {
         val phase = finite(p.phase)
         val tier = p.tier
         val low = tier == TIER_LOW
+        val ios27 = p.ios27   // v15.28：iOS27 风格通道（默认关闭，数值与旧版一致）
         val comp = if (p.effectScale.isFinite()) p.effectScale.coerceIn(0.5f, 4f) else 1f
 
         // Refraction band (edge thickness). Widened vs v15.15 (.035 + .085*H) -> (.055 + .155*H)
@@ -270,10 +283,11 @@ object LiquidGlassEngine {
                 val edge = 1f - smoothstep(0f, band, inward)
                 val gx = nx * cr - ny * sr
                 val gy = nx * sr + ny * cr
-                // sin() is only needed when the warp actually has amplitude; the default
-                // material has edgeWarp = 0, so this removes a per-pixel transcendental.
-                val flow = if (warpActive) {
-                    1f + edgeWarp * .18f * sin(lx / shortSide * 5f + ly / shortSide * 3f + phase)
+                // 静态玻璃：flow=1，边缘为纯平滑高度场压缩（无正弦波），杜绝用户反馈的"边缘波浪状"。
+                // 仅流体开启（fluidActive=true，相位随时间流动）时允许正弦波调制边缘位移，
+                // 且振幅收敛 0.18→0.12、频率放慢（5→3.5 / 3→2），流动感保留但更克制。
+                val flow = if (warpActive && p.fluidActive) {
+                    1f + edgeWarp * .12f * sin(lx / shortSide * 3.5f + ly / shortSide * 2f + phase)
                 } else 1f
                 // A continuous bevel compresses the background at the edge, then relaxes inward.
                 val profile = if (p.refractionModel == 1) sqrt(max(edge, 0f)) * edge else edge * (2f - edge)
@@ -292,7 +306,8 @@ object LiquidGlassEngine {
                 var bb = sample[2]
                 // Dispersion is confined to the bevel; clear interiors use just one sample.
                 if (chromatic > .001f && edge > .01f) {
-                    val dispersion = shortSide * .014f * chromatic * edge * breath
+                    val dispersion = shortSide * .014f * chromatic * edge * breath *
+                        if (ios27) .72f else 1f   // v15.28 iOS27：色散带宽更克制，边更"干净"
                     if (low) {
                         // Low tier: one extra tap per channel axis folded into the same
                         // normal-based UV offset instead of two full bilinear fetches.
@@ -333,7 +348,9 @@ object LiquidGlassEngine {
                 // Wide, weak environment reflection + a narrow directional glint describe volume.
                 val surface = if (p.highlightStyle == HIGHLIGHT_PLAIN) 0f else {
                     val v = (lx / hx * lightX + ly / hy * lightY) * .5f + .5f
-                    specular * (.018f + .030f * v.coerceIn(0f, 1f))
+                    // v15.28 iOS27：环境反射略强，玻璃"板感"更明显
+                    val base = if (ios27) .030f else .018f
+                    specular * (base + .030f * v.coerceIn(0f, 1f))
                 }
                 // Per-pixel pow/sin/exp are needed only in the bevel region.
                 val edgeReflection = if (bevelEnabled) {
@@ -360,8 +377,23 @@ object LiquidGlassEngine {
                 rr += (218f + envR * .14f - rr) * reflection
                 gg += (227f + envG * .11f - gg) * reflection
                 bb += (239f + envB * .06f - bb) * reflection
+                // v15.28 iOS27：边缘最窄带加一条"芯线"高光（贴光源侧更亮），
+                // 位于原有辉光之上、宽度仅原有 bevel 的 ~1/8，逐像素开销极低
+                if (ios27 && bevelEnabled && inward < band * .12f) {
+                    val coreT = inward / max(1f, band * .12f)
+                    val core = (1f - coreT) * (1f - coreT)
+                    val lit = max(facing, 0f)
+                    val coreGlint = specular * edgeGlow * style * core * (.30f + .45f * lit)
+                    if (coreGlint > .003f) {
+                        rr += (235f - rr) * coreGlint
+                        gg += (240f - gg) * coreGlint
+                        bb += (246f - bb) * coreGlint
+                    }
+                }
                 if (innerShadow > .001f) {
-                    val shade = 1f - innerShadow * edge * (.035f + .17f * backlit)
+                    // v15.28 iOS27：内阴影更轻（通透），默认观感下边缘压暗仅约旧版一半
+                    val shadowScale = if (ios27) .55f else 1f
+                    val shade = 1f - innerShadow * shadowScale * edge * (.035f + .17f * backlit)
                     rr *= shade; gg *= shade; bb *= shade
                 }
                 if (tintStrength > .001f) {

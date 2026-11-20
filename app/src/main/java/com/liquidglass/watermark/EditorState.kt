@@ -34,7 +34,8 @@ const val FONT_MODE_SERIF = 2
 const val FONT_MODE_MONO = 3
 /** 字体模式取值上界（含），sanitizeInPlace 用 */
 const val FONT_MODE_MAX = FONT_MODE_MONO
-const val API_HIGH = 1
+
+    const val API_HIGH = 1
 const val API_LOW = 2
 /**
  * 全局编辑状态。预览 View、参数面板、导出合成三处共用同一份数据，
@@ -46,6 +47,45 @@ const val API_LOW = 2
  * tint 染色、innerShadow/shadow 内外阴影。AGSL 着色器逐行移植为纯 Kotlin，全版本一致。
  */
 object EditorState {
+    // ---- v15.32 自定义裁剪比例（0=原图，其余为宽高比） ----
+    const val CROP_ORIGINAL = 0
+    const val CROP_16_9 = 1     // 16:9
+    const val CROP_4_3 = 2      // 4:3
+    const val CROP_3_2 = 3      // 3:2
+    const val CROP_1_1 = 4      // 1:1
+    const val CROP_9_16 = 5     // 9:16
+    const val CROP_3_4 = 6      // 3:4
+    const val CROP_2_3 = 7      // 2:3
+    /** 裁剪比例 → 宽高比（float），CROP_ORIGINAL=0f 表示不裁剪 */
+    @JvmStatic fun cropAspect(crop: Int): Float = when (crop) {
+        CROP_16_9 -> 16f / 9f
+        CROP_4_3 -> 4f / 3f
+        CROP_3_2 -> 3f / 2f
+        CROP_1_1 -> 1f
+        CROP_9_16 -> 9f / 16f
+        CROP_3_4 -> 3f / 4f
+        CROP_2_3 -> 2f / 3f
+        else -> 0f
+    }
+
+    // ---- v15.32 地理位置模式：0=不显示 1=读取照片EXIF 2=当前位置 3=自定义文字 ----
+    const val GEO_OFF = 0
+    const val GEO_EXIF = 1
+    const val GEO_CURRENT = 2
+    const val GEO_CUSTOM = 3
+
+    // ---- v15.35 位置写法：0=真实地名（省市区县街道） 1=经纬度 ----
+    const val GEO_STYLE_PLACE = 0
+    const val GEO_STYLE_COORD = 1
+
+    // ---- v15.35 画布方向：0=自适应铺满 1=横屏画布(16:9) 2=竖屏画布(9:16) ----
+    const val CANVAS_AUTO = 0
+    const val CANVAS_LANDSCAPE = 1
+    const val CANVAS_PORTRAIT = 2
+
+    /** 画布方向变更信号：预览区只订阅它，不必每帧跟着参数滑块重组 */
+    @JvmField var canvasOrientRev: Int = 0
+
     const val PREFS = "lgw_prefs"
     // v15.18：机型文字「用户自定义」标记（按方案落盘）。为 true 时 EXIF/设备探测不得覆盖。
     @JvmField var modelCustom: Boolean = false
@@ -53,6 +93,36 @@ object EditorState {
     // 应用 Context：供无 Context 的全局设置（深浅模式）即时落盘；启动时绑定一次
     @Volatile private var appCtx: Context? = null
     fun attach(ctx: Context) { if (appCtx == null) appCtx = ctx.applicationContext }
+
+    // ---- v15.28 GIF 导出自定义参数（全局设置，跨方案共享；关键词持久化于 PREFS） ----
+    /** GIF 导出帧率（fps）：仅允许 15 / 25 / 30。v15.28 起不再"跟随源帧率"，统一按用户选择；
+     *  源帧率高于目标时按目标网格抽帧，低于目标时按源实际帧率。 */
+    @JvmField var gifFps: Int = GIF_FPS_DEFAULT
+    /** GIF 导出最长边（像素）：480（480p）/ 720（720p）。不再"跟随源分辨率"（旧上限 1080）；
+     *  源分辨率小于目标时保持源大小，不放大。 */
+    @JvmField var gifEdgePx: Int = GIF_EDGE_DEFAULT
+    /** GIF 时间轴裁剪起点（毫秒，相对源视频起点）：0=从开头 */
+    @JvmField var gifTrimStartMs: Long = 0L
+    /** GIF 时间轴裁剪长度（毫秒）：默认 5000=5 秒片段；超出源时长自动收窄 */
+    @JvmField var gifTrimDurationMs: Long = 5_000L
+    /** 剪辑参数是否用户自定义过（时间轴拖动后置 true；未自定义时按"全片前 5 秒"导出） */
+    @JvmField var gifTrimCustomized: Boolean = false
+    // ---- v15.30：动态照片剪辑时间轴（与 GIF 相互独立，各自记忆；默认片头起、5 秒） ----
+    /** 动照裁剪起点（毫秒，相对源视频起点）：0=从开头 */
+    @JvmField var motionTrimStartMs: Long = 0L
+    /** 动照裁剪长度（毫秒）：默认 5000（动照片规范上限）；超出源时长自动收窄 */
+    @JvmField var motionTrimDurationMs: Long = 5_000L
+    /** 动照剪辑是否用户自定义过（时间轴拖动后置 true） */
+    @JvmField var motionTrimCustomized: Boolean = false
+    private val GIF_FPS_VALUES = intArrayOf(15, 25, 30)
+    fun sanitizeGifParams() {
+        if (gifFps !in GIF_FPS_VALUES) gifFps = GIF_FPS_DEFAULT
+        if (gifEdgePx != 480 && gifEdgePx != 720) gifEdgePx = GIF_EDGE_DEFAULT
+        if (gifTrimStartMs < 0L) gifTrimStartMs = 0L
+        if (gifTrimDurationMs < 1L) gifTrimDurationMs = 5_000L
+        if (motionTrimStartMs < 0L) motionTrimStartMs = 0L
+        if (motionTrimDurationMs < 1L) motionTrimDurationMs = 5_000L
+    }
 
     /** 当前品牌 logo 是否为横长字母标（宽高比>1.5）：仅这类才显示"加长"滑块；只读图片边界、不解码到内存 */
     fun brandLogoWide(brand: Int): Boolean {
@@ -80,6 +150,9 @@ object EditorState {
     // v6：v15.5 修复"水印纯黑"——用户设备保存的旧 blur=0（纯通透）在 v15.4 未升级版本号时被读回，
     //     深色照片上玻璃全透=黑；升 6 强制重置玻璃观感 + 文字色/染色回安全默认
     const val PARAMS_VERSION = 6
+    // ---- v15.28 GIF 导出默认值 ----
+    const val GIF_FPS_DEFAULT = 25
+    const val GIF_EDGE_DEFAULT = 720
     // 方案布局版本：升级后方案2 布局/观感重置为新默认（对齐 Photo Watermark 成片），文字/logo 内容保留
     // v3：v12.70 已修"重置立即落盘"但版本号没升，v12.69 已写入 2 → v12.70 不触发重置 → 方案2 仍是旧 CLASSIC 数据。
     // 升到 3 强制再触发一次重置+落盘，让方案2 真正变成 SPLIT 成片布局。
@@ -195,12 +268,30 @@ object EditorState {
         @JvmField var glassTier: Int = GLASS_TIER_HIGH
         /** 缩小补偿强度 0..100：0=关闭，100=小尺寸下光学带最多放大到 3.2×。 */
         @JvmField var scaleComp: Int = 100
+        // v15.28：iOS27 风格通道（渲染增强，见 LiquidGlassEngine.ios27）——默认关闭，观感与旧版一致
+        @JvmField var ios27Style: Boolean = false
         // ---- 文字（三行：手机名称 / 型号代号 / 时间） ----
         @JvmField var model: String = ""        // 第一行：手机名称（市场名，如 iQOO Neo，可自定义）
         @JvmField var modelCode: String = ""    // 第二行：型号代号（如 V1914A，可自定义）
         @JvmField var dateText: String = ""     // 第三行：年-月-日 时:分:秒
         @JvmField var titleSp: Float = 14.5f
         @JvmField var subSp: Float = 10f
+        // ---- v15.32 自定义裁剪比例（0=原图；其它按比例中心裁剪） ----
+        @JvmField var cropRatio: Int = CROP_ORIGINAL
+        // ---- v15.32 照片地理位置 ----
+        /** 地理位置模式：0=关闭 1=读取相册原图 EXIF 2=使用当前定位 3=自定义地点 */
+        @JvmField var geoMode: Int = GEO_OFF
+        /** 显示的地点文本（地名或坐标，渲染到时间行下方） */
+        @JvmField var geoText: String = ""
+        /** v15.35 位置原始坐标（用于在地名/经纬度之间切换，不必重新定位） */
+        @JvmField var geoLat: Double = 0.0
+        @JvmField var geoLng: Double = 0.0
+        /** v15.35 位置写法：0=地名 1=经纬度 */
+        @JvmField var geoStyle: Int = GEO_STYLE_PLACE
+        /** v15.35 位置行排到时间行上方（默认在下） */
+        @JvmField var geoAboveTime: Boolean = false
+        /** v15.35 画布方向：0=自适应铺满 1=横屏 2=竖屏 */
+        @JvmField var canvasOrient: Int = CANVAS_AUTO
         /** v15.15 字体模式：0=默认字体（应用内置 sans-serif），1=系统字体（跟随设备系统字体）。
          *  仅影响水印文字字形（typeface），不改字号/颜色/布局/玻璃效果。 */
         @JvmField var fontMode: Int = FONT_MODE_DEFAULT
@@ -208,6 +299,38 @@ object EditorState {
         @JvmField var showDevice: Boolean = true
         @JvmField var showTime: Boolean = true
         @JvmField var fontContrast: Boolean = true
+        // ---- v15.33 字体集成面板：主/型号/时间/地理位置 各自 大小+左右+间距 ----
+        /** 主字体（机型名）大小倍率（1f=默认 titleSp） */
+        @JvmField var fontTitleScale: Float = 1f
+        /** 型号（第二行）大小倍率（1f=默认 subSp） */
+        @JvmField var fontCodeScale: Float = 1f
+        /** 时间（第三行）大小倍率（1f=默认 subSp） */
+        @JvmField var fontTimeScale: Float = 1f
+        /** 地理位置（时间下方）大小倍率（1f=默认 subSp） */
+        @JvmField var fontGeoScale: Float = 1f
+        /** 主字体左右偏移（dp，负=左 正=右，仅文字块水平位移） */
+        @JvmField var fontTitleShift: Float = 0f
+        /** 型号左右偏移（dp） */
+        @JvmField var fontCodeShift: Float = 0f
+        /** 时间左右偏移（dp） */
+        @JvmField var fontTimeShift: Float = 0f
+        /** 地理位置左右偏移（dp） */
+        @JvmField var fontGeoShift: Float = 0f
+        /** v15.35 时间/位置行的上下偏移（dp，负=上 正=下） */
+        @JvmField var fontTimeDy: Float = 0f
+        @JvmField var fontGeoDy: Float = 0f
+        /** v15.35 型号行上下偏移（dp） */
+        @JvmField var fontCodeDy: Float = 0f
+        /** 文字块整体左右偏移（dp，全部文字行一起位移，用于微调居中） */
+        @JvmField var fontBlockShift: Float = 0f
+        /** 行间距增量（dp，加在每一行文字之间） */
+        @JvmField var fontLineGap: Float = 0f
+        /** 字间距（em，TextPaint.letterSpacing，0=默认紧凑） */
+        @JvmField var fontLetterSpacing: Float = 0f
+        /** v15.33 字体阴影开关：默认开启（保持旧观感），可关闭 */
+        @JvmField var fontShadow: Boolean = true
+        /** v15.33 自动时区：true=按系统时区与系统语言自动格式化时间 */
+        @JvmField var autoTz: Boolean = true
         @JvmField var borderWidth: Float = 1f
         @JvmField var borderAlpha: Int = 0   // v12.90：白色描边残留全清（用户截图 8 张均有白框），可在 UI 自行调回
         @JvmField var layoutMode: Int = LAYOUT_CLASSIC
@@ -268,6 +391,7 @@ object EditorState {
             tintColor=s.tintColor; tintStrength=s.tintStrength; innerShadow=s.innerShadow; shadow=s.shadow
             dispersion=s.dispersion; edgeLight=s.edgeLight; opacity=s.opacity; glassContrast=s.glassContrast
             glassTier=s.glassTier; scaleComp=s.scaleComp
+            ios27Style=s.ios27Style
             fluidEnabled=s.fluidEnabled; fluidSpeed=s.fluidSpeed
             refractionModel=s.refractionModel
             breathEnabled=s.breathEnabled; breathStrength=s.breathStrength
@@ -275,6 +399,13 @@ object EditorState {
             model=s.model; modelCode=s.modelCode; dateText=s.dateText
             titleSp=s.titleSp; subSp=s.subSp; textColor=s.textColor
             showDevice=s.showDevice; showTime=s.showTime; fontContrast=s.fontContrast
+            fontTitleScale=s.fontTitleScale; fontCodeScale=s.fontCodeScale
+            fontTimeScale=s.fontTimeScale; fontGeoScale=s.fontGeoScale
+            fontTitleShift=s.fontTitleShift; fontCodeShift=s.fontCodeShift
+            fontTimeShift=s.fontTimeShift; fontGeoShift=s.fontGeoShift
+            fontTimeDy=s.fontTimeDy; fontGeoDy=s.fontGeoDy; fontCodeDy=s.fontCodeDy
+            fontBlockShift=s.fontBlockShift; fontLineGap=s.fontLineGap
+            fontLetterSpacing=s.fontLetterSpacing; fontShadow=s.fontShadow; autoTz=s.autoTz
             fontMode=s.fontMode   // v15.17：字体模式随 params 复制，预设导入/方案重置不再丢
             borderWidth=s.borderWidth; borderAlpha=s.borderAlpha
             layoutMode=s.layoutMode; logoStyle=s.logoStyle; logoBrand=s.logoBrand; logoAlign=s.logoAlign
@@ -294,6 +425,11 @@ object EditorState {
             }
             darkMode=s.darkMode; softwareBlur=s.softwareBlur; apiMode=s.apiMode
             relX=s.relX; relY=s.relY; autoClean=s.autoClean
+            // v15.32：裁剪比例 + 地理位置
+            cropRatio=s.cropRatio; geoMode=s.geoMode; geoText=s.geoText
+            geoLat=s.geoLat; geoLng=s.geoLng; geoStyle=s.geoStyle
+            geoAboveTime=s.geoAboveTime
+            canvasOrient=s.canvasOrient
         }
 
         /** 由统一扭曲 warp 重新推导 edgeWarp/innerWarp（保持三者一致；UI / persist / restore / 预设统一入口） */
@@ -339,6 +475,26 @@ object EditorState {
             glassTier = glassTier.coerceIn(GLASS_TIER_HIGH, GLASS_TIER_LOW); scaleComp = scaleComp.coerceIn(0, 100)
             fontMode = fontMode.coerceIn(FONT_MODE_DEFAULT, FONT_MODE_MAX)   // v15.17：非法值钳回合法范围
             fluidSpeed = fluidSpeed.coerceIn(1, 100); breathStrength = breathStrength.coerceIn(0, 100)
+            cropRatio = cropRatio.coerceIn(CROP_ORIGINAL, CROP_2_3)   // v15.32
+            geoMode = geoMode.coerceIn(GEO_OFF, GEO_CUSTOM)            // v15.32
+            fontTitleScale = fontTitleScale.coerceIn(0.5f, 2.5f)
+            fontCodeScale = fontCodeScale.coerceIn(0.5f, 2.5f)
+            fontTimeScale = fontTimeScale.coerceIn(0.5f, 2.5f)
+            fontGeoScale = fontGeoScale.coerceIn(0.5f, 2.5f)
+            fontTitleShift = fontTitleShift.coerceIn(-60f, 60f)
+            fontCodeShift = fontCodeShift.coerceIn(-60f, 60f)
+            fontTimeShift = fontTimeShift.coerceIn(-60f, 60f)
+            fontGeoShift = fontGeoShift.coerceIn(-60f, 60f)
+            fontBlockShift = fontBlockShift.coerceIn(-60f, 60f)
+            fontLineGap = fontLineGap.coerceIn(-8f, 24f)
+            fontLetterSpacing = fontLetterSpacing.coerceIn(0f, 0.6f)
+            fontTimeDy = fontTimeDy.coerceIn(-60f, 60f)
+            fontGeoDy = fontGeoDy.coerceIn(-60f, 60f)
+            fontCodeDy = fontCodeDy.coerceIn(-60f, 60f)
+            geoStyle = geoStyle.coerceIn(GEO_STYLE_PLACE, GEO_STYLE_COORD)
+            canvasOrient = canvasOrient.coerceIn(CANVAS_AUTO, CANVAS_PORTRAIT)
+            if (geoLat !in -90.0..90.0) geoLat = 0.0
+            if (geoLng !in -180.0..180.0) geoLng = 0.0
         }
 
         /**
@@ -484,6 +640,13 @@ object EditorState {
     @Volatile @JvmField var motionForceVideoRot: Int = -1
     /** 大视频源 Uri（>128MB 不整读内存，全链路 Uri 流式解码/导出） */
     @Volatile @JvmField var motionUri: android.net.Uri? = null
+    /**
+     * v15.31：视频【导入时已落盘的本地文件路径】。
+     * 旧逻辑 GIF 导出/解码每次都把 content:// 再复制一次到 cacheDir（550MB 大视频二次复制
+     * 极易超时/失败 → "动态片段解码失败"）。现在导入时复制一次并缓存本路径，
+     * 预览/导出统一用 file:// 读，不再重复复制；换源/清空时删除。
+     */
+    @Volatile @JvmField var motionLocalPath: String? = null
     /** 动态 WebP 源字节（导出 GIF 时重新解码用）；换源时由 clearMotion/clearSource 清理 */
     @Volatile @JvmField var webpBytes: ByteArray? = null
     /** 合并场景下的图片封面（先选图片再选视频，或反向配对），导出时作为 MP4 第一帧前缀 */
@@ -500,14 +663,27 @@ object EditorState {
         }
         motionFrames?.forEach { runCatching { if (!it.isRecycled) it.recycle() } }
         motionFrames = null; motionDelays = null; motionMp4 = null; motionUri = null; webpBytes = null
+        // v15.31：清空素材时删除导入缓存的本地视频文件
+        motionLocalPath?.let { p -> runCatching { java.io.File(p).delete() } }
+        motionLocalPath = null
         motionForceVideoRot = -1
         runCatching { motionCoverBitmap?.let { if (!it.isRecycled) it.recycle() } }
         motionCoverBitmap = null
         // v15.17：视频/动图源被清空 → 素材行必须重组，否则「删除视频」按钮不会消失
         bumpMedia()
     }
-    fun nowString(): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    /** v15.33 自动时区/语言：按系统时区与系统语言生成时间文本。
+     *  中文环境 24 小时制「yyyy-MM-dd HH:mm:ss」；英文等环境 12 小时制「MMM d, yyyy h:mm:ss a」。
+     *  autoTz 关闭时固定用 24 小时制。 */
+    fun nowString(): String {
+        val sys = Locale.getDefault()
+        val zh = sys.language.startsWith("zh")
+        val fmt = if (params.autoTz) {
+            if (zh) "yyyy-MM-dd HH:mm:ss" else "MMM d, yyyy h:mm:ss a"
+        } else "yyyy-MM-dd HH:mm:ss"
+        val locale = if (zh) Locale.CHINA else Locale.US
+        return SimpleDateFormat(fmt, locale).format(Date())
+    }
     fun defaultModelName(): String = DeviceNames.marketName()
     // v15.18：Build.MODEL 为空时给可见兜底，避免型号行空白
     fun defaultModelCode(): String = DeviceNames.modelCode().ifBlank {
@@ -591,6 +767,14 @@ object EditorState {
             })
             e.putFloat(pk("brandScale"), d.brandScale); e.putFloat(pk("logoStretch"), d.logoStretch)
             e.putBoolean(pk("showDevice"), d.showDevice); e.putBoolean(pk("showTime"), d.showTime); e.putBoolean(pk("fontContrast"), d.fontContrast)
+            e.putFloat(pk("fontTitleScale"), d.fontTitleScale); e.putFloat(pk("fontCodeScale"), d.fontCodeScale)
+            e.putFloat(pk("fontTimeScale"), d.fontTimeScale); e.putFloat(pk("fontGeoScale"), d.fontGeoScale)
+            e.putFloat(pk("fontTitleShift"), d.fontTitleShift); e.putFloat(pk("fontCodeShift"), d.fontCodeShift)
+            e.putFloat(pk("fontTimeShift"), d.fontTimeShift); e.putFloat(pk("fontGeoShift"), d.fontGeoShift)
+            e.putFloat(pk("fontTimeDy"), d.fontTimeDy); e.putFloat(pk("fontGeoDy"), d.fontGeoDy)
+            e.putFloat(pk("fontBlockShift"), d.fontBlockShift); e.putFloat(pk("fontLineGap"), d.fontLineGap)
+            e.putFloat(pk("fontLetterSpacing"), d.fontLetterSpacing)
+            e.putBoolean(pk("fontShadow"), d.fontShadow); e.putBoolean(pk("autoTz"), d.autoTz)
             e.putFloat(pk("borderW"), d.borderWidth); e.putInt(pk("borderA"), d.borderAlpha)
             e.putFloat(pk("relX"), d.relX); e.putFloat(pk("relY"), d.relY)
             e.putBoolean(pk("darkMode"), d.darkMode); e.putBoolean(pk("softwareBlur"), d.softwareBlur)
@@ -602,6 +786,13 @@ object EditorState {
             e.putBoolean(pk("autoClean"), d.autoClean)
             e.putBoolean(pk("fluidEnabled"), d.fluidEnabled); e.putInt(pk("fluidSpeed"), d.fluidSpeed)
             e.putInt(pk("exportMode"), d.exportMode)
+            // v15.32：重置方案时裁剪/位置回默认
+            e.putInt(pk("cropRatio"), d.cropRatio)
+            e.putInt(pk("geoMode"), d.geoMode)
+            e.putString(pk("geoText"), d.geoText)
+            e.putFloat(pk("geoLat"), d.geoLat.toFloat()); e.putFloat(pk("geoLng"), d.geoLng.toFloat())
+            e.putInt(pk("geoStyle"), d.geoStyle); e.putBoolean(pk("geoAboveTime"), d.geoAboveTime)
+            e.putInt(pk("canvasOrient"), d.canvasOrient)
             e.apply()
         } catch (_: Throwable) {}
     }
@@ -630,6 +821,7 @@ object EditorState {
             e.putInt(planKey("dispersion"), p.dispersion); e.putInt(planKey("edgeLight"), p.edgeLight); e.putInt(planKey("opacity"), p.opacity)
             e.putFloat(planKey("glassContrast"), p.glassContrast)
             e.putInt(planKey("glassTier"), p.glassTier); e.putInt(planKey("scaleComp"), p.scaleComp)
+            e.putBoolean(planKey("ios27Style"), p.ios27Style)   // v15.28
             e.putFloat(planKey("titleSp"), p.titleSp); e.putFloat(planKey("subSp"), p.subSp)
             e.putInt(planKey("textColor"), p.textColor); e.putInt(planKey("layoutMode"), p.layoutMode)
             e.putInt(planKey("logoStyle"), p.logoStyle)
@@ -645,6 +837,23 @@ object EditorState {
             e.putFloat(planKey("brandScale"), p.brandScale)
             e.putBoolean(planKey("showDevice"), p.showDevice); e.putBoolean(planKey("showTime"), p.showTime)
             e.putBoolean(planKey("fontContrast"), p.fontContrast)
+            // v15.35：字体集成参数此前只在重置方案里写过，persist 漏存 → 重启后字号/偏移全丢，这里补齐
+            e.putFloat(planKey("fontTitleScale"), p.fontTitleScale)
+            e.putFloat(planKey("fontCodeScale"), p.fontCodeScale)
+            e.putFloat(planKey("fontTimeScale"), p.fontTimeScale)
+            e.putFloat(planKey("fontGeoScale"), p.fontGeoScale)
+            e.putFloat(planKey("fontTitleShift"), p.fontTitleShift)
+            e.putFloat(planKey("fontCodeShift"), p.fontCodeShift)
+            e.putFloat(planKey("fontTimeShift"), p.fontTimeShift)
+            e.putFloat(planKey("fontGeoShift"), p.fontGeoShift)
+            e.putFloat(planKey("fontTimeDy"), p.fontTimeDy)
+            e.putFloat(planKey("fontGeoDy"), p.fontGeoDy)
+            e.putFloat(planKey("fontCodeDy"), p.fontCodeDy)
+            e.putFloat(planKey("fontBlockShift"), p.fontBlockShift)
+            e.putFloat(planKey("fontLineGap"), p.fontLineGap)
+            e.putFloat(planKey("fontLetterSpacing"), p.fontLetterSpacing)
+            e.putBoolean(planKey("fontShadow"), p.fontShadow)
+            e.putBoolean(planKey("autoTz"), p.autoTz)
             e.putFloat(planKey("borderW"), p.borderWidth); e.putInt(planKey("borderA"), p.borderAlpha)
             e.putFloat(planKey("relX"), p.relX); e.putFloat(planKey("relY"), p.relY)
             e.putBoolean(planKey("darkMode"), p.darkMode)
@@ -663,6 +872,24 @@ object EditorState {
             e.putBoolean(planKey("breathEnabled"), p.breathEnabled)
             e.putInt(planKey("breathStrength"), p.breathStrength)
             e.putInt(planKey("exportMode"), p.exportMode)
+            // v15.32：裁剪比例 + 地理位置
+            e.putInt(planKey("cropRatio"), p.cropRatio)
+            e.putInt(planKey("geoMode"), p.geoMode)
+            e.putString(planKey("geoText"), p.geoText)
+            e.putFloat(planKey("geoLat"), p.geoLat.toFloat()); e.putFloat(planKey("geoLng"), p.geoLng.toFloat())
+            e.putInt(planKey("geoStyle"), p.geoStyle)
+            e.putBoolean(planKey("geoAboveTime"), p.geoAboveTime)
+            e.putInt(planKey("canvasOrient"), p.canvasOrient)
+            // v15.28：GIF 导出自定义参数（全局键，跨方案共享）
+            e.putInt("gifFps", gifFps)
+            e.putInt("gifEdgePx", gifEdgePx)
+            e.putLong("gifTrimStartMs", gifTrimStartMs)
+            e.putLong("gifTrimDurationMs", gifTrimDurationMs)
+            e.putBoolean("gifTrimCustomized", gifTrimCustomized)
+            // v15.30：动照剪辑时间轴
+            e.putLong("motionTrimStartMs", motionTrimStartMs)
+            e.putLong("motionTrimDurationMs", motionTrimDurationMs)
+            e.putBoolean("motionTrimCustomized", motionTrimCustomized)
             // 各品牌独立 logo 大小（全局持久化，不随方案）
             for ((bid, v) in brandScales) e.putFloat("brandScale_$bid", v)
             e.putBoolean("live", liveSeconds)
@@ -783,6 +1010,8 @@ object EditorState {
             // 否则升级用户首启时这两项停留在代码默认（键不存在时行为与旧版一致）。
             p.glassTier = sp.getInt(planKey("glassTier"), p.glassTier).coerceIn(0, 1)
             p.scaleComp = sp.getInt(planKey("scaleComp"), p.scaleComp).coerceIn(0, 100)
+            // v15.28：iOS27 风格（默认关；升级不强制开启，用户主动开关）
+            p.ios27Style = sp.getBoolean(planKey("ios27Style"), false)
             p.relX = sp.getFloat(planKey("relX"), p.relX).coerceIn(0f, 1f)
             p.relY = sp.getFloat(planKey("relY"), p.relY).coerceIn(0f, 1f)
             // 深浅模式全局：restore 不读方案旧值（否则切方案后深浅被方案数据覆盖跳回深色）
@@ -800,12 +1029,48 @@ object EditorState {
             p.breathEnabled = sp.getBoolean(planKey("breathEnabled"), p.breathEnabled)
             p.breathStrength = sp.getInt(planKey("breathStrength"), p.breathStrength).coerceIn(0, 100)
             p.exportMode = sp.getInt(planKey("exportMode"), p.exportMode).coerceIn(0, 2)
+            // v15.32：裁剪比例 + 地理位置（旧版本无键时用默认，行为与旧版一致）
+            p.cropRatio = sp.getInt(planKey("cropRatio"), p.cropRatio).coerceIn(CROP_ORIGINAL, CROP_2_3)
+            p.fontTitleScale = sp.getFloat(planKey("fontTitleScale"), p.fontTitleScale)
+            p.fontCodeScale = sp.getFloat(planKey("fontCodeScale"), p.fontCodeScale)
+            p.fontTimeScale = sp.getFloat(planKey("fontTimeScale"), p.fontTimeScale)
+            p.fontGeoScale = sp.getFloat(planKey("fontGeoScale"), p.fontGeoScale)
+            p.fontTitleShift = sp.getFloat(planKey("fontTitleShift"), p.fontTitleShift)
+            p.fontCodeShift = sp.getFloat(planKey("fontCodeShift"), p.fontCodeShift)
+            p.fontTimeShift = sp.getFloat(planKey("fontTimeShift"), p.fontTimeShift)
+            p.fontGeoShift = sp.getFloat(planKey("fontGeoShift"), p.fontGeoShift)
+            p.fontTimeDy = sp.getFloat(planKey("fontTimeDy"), p.fontTimeDy)
+            p.fontCodeDy = sp.getFloat(planKey("fontCodeDy"), p.fontCodeDy)
+            p.fontGeoDy = sp.getFloat(planKey("fontGeoDy"), p.fontGeoDy)
+            p.fontBlockShift = sp.getFloat(planKey("fontBlockShift"), p.fontBlockShift)
+            p.fontLineGap = sp.getFloat(planKey("fontLineGap"), p.fontLineGap)
+            p.fontLetterSpacing = sp.getFloat(planKey("fontLetterSpacing"), p.fontLetterSpacing)
+            p.fontShadow = sp.getBoolean(planKey("fontShadow"), p.fontShadow)
+            p.autoTz = sp.getBoolean(planKey("autoTz"), p.autoTz)
+            p.geoMode = sp.getInt(planKey("geoMode"), p.geoMode).coerceIn(GEO_OFF, GEO_CUSTOM)
+            p.geoText = sp.getString(planKey("geoText"), "") ?: ""
+            p.geoLat = sp.getFloat(planKey("geoLat"), 0f).toDouble()
+            p.geoLng = sp.getFloat(planKey("geoLng"), 0f).toDouble()
+            p.geoStyle = sp.getInt(planKey("geoStyle"), p.geoStyle).coerceIn(GEO_STYLE_PLACE, GEO_STYLE_COORD)
+            p.geoAboveTime = sp.getBoolean(planKey("geoAboveTime"), p.geoAboveTime)
+            p.canvasOrient = sp.getInt(planKey("canvasOrient"), p.canvasOrient).coerceIn(CANVAS_AUTO, CANVAS_PORTRAIT)
             if (!modelCustom && p.model.isBlank()) p.model = defaultModelName()
             if (!modelCodeCustom && p.modelCode.isBlank()) p.modelCode = defaultModelCode()
             if (p.dateText.isBlank()) p.dateText = nowString()
             liveSeconds = sp.getBoolean("live", false)
             motionExportFormat = sp.getString("motionExportFormat", "mp4") ?: "mp4"
             motionPhotoFormat = sp.getInt("motionPhotoFormat", 1).coerceIn(0, 1)
+            // v15.28：GIF 导出自定义参数恢复（旧版本无键时用默认值，行为与旧版一致）
+            gifFps = sp.getInt("gifFps", GIF_FPS_DEFAULT)
+            gifEdgePx = sp.getInt("gifEdgePx", GIF_EDGE_DEFAULT)
+            gifTrimStartMs = sp.getLong("gifTrimStartMs", 0L)
+            gifTrimDurationMs = sp.getLong("gifTrimDurationMs", 5_000L)
+            gifTrimCustomized = sp.getBoolean("gifTrimCustomized", false)
+            // v15.30：动照剪辑时间轴（旧版本无键时保持默认片头 5 秒）
+            motionTrimStartMs = sp.getLong("motionTrimStartMs", 0L)
+            motionTrimDurationMs = sp.getLong("motionTrimDurationMs", 5_000L)
+            motionTrimCustomized = sp.getBoolean("motionTrimCustomized", false)
+            sanitizeGifParams()
             p.sanitizeInPlace()
             // v15.16：画质档位是进程级全局状态（glass 包在 Compose 绘制阶段读取，
             // 拿不到 EditorState.params），restore 后必须同步一次，否则重启后

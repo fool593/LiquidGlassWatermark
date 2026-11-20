@@ -1,437 +1,160 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>液态玻璃水印 Liquid Glass Watermark — 官方下载站</title>
-  <meta name="description" content="液态玻璃水印 Android 应用官方下载站：真实折射光学水印，低版本安卓也能体验玻璃折射效果而非白色磨砂，高版本安卓同样可用。照片/视频/动态照片通用。" />
-  <meta name="keywords" content="液态玻璃水印,水印,Android,折射,玻璃效果,照片水印,视频水印,动态照片,liquid glass watermark,refraction watermark" />
-  <meta name="robots" content="index, follow, max-image-preview:large" />
-  <meta name="author" content="fool593" />
-  <link rel="canonical" href="https://fool593.github.io/LiquidGlassWatermark/" />
-  <link rel="alternate" hreflang="zh-CN" href="https://fool593.github.io/LiquidGlassWatermark/" />
-  <link rel="alternate" hreflang="en" href="https://fool593.github.io/LiquidGlassWatermark/" />
-  <link rel="alternate" hreflang="x-default" href="https://fool593.github.io/LiquidGlassWatermark/" />
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-  <link rel="alternate icon" type="image/png" href="./icon-192.png" />
-  <meta name="theme-color" content="#2E6BFF" />
-  <meta property="og:title" content="液态玻璃水印 Liquid Glass Watermark — 官方下载站" />
-  <meta property="og:description" content="带真实折射光学效果的照片/视频水印编辑器：低版本安卓同样体验玻璃折射，高版本安卓同样可用。官方 Android APK 直链下载。" />
-  <meta property="og:url" content="https://fool593.github.io/LiquidGlassWatermark/" />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="液态玻璃水印 Liquid Glass Watermark — 官方下载站" />
-  <meta name="twitter:description" content="真实折射光学水印：低版本安卓同样体验玻璃折射，高版本安卓同样可用。照片/视频/动态照片。" />
-  <meta name="twitter:image" content="https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg" />
-  <script type="application/ld+json" id="jsonld">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "液态玻璃水印 Liquid Glass Watermark",
-    "alternateName": "Liquid Glass Watermark",
-    "operatingSystem": "Android 8.0+",
-    "applicationCategory": "MultimediaApplication",
-    "applicationSubCategory": "PhotoAndVideoWatermark",
-    "description": "带真实折射光学效果的照片/视频水印编辑器。项目目标：让低版本安卓用户也能体验到液态玻璃水印的真实折射与光学效果，而不是降级成白色磨砂质感（无任何光学与折射效果）；高版本安卓用户同样可以使用该水印。",
-    "inLanguage": ["zh", "en", "hi"],
-    "author": { "@type": "Person", "name": "fool593" },
-    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY", "availability": "https://schema.org/InStock" },
-    "datePublished": "2026-11-04",
-    "softwareVersion": "15.27",
-    "downloadUrl": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/app-release.apk",
-    "fileSize": "27.28MB",
-    "screenshot": [
-      "https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261101_202432.jpg",
-      "https://fool593.github.io/LiquidGlassWatermark/images/lgm_20261031_221939.webp",
-      "https://fool593.github.io/LiquidGlassWatermark/images/img_20261103_142059.webp"
-    ]
-  }
-  </script>
-  <style>html[data-theme=light]{--bg-0:#eef2f7;--bg-1:#fff;--ink-0:#1c1e21;--ink-1:#4b5563;--ink-2:#6b7280;--card:#ffffff8c;--card-2:#ffffff6b;--line:#ffffffc7;--line-2:#141e3c14;--acc:#4f7df0;--acc-2:#7a4ff0;--glow:#6366f129;--shadow:#1f305424;--track:#141e3c1a}html[data-theme=dark]{--bg-0:#0b0e1a;--bg-1:#12162a;--ink-0:#eef1fb;--ink-1:#b9c0d6;--ink-2:#8b93ad;--card:#ffffff12;--card-2:#ffffff0d;--line:#ffffff29;--line-2:#ffffff1a;--acc:#818cf8;--acc-2:#c084fc;--glow:#818cf838;--shadow:#00000061;--track:#ffffff1a}html{--lightningcss-light:initial;--lightningcss-dark: ;color-scheme:light}html[data-theme=dark]{--lightningcss-light: ;--lightningcss-dark:initial;color-scheme:dark}*{box-sizing:border-box;margin:0;padding:0}html,body{background:var(--bg-0);color:var(--ink-0)}html{scroll-behavior:smooth}body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Noto Sans,Ubuntu,Cantarell,Helvetica Neue,PingFang SC,Microsoft YaHei,Noto Sans SC,sans-serif;overflow-x:hidden}body,.glass,.feat,.shot-card,.dl-btn,.ghost-btn,.notice,.topbar,.chip,.line-ui{transition:background-color .45s,color .45s,border-color .45s,box-shadow .45s}</style>
-  <script>
-    /*! 首帧前读取持久化的主题与语言，避免闪烁 */
-    (function () {
-      try {
-        var t = localStorage.getItem('lg-theme');
-        if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.setAttribute('data-theme', t);
-        var l = localStorage.getItem('lg-lang');
-        if (l === 'en') document.documentElement.setAttribute('lang', 'en');
-      } catch (e) {}
-    })();
-  </script>
-  <script type="module" crossorigin src="./assets/site-index-pl1zuzm6.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/site-style-DCEBJ29c.css">
-  <link rel="stylesheet" href="./assets/visual-boost.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiquidGlass Watermark · 液态玻璃水印 v15.38</title>
+<style>
+  :root{--bg:#0b0e14;--card:rgba(255,255,255,.06);--line:rgba(255,255,255,.12);--fg:#eef2f7;--sub:#9aa6b6;--accent:#2b9bff}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 20% -10%,#16304d 0%,transparent 60%),radial-gradient(900px 500px at 90% 0%,#3a1d4d 0%,transparent 55%),var(--bg);color:var(--fg);font:15px/1.75 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:56px 20px 80px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:.5px}
+  .meta{color:var(--sub);font-size:13px;margin-bottom:26px}
+  .meta code{color:#cfe4ff;background:rgba(255,255,255,.07);padding:2px 6px;border-radius:6px}
+  .btns{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 34px}
+  .btn{display:inline-block;padding:11px 20px;border-radius:14px;text-decoration:none;color:#fff;background:linear-gradient(180deg,#3aa6ff,#0a72d8);box-shadow:0 8px 24px rgba(10,114,216,.35);font-weight:600}
+  .btn.ghost{background:rgba(255,255,255,.08);box-shadow:none;border:1px solid var(--line);font-weight:500}
+  h2{font-size:20px;margin:44px 0 12px;padding-left:12px;border-left:3px solid var(--accent)}
+  h3{font-size:16px;margin:26px 0 10px;color:#cfe0f5}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:14px 0;backdrop-filter:blur(8px)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+  th{color:#bcd4ee;font-weight:600;white-space:nowrap}
+  td:first-child{white-space:nowrap;color:#dff0ff;font-weight:600}
+  ul{margin:8px 0 0 20px}li{margin:4px 0}
+  code{background:rgba(255,255,255,.07);padding:2px 5px;border-radius:5px;font-size:13px}
+  pre{background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow:auto;font-size:13px;line-height:1.6}
+  .tag{display:inline-block;font-size:12px;color:#9fe0b5;background:rgba(60,200,120,.12);border:1px solid rgba(60,200,120,.3);padding:2px 8px;border-radius:999px;margin-left:6px}
+  .warn{color:#ffd08a}
+  footer{margin-top:56px;color:var(--sub);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+  a{color:#8ec8ff}
+</style>
 </head>
 <body>
-  <!-- 背景：静态底 canvas（网格+线条+雾）+ 动态光斑层由 JS 注入 -->
-  <!-- 自定义壁纸层（若设置）：fixed 最底，不遮挡任何内容；玻璃折射源随壁纸同步 -->
-  <div id="wallpaper" aria-hidden="true"></div>
-  <!-- 动态壁纸全屏背景（启用时替代 #wallpaper 并驱动玻璃折射，见 dynamic-wallpaper.js） -->
-  <canvas id="dw-bg" width="1080" height="2340" aria-hidden="true"></canvas>
-  <canvas id="bg-layer" aria-hidden="true"></canvas>
-  <div id="bg-blobs" aria-hidden="true"></div>
-  <div id="bg-grain" aria-hidden="true"></div>
+<div class="wrap">
 
-  <!-- 入场描边线条（由 JS 创建并驱动） -->
-  <div id="intro-lines" aria-hidden="true"></div>
+<h1>LiquidGlass Watermark · 液态玻璃水印 <span class="tag">v15.38</span></h1>
+<div class="meta">
+  Android 图片 / 视频水印编辑器 · Kotlin + Jetpack Compose · 底部导航为 KernelSU 管理器真源码移植的液态玻璃悬浮 Dock<br>
+  包名 <code>com.liquidglass.watermark</code>（debug 为 <code>.debug</code>）· versionCode <code>1538</code> / versionName <code>15.38</code> · minSdk 26 / targetSdk 37 / compileSdk 37 · JVM 17
+</div>
 
-  <div id="app">
-    <!-- ================= 顶栏：语言 / 主题 ================= -->
-    <div class="topbar wrap">
-      <a class="brand" href="#top" aria-label="Liquid Glass Watermark">
-        <img src="./favicon.svg" alt="" width="34" height="34" class="brand-icon" />
-        <span>Liquid Glass Watermark</span>
-      </a>
-      <div class="top-actions">
-        <button class="chip" id="wallpaper-toggle" type="button" aria-label="Custom wallpaper">
-          <span aria-hidden="true">🖼</span>
-          <span id="wallpaper-label" data-i18n="wall.toggle">壁纸</span>
-        </button>
-        <button class="chip" id="lang-toggle" type="button" aria-label="Switch language">
-          <span id="lang-label">中 / EN</span>
-        </button>
-        <button class="chip" id="theme-toggle" type="button" aria-label="Toggle dark / light theme">
-          <span id="theme-icon" aria-hidden="true">◐</span>
-          <span id="theme-label" data-i18n="settings.theme.toggle">深色模式</span>
-        </button>
-      </div>
-    </div>
+<div class="btns">
+  <a class="btn" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/LiquidGlassWatermark_v15.38_release.apk">下载 release APK（14.31 MB）</a>
+  <a class="btn ghost" href="https://github.com/fool593/LiquidGlassWatermark">GitHub 仓库</a>
+  <a class="btn ghost" href="https://github.com/fool593/LiquidGlassWatermark/releases">全部版本 / Release</a>
+</div>
 
-    <!-- ================= Hero ================= -->
-    <header class="hero wrap" id="top">
-      <section class="glass hero-glass rise r-1">
-        <div class="hero-row">
-          <img class="hero-icon glass-icon" src="./favicon.svg" alt="液态玻璃水印应用图标 Liquid Glass Watermark app icon" width="96" height="96" />
-          <div class="hero-text">
-            <h1>液态玻璃水印 Liquid Glass Watermark</h1>
-            <p class="sub" data-i18n="hero.sub">官方下载站 · Android 照片/视频水印 · 真实折射光学，不是贴纸</p>
-          </div>
-        </div>
-        <div class="badges">
-          <span class="badge mono" id="hero-ver">v15.27</span>
-          <span class="badge green mono" data-i18n="hero.badge.sdk">minSdk 26 · targetSdk 34</span>
-          <span class="badge plain mono" data-i18n="hero.badge.tested">Android 9 ~ 14 实测 · 8.0+ 全系支持</span>
-          <span class="badge plain mono">GPU 硬编快路径</span>
-          <span class="badge plain mono">中 / EN / हिन्दी</span>
-          </div>
+<h2>1. 本版更新</h2>
 
-          <p class="intro-paragraph" data-i18n="hero.intro">
-          这层玻璃是真的——<strong>背景透过水印会弯曲</strong>，像透过一块真正的水滴透镜看世界，不是贴图。
-        </p>
+<h3>1.1 Dock 精简：6 项 → 5 项（合并方案）</h3>
+<div class="card">
+<table>
+<tr><th>Dock 项</th><th>承载的原有功能</th><th>合并理由</th></tr>
+<tr>
+  <td>形状</td>
+  <td>水印外形（圆角 / 胶囊 / 椭圆 / 直角）；裁剪比例（原图 / 16:9 / 4:3 / 3:2 / 1:1 / 9:16 / 3:4 / 2:3）；素材管理（删除图片 / 删除视频）</td>
+  <td>全部是「水印条几何外形」，调整对象同一，属于同一组互斥选项，拆开只是把一组单选散成两处</td>
+</tr>
+<tr>
+  <td>玻璃</td>
+  <td>子页签「玻璃」：iOS 27 风格通道、流体液态玻璃（开关 + 流速）、呼吸动效（开关 + 强度）、高级光学折叠面板（边缘透镜 / 边缘高光 / 色散 / 悬浮高度 / 流光速度）、模糊、玻璃对比度、通透度、折射强度、边缘折射高度、统一扭曲、色散、色彩分离、着色强度、边框宽度；<br>子页签「光泽」：高光强度、边缘光、内阴影、投影、鲜艳度、高光样式</td>
+  <td>两项都是同一块玻璃的「材质 + 光学」表现，且参数互相复用同一字段（<code>edgeLight</code> / <code>shadow</code> 两边共用），原本就是同一组参数的两个入口</td>
+</tr>
+<tr>
+  <td>文字</td>
+  <td>三行文案与来源（自定义名称 / 型号 / 时间日期；地理位置：关闭 / 相册 EXIF / 当前位置 / 自定义）；字体（默认字体 / 系统字体 / 斜体 / 樱花字体）、各块字号倍率、字间距、行间距、文字阴影；行排布（位置行放到时间上方、型号/时间/位置上下微调、左右偏移）</td>
+  <td>文案输入、字体、字号、行排布是一条连续的「内容 → 排版 → 偏移」链路，拆开会让每次微调都要来回切页</td>
+</tr>
+<tr>
+  <td>位置</td>
+  <td>水印整体水平位置、垂直位置（在画面中的落点）</td>
+  <td>属于「整条水印放哪儿」，与文字内部排版是两件事，保持独立</td>
+</tr>
+<tr>
+  <td>设置</td>
+  <td>深浅色 / 界面缩放 / 字体策略 / 导出默认参数 / 性能与调试开关</td>
+  <td>系统级偏好，改动频率最低，占一格但点击频次最低</td>
+</tr>
+</table>
+<p style="margin:12px 0 0;color:var(--sub)">收益：Dock 由 6 格变 5 格，1080p 下每格可用宽度约 172px → 206px（+20%），标签与图标不再挤压；原「光泽」的 6 个滑块与「玻璃」全部参数<strong>零丢失</strong>，通过页内子页签（玻璃 / 光泽）承载。</p>
+</div>
 
-        <div class="goal" data-i18n="hero.goal">
-          <b>🎯 项目目标：每一台安卓手机都能摸到真正的「液态玻璃」</b>
-          低版本不降级成磨砂，高版本用满光学——<strong>全系安卓，都是能透过它看世界的玻璃</strong>。
-          <div class="tags">
-            <span class="tag">Android 8.0+ 全系支持</span>
-            <span class="tag">LOW 档保留折射 + 扭曲</span>
-            <span class="tag">HIGH 档完整光学（AGSL 着色器）</span>
-          </div>
-        </div>
+<h3>1.2 一并修复的问题（真机反馈）</h3>
+<div class="card">
+<table>
+<tr><th>#</th><th>现象</th><th>根因</th><th>修复方式</th></tr>
+<tr><td>1</td><td>「选择照片或视频」一次只能导入 1 项，无法直接配对成动态照片</td><td>各家相册的 Photo Picker 即便声明多选，也会「点一下即返回」，长按只进单张预览</td><td>空态新增独立入口「一次选「照片 + 视频」配对动态照片」，走 <code>ACTION_OPEN_DOCUMENT + EXTRA_ALLOW_MULTIPLE</code>（系统文件选择器，任何机型都支持多选）；勾选 2 项后自动配对为动态照片（封面 + 视频）并直接打开合成面板</td></tr>
+<tr><td>2</td><td>方案2（左右分栏）下「型号上下」滑块无效</td><td>绘制端该分支完全没有消费 <code>fontCodeDy</code></td><td>型号行基线计入 <code>dyC</code>，<code>measure()</code> 的块高同步</td></tr>
+<tr><td>3</td><td>字号调大后，i 卡旁的竖向分隔线冲出玻璃条上下沿</td><td>竖线高度按 <code>timeBlockH × 1.1</code> 估算，而块高未计入上下偏移，估算值大于实际条高</td><td>竖线高度取「块高」与「玻璃内高 − 上下留白 − 2px」的较小值，经典 / 方案2 两条分支都加钳制；另加 <code>fitTop()</code> 把文字块硬夹在条内</td></tr>
+<tr><td>4</td><td>「位置行放到时间上方」开关无效</td><td>方案2 右侧文字块写死「时间在上、位置永远最后」</td><td>按 <code>geoAboveTime</code> 排序，块高随两行真实行高计算</td></tr>
+<tr><td>5</td><td>「时间上下 / 位置上下」要拉到极限才换行，中段几乎不动</td><td>旧换算 <code>值 × density × sUnit</code>，2.75 密度下满行程约 110px ≈ 2~3 行高</td><td>满行程 ±40 精确等于 <strong>±1 行高</strong>：拉到极限正好落到邻行位置（视觉互换），中段线性可感知；配合块高含 <code>abs(dy)</code> 与 <code>fitTop()</code>，条内一定放得下</td></tr>
+<tr><td>6</td><td>「默认字体」与「系统字体」切不出差别</td><td>旧实现两种字体取自同一 <code>Typeface</code> 源</td><td>默认字体 = 出厂字库（直读 <code>/system/fonts</code>，主题 overlay 不覆盖源文件）；系统字体 = <code>Typeface.DEFAULT</code>（被主题替换后即第三方字体）；用「同段文字渲染 96×44 位图逐像素比对」自动判定是否被主题替换；界面字族单独钉死为出厂字体，避免主题字体把界面文字压窄</td></tr>
+<tr><td>7</td><td>手机上 Dock 胶囊「短而圆」、模拟器上「长且真胶囊」；整体界面显扁显长</td><td>Dock 高度与左右留白写死；界面字族被主题字体接管导致行高测量走样</td><td>Dock 高度 = 屏宽 × 15.5% 夹在 46~58dp，左右留白 16dp → 10dp；界面字族固定出厂字体</td></tr>
+</table>
+</div>
 
-        <div class="trust" data-i18n="hero.trust">
-          🔒 <strong>不联网 · 照片不上传 · 免注册 · 无广告</strong> —— 水印全在本机处理
-        </div>
+<h2>2. 已知问题与限制</h2>
+<div class="card">
+<ul>
+  <li><strong>主题字体判定未全机型实测</strong>：像素比对法在模拟器与原生字体上正确，vivo / OPPO / 小米各代主题字库尚未逐一真机验证；若某机型判定错误，切「系统字体」时观感可能与预期不一致。</li>
+  <li><strong>「真实地名」依赖定位权限</strong>：无权限或模拟器无地理数据时会提示「获取当前位置失败」，此时地理位置行不绘制（方案2 右块只剩日期，属正常）。</li>
+  <li><strong>超大字号未做横向自适应</strong>：单行字号 &gt; 100sp 且文案很长时，标题可能横向超出玻璃条左右边界（本版只保证纵向不溢出，横向排版未做自动缩字 / 换行）。</li>
+  <li><strong>单元测试目录不可编译</strong>：<code>app/src/test/java/...core/**</code> 引用不存在的 <code>com.liquidglass.wiquidmark.core.export</code> 包，<code>testDebugUnitTest</code> 会失败；不影响 <code>assembleDebug</code> / <code>assembleRelease</code>。</li>
+  <li><strong>平板横向布局未专门适配</strong>：Dock 宽度封顶 560dp 居中，超宽屏两侧留白较大；参数面板仍为单列布局。</li>
+  <li><strong>签名固定</strong>：release 固定 keystore，已装旧版可直接覆盖升级；换了签名需先卸载。</li>
+  <li><strong>包体</strong>：release 约 14.3 MB；debug 约 19.2 MB（含调试符号，仅用于排障）。</li>
+</ul>
+</div>
 
-        <div class="download">
-          <div class="dl-row">
-            <a class="dl-btn rise r-3" id="hero-dl" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/app-release.apk" target="_blank" rel="noopener">
-              ⬇ <span data-i18n="hero.dl.v1527">直链下载 APK · v15.27（推荐）</span>
-            </a>
-          </div>
-          <p class="dl-note" id="hero-update-detail" data-i18n="hero.dl.v1527.note"><b>v15.27 更新：</b>GIF 导出全面提速且零卡顿（LZW 字典扁平化 + 桶内质心调色板）；修复 MP4/HEVC 导出尾帧绿幕与 GIF 透明帧黑光晕；导出管线精简与稳定性增强。</p>
-          <p class="dl-note" id="hero-update"><b>本次更新（2026-11-15）：</b>v15.27 已发布；GIF 编码提速、MP4/HEVC 绿幕与 GIF 黑光晕修复、导出管线精简；源码与站点已同步至 GitHub main，详见更新日志。</p>
-          <p class="dl-note legacy" data-i18n="hero.dl.legacy">上一版本（v15.16）</p>
-          <div class="dl-row">
-            <a class="dl-btn green rise r-4" href="./downloads/LiquidGlassWatermark-v15.16-export-speed-restored.apk" download>
-              ⬇ <span data-i18n="hero.dl.recommended">直链下载 APK · 光线恢复版</span>
-            </a>
-            <a class="dl-btn green rise r-5" href="./downloads/LiquidGlassWatermark-v15.15-UI-performance.apk" download>
-              ⬇ <span data-i18n="hero.dl.alt">直链下载 APK · v15.15 UI 优化版</span>
-            </a>
-          </div>
-          <div class="dl-row" id="hero-dl-extra">
-            <a class="dl-btn small rise r-6" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/LiquidGlassWatermark_v15.27_source.zip" target="_blank" rel="noopener">
-              <span data-i18n="hero.dl.src">源码 ZIP（v15.27）</span>
-            </a>
-            <a class="dl-btn small ghost rise r-8" href="https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/app-debug.apk" target="_blank" rel="noopener">
-              <span>测试版 APK（v15.27 debug）</span>
-            </a>
-            <a class="dl-btn small ghost rise r-7" href="https://github.com/fool593/LiquidGlassWatermark" target="_blank" rel="noopener">
-              <span data-i18n="hero.dl.github">GitHub 仓库 ↗</span>
-            </a>
-          </div>
-          <p class="dl-meta" data-i18n="hero.dl.meta">
-            v15.27 GIF 编码提速 + MP4/HEVC 绿幕与 GIF 黑光晕修复 + 导出管线精简；点击「推荐」按钮直达 GitHub Release 下载 · 安装说明见下
-          </p>
-        </div>
-        <div class="dl-qr glass" aria-label="扫码下载">
-          <img src="./qr-download.png" alt="二维码：手机扫码直达下载页" width="132" height="132" decoding="async" />
-          <span data-i18n="hero.dl.qr">手机扫码 · 直接下载</span>
-        </div>
-      </section>
-    </header>
+<h2>3. 安装</h2>
+<div class="card">
+<ol>
+  <li>下载 <code>LiquidGlassWatermark_v15.38_release.apk</code>（上方按钮，或 Release 页附件）。</li>
+  <li>直接安装（与 15.3x 系列同签名，可覆盖升级）。</li>
+  <li>首次进入为空态：点「选择照片或视频」，或用「一次选「照片 + 视频」配对动态照片」一次导入封面 + 视频。</li>
+</ol>
+</div>
 
-    <!-- ================= 特性 ================= -->
-    <section class="wrap features" aria-label="Features">
-      <div class="feat glass rise r-2">
-        <b>🧊 <span data-i18n="feat.optics.t">液态玻璃光学</span></b>
-        <span data-i18n="feat.optics.d">UV 折射 / 内部放大 / 色散 / 菲涅尔边缘光与高光，全参数可调，HIGH/LOW 双画质档位。</span>
-      </div>
-      <div class="feat glass rise r-3">
-        <b>🖼 <span data-i18n="feat.photo.t">照片水印</span></b>
-        <span data-i18n="feat.photo.d">4 种布局 · 14 种品牌 Logo · 自定义 Logo 导入 · 中英印三语界面。</span>
-      </div>
-      <div class="feat glass rise r-4">
-        <b>🎬 <span data-i18n="feat.video.t">视频水印</span></b>
-        <span data-i18n="feat.video.d">GPU 硬编快路径 + 逐帧兜底，长视频线性导出，统一出口不跳变。</span>
-      </div>
-      <div class="feat glass rise r-5">
-        <b>🎞 <span data-i18n="feat.motion.t">动态照片</span></b>
-        <span data-i18n="feat.motion.d">vivo 双文件 / Google XMP 双格式，超过 5 秒自动截取前 5 秒并提示。</span>
-      </div>
-      <div class="feat glass rise r-6">
-        <b>⚡ <span data-i18n="feat.perf.t">性能优化</span></b>
-        <span data-i18n="feat.perf.d">离屏层缓存、重组收敛、光学量恢复 v15.15 基线，导出速度实测提升 3.6%~6%。</span>
-      </div>
-      <div class="feat glass rise r-7">
-        <b>🔤 <span data-i18n="feat.font.t">字体灵活</span></b>
-        <span data-i18n="feat.font.d">默认中文 / 跟随系统双模式，切换后全局生效，重启与切换主题均不丢失。</span>
-      </div>
-    </section>
+<h2>4. 从源码构建</h2>
+<pre># JDK 17 + Android SDK 37
+./gradlew :app:assembleDebug     # 调试包，applicationId 带 .debug 后缀
+./app/build/outputs/apk/debug/app-debug.apk
 
-    <!-- ================= 效果展示 ================= -->
-    <section class="wrap shots" aria-label="Screenshots">
-      <h2 data-i18n="shots.title">应用效果展示</h2>
-      <p class="lead" data-i18n="shots.lead">真实设备 / 应用内生成的效果图（点击可站内放大查看原图）。</p>
-      <div class="grid" id="shot-grid">
-        <figure class="shot-card glass rise r-2" data-src="images/lgm_20261101_202432.webp">
-          <img src="images/lgm_20261101_202432.webp" alt="液态玻璃水印效果大图 1" loading="lazy" decoding="async" width="1400" height="788" />
-          <figcaption class="shot-cap" data-i18n="shots.s1.t">液态玻璃效果图 1<small data-i18n="shots.s1.d">折射 + 高光 + 边缘光</small></figcaption>
-        </figure>
-        <figure class="shot-card glass rise r-3" data-src="images/lgm_20261031_221939.webp">
-          <img src="images/lgm_20261031_221939.webp" alt="液态玻璃水印效果大图 2" loading="lazy" decoding="async" width="1600" height="900" />
-          <figcaption class="shot-cap" data-i18n="shots.s2.t">液态玻璃效果图 2<small data-i18n="shots.s2.d">不同色彩下的玻璃折射</small></figcaption>
-        </figure>
-        <figure class="shot-card glass rise r-4" data-src="images/img_20261103_142059.webp">
-          <img src="images/img_20261103_142059.webp" alt="液态玻璃水印效果大图 3" loading="lazy" decoding="async" width="1000" height="461" />
-          <figcaption class="shot-cap" data-i18n="shots.s3.t">液态玻璃效果图 3<small data-i18n="shots.s3.d">实拍场景水印效果</small></figcaption>
-        </figure>
-        <figure class="shot-card glass rise r-5" data-src="images/screenshot_2026_1031_133824.webp">
-          <img src="images/screenshot_2026_1031_133824.webp" alt="液态玻璃水印应用手机截图 1" loading="lazy" decoding="async" width="369" height="800" />
-          <figcaption class="shot-cap" data-i18n="shots.s4.t">应用界面截图 1<small data-i18n="shots.s4.d">手机界面实拍</small></figcaption>
-        </figure>
-        <figure class="shot-card glass rise r-6" data-src="images/screenshot_2026_1101_202406.webp">
-          <img src="images/screenshot_2026_1101_202406.webp" alt="液态玻璃水印应用手机截图 2" loading="lazy" decoding="async" width="369" height="800" />
-          <figcaption class="shot-cap" data-i18n="shots.s5.t">应用界面截图 2<small data-i18n="shots.s5.d">手机界面实拍</small></figcaption>
-        </figure>
-        <figure class="shot-card glass rise r-7" data-src="images/shot_main.webp">
-          <img src="images/shot_main.webp" alt="液态玻璃水印主界面：照片加水印预览" loading="lazy" decoding="async" width="554" height="1200" />
-          <figcaption class="shot-cap" data-i18n="shots.s6.t">主界面 · 照片预览与工具栏<small data-i18n="shots.s6.d">Android 14 模拟器运行截图</small></figcaption>
-        </figure>
-      </div>
-    </section>
+./gradlew :app:assembleRelease   # 正式包（需 keystore.properties）
+./app/build/outputs/apk/release/app-release.apk</pre>
+<p style="color:var(--sub)"><code>keystore.properties</code> 不入库，参考 <code>keystore.properties.example</code> 自建。</p>
 
-    <!-- ================= 安装与使用 ================= -->
-    <section class="wrap howto" aria-label="Install">
-      <h2 data-i18n="howto.title">安装与使用</h2>
-      <ol>
-        <li data-i18n="howto.1">点击上方<strong>直链下载</strong>按钮获取 <code>.apk</code>，在手机文件管理器中打开即可安装（需允许「安装未知来源应用」）。</li>
-        <li data-i18n="howto.2">首次进入选择照片或视频（支持系统相册、文件管理器、手动面板导入）。</li>
-        <li data-i18n="howto.3">在「玻璃 / 高光 / 文本 / 位置」等标签页调整水印效果；<strong>LOW 画质档保留法线折射与扭曲</strong>，不会退化成纯白色磨砂叠加。</li>
-        <li data-i18n="howto.4">导出照片为 PNG/JPEG；导出视频走 GPU 硬编；动态照片自动按 5 秒规范截取并落盘到相册。</li>
-        <li data-i18n="howto.5">字体在「设置」页切换默认 / 系统字体，切换后全局立即生效。</li>
-      </ol>
-    </section>
+<h2>5. 版本信息</h2>
+<div class="card">
+<table>
+<tr><th>项</th><th>值</th></tr>
+<tr><td>versionCode / versionName</td><td>1538 / 15.38</td></tr>
+<tr><td>minSdk / targetSdk / compileSdk</td><td>26 / 37 / 37</td></tr>
+<tr><td>release 包大小</td><td>14.31 MB</td></tr>
+<tr><td>debug 包大小</td><td>19.24 MB</td></tr>
+<tr><td>签名</td><td>V3，证书 SHA-256 <code>22bd1ff1…04a439</code></td></tr>
+<tr><td>渲染入口</td><td><code>WatermarkRenderer.kt</code>（CLASSIC / SINGLE / STACK / SPLIT 四种布局）</td></tr>
+<tr><td>Dock</td><td><code>ui/ksu/FloatingBottomBar.kt</code>（KSU 真源码移植）</td></tr>
+</table>
+</div>
 
-    <!-- ================= 反馈与讨论 ================= -->
-    <section class="wrap feedback" aria-label="Feedback">
-      <h2 data-i18n="feedback.title">遇到问题？报告 Bug</h2>
-      <p class="sub" data-i18n="feedback.sub">使用中遇到闪退 / 导出异常 / 界面问题？请尽量带上手机型号、安卓版本与操作步骤，作者才能定位。</p>
-      <div class="feedback-btns">
-        <a class="dl-btn green rise r-4" href="https://github.com/fool593/LiquidGlassWatermark/issues/new?template=bug_report.yml" target="_blank" rel="noopener">
-          🐛 <span data-i18n="feedback.btn.bug">报告 Bug（GitHub Issue）</span>
-        </a>
-        <a class="dl-btn small rise r-5" href="https://github.com/fool593/LiquidGlassWatermark/issues/new" target="_blank" rel="noopener">
-          💡 <span data-i18n="feedback.btn.idea">提建议 / 其他反馈</span>
-        </a>
-      </div>
-      <p class="dl-meta" data-i18n="feedback.note">提交 Issue 需要 GitHub 账号（免费）；若方便，把 App 内“最近一次崩溃”的提示内容（app_crash/last.txt）也粘贴上，能最快定位。</p>
-    </section>
+<h2>6. 历史版本</h2>
+<div class="card">
+<ul>
+  <li><strong>v15.37</strong> — 真机实测 bug 修复：多选配对、上下滑块量程、竖线钳制、「位置行放到时间上方」、默认/系统字体分离、Dock 跨机型自适应。</li>
+  <li><strong>v15.36</strong> — Dock 宽度自适应（铺满可用宽度、封顶 560dp）、UiScale 密度归一。</li>
+  <li><strong>v15.35</strong> — Dock 压缩、参数面板高度调整。</li>
+  <li><strong>v15.34</strong> — KSU 液态玻璃 Dock 真源码移植，Dock 按实测高度为导出栏留位。</li>
+  <li><strong>v15.28 ~ v15.33</strong> — iOS 27 风格通道、流体 / 呼吸动效、高级光学面板、四行独立字号。</li>
+</ul>
+</div>
 
-    <style>.ann-card{background:var(--card,#fff);border:1px solid var(--line-2,#e2e7f5);border-radius:14px;padding:12px 16px;margin:10px 0}.ann-date{font-size:.78rem;opacity:.55;display:block;margin-bottom:4px}</style>
+<footer>
+  LiquidGlass Watermark · 源码与完整变更见 <a href="https://github.com/fool593/LiquidGlassWatermark">GitHub 仓库</a>，许可见仓库 <code>LICENSE</code> 与 <code>NOTICE.md</code>。
+</footer>
 
-    <section class="wrap ann" id="ann-section" hidden aria-label="Announcements">
-      <h2>📢 公告 / 动态</h2>
-      <p class="sub">来自开发者的更新与说明，由管理后端实时推送。</p>
-      <div id="ann-feed"></div>
-    </section>
-
-    <section class="wrap comments" aria-label="Comments">
-      <h2 data-i18n="comments.title">留言讨论</h2>
-      <p class="sub" data-i18n="comments.sub">评论区由 GitHub Discussions 承载（无需单独注册，使用你的 GitHub 账号即可）——反馈、建议、使用心得都欢迎。</p>
-      <div class="giscus-wrap">
-        <script src="https://giscus.app/client.js"
-                data-repo="fool593/LiquidGlassWatermark"
-                data-repo-id="R_kgDOVhNeIg"
-                data-category="General"
-                data-category-id="DIC_kwDOVhNeIs4DKYVn"
-                data-mapping="pathname"
-                data-strict="0"
-                data-reactions-enabled="1"
-                data-emit-metadata="0"
-                data-input-position="top"
-                data-theme="preferred_color_scheme"
-                data-lang="zh-CN"
-                data-loading="lazy"
-                crossorigin="anonymous"
-                async>
-        </script>
-        <script>
-        /* giscus 主题跟随站点深浅色切换（lg:theme 事件由 main.js 派发） */
-        (function () {
-          function currentGiscusTheme() {
-            return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-          }
-          function syncGiscus() {
-            var f = document.querySelector('.giscus-wrap iframe.giscus-frame');
-            if (!f) return;
-            try {
-              f.contentWindow.postMessage({ giscus: { setConfig: { theme: currentGiscusTheme() } } }, 'https://giscus.app');
-            } catch (e) { /* iframe 未就绪时忽略 */ }
-          }
-          window.addEventListener('lg:theme', syncGiscus);
-          var iv = setInterval(function () { if (document.querySelector('.giscus-wrap iframe.giscus-frame')) { clearInterval(iv); syncGiscus(); } }, 1500);
-          setTimeout(function () { clearInterval(iv); }, 30000);
-        })();
-        </script>
-      </div>
-    </section>
-
-    <footer class="wrap">
-      <p>© 2026 fool593 · Liquid Glass Watermark · <span data-i18n="footer.host">本站托管于 GitHub Pages（免费公网 HTTPS）</span></p>
-      <p class="foot-links">
-        <a href="https://github.com/fool593/LiquidGlassWatermark" data-i18n="footer.repo">GitHub 仓库</a> ·
-        <a href="./readme.html" data-i18n="footer.readme">项目说明 · README</a> ·
-        <a href="./changelog.html" data-i18n="footer.changelog">更新日志</a> ·
-        <a href="https://github.com/fool593/LiquidGlassWatermark/blob/main/NOTICE.md" data-i18n="footer.notice">使用知会 · NOTICE</a> ·
-        <a href="./sitemap.xml" data-i18n="footer.sitemap">站点地图</a>
-      </p>
-    </footer>
-  </div>
-
-  <!-- 自定义壁纸设置面板（浅层浮层，z-index 低于 Lightbox；点击遮罩/✕/Esc 关闭） -->
-  <div id="wallpaper-panel" class="wp-panel" hidden role="dialog" aria-modal="false" aria-label="Custom wallpaper">
-    <div class="wp-card glass">
-      <div class="wp-head">
-        <h3 data-i18n="wall.title">自定义壁纸</h3>
-        <button id="wp-close" class="wp-close" type="button" aria-label="Close">✕</button>
-      </div>
-      <p class="wp-sub" data-i18n="wall.sub">壁纸仅作为页面背景，不影响任何功能；刷新后仍保留，可随时恢复默认。</p>
-
-      <div class="wp-section">
-        <div class="wp-label" data-i18n="wall.upload">上传本地图片</div>
-        <div class="wp-row">
-          <input id="wp-file" type="file" accept="image/*" />
-          <label class="dl-btn small wp-file-btn" for="wp-file" data-i18n="wall.upload.btn">选择图片…</label>
-          <span class="wp-hint" data-i18n="wall.upload.hint">自动压缩后保存（最长边 ≤1600px）</span>
-        </div>
-      </div>
-
-      <div class="wp-section">
-        <div class="wp-label" data-i18n="wall.url">图片链接（URL）</div>
-        <div class="wp-row">
-          <input id="wp-url" class="wp-input" type="url" placeholder="https://example.com/bg.jpg" data-i18n="wall.url.placeholder" />
-          <button id="wp-url-apply" class="dl-btn small wp-apply" type="button" data-i18n="wall.url.apply">应用</button>
-        </div>
-        <div class="wp-hint" data-i18n="wall.url.hint">需为可公开访问的图片直链（http/https）</div>
-      </div>
-
-      <div class="wp-section">
-        <div class="wp-label" data-i18n="wall.preset">预设纯色</div>
-        <div class="wp-colors" id="wp-colors"></div>
-      </div>
-
-      <div class="wp-section" id="dw-section">
-        <div class="wp-label" data-i18n="wall.dyn.title">动态壁纸</div>
-        <p class="wp-hint" data-i18n="wall.dyn.sub">基于当前壁纸照片生成动态效果：缓慢缩放、光影漂移与随时间变化的色调。</p>
-        <div class="dw-canvas-wrap">
-          <canvas id="dw-canvas" width="480" height="854" aria-label="动态壁纸预览"></canvas>
-          <div id="dw-empty" class="dw-empty" data-i18n="wall.dyn.empty">先在上方上传照片或输入图片 URL，即可生成动态壁纸。</div>
-        </div>
-        <div class="dw-controls">
-          <span class="dw-label" data-i18n="wall.dyn.speed">速度</span>
-          <div class="dw-seg" id="dw-speed" role="group" aria-label="Speed">
-            <button type="button" data-v="slow" data-i18n="wall.dyn.slow">慢</button>
-            <button type="button" data-v="normal" class="on" data-i18n="wall.dyn.normal">标准</button>
-            <button type="button" data-v="fast" data-i18n="wall.dyn.fast">快</button>
-          </div>
-          <span class="dw-label" data-i18n="wall.dyn.light">光影</span>
-          <div class="dw-seg" id="dw-light" role="group" aria-label="Lighting">
-            <button type="button" data-v="soft" data-i18n="wall.dyn.soft">柔和</button>
-            <button type="button" data-v="strong" class="on" data-i18n="wall.dyn.strong">增强</button>
-          </div>
-        </div>
-        <div class="dw-btns">
-          <button id="dw-apply" class="dl-btn green dw-apply" type="button" data-i18n="wall.dyn.apply">应用为壁纸</button>
-          <button id="dw-png" class="dl-btn small" type="button" data-i18n="wall.dyn.png">保存静态壁纸 PNG</button>
-          <button id="dw-video" class="dl-btn small ghost" type="button" data-i18n="wall.dyn.video">导出动态视频</button>
-        </div>
-        <p id="dw-hint" class="dw-hint" data-i18n="wall.dyn.note" hidden></p>
-      </div>
-
-      <div class="wp-foot">
-        <button id="wp-reset" class="dl-btn ghost" type="button" data-i18n="wall.reset">恢复默认壁纸</button>
-        <span id="wp-status" class="wp-status" role="status" aria-live="polite"></span>
-      </div>
-    </div>
-  </div>
-
-  <!-- 站内 Lightbox（点击图片放大，不跳转外链） -->
-  <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Image preview">
-    <button id="lb-close" class="lb-btn" type="button" aria-label="Close preview">✕</button>
-    <button id="lb-prev" class="lb-btn lb-nav" type="button" aria-label="Previous">‹</button>
-    <img id="lb-img" src="" alt="预览图 Preview" />
-    <button id="lb-next" class="lb-btn lb-nav" type="button" aria-label="Next">›</button>
-    <div id="lb-count" class="lb-count"></div>
-  </div>
-
-  <!-- 性能自检小徽标（可开关；控制台亦可查询 window.LGPerf） -->
-  <div id="perf-badge" class="perf-badge" title="FPS 自检 · click 隐藏">
-    <span id="perf-fps">--</span><small> FPS</small>
-  </div>
-
-  <script src="./assets/tips.js" defer></script>
-  <script>
-  (function(){
-    function esc(s){return (s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-    function applyVersion(v){
-      if(!v||!v.versionName) return;
-      var ver=v.versionName;
-      var b=document.getElementById('hero-ver'); if(b) b.textContent='v'+ver;
-      var dl=document.getElementById('hero-dl');
-      if(dl){ var u=(v.downloads&&v.downloads[0]&&v.downloads[0].url)||dl.getAttribute('href'); if(u) dl.setAttribute('href',u);
-        dl.innerHTML='⬇ <span id="dyn-dl-label"></span>'; var lab=dl.querySelector('#dyn-dl-label'); if(lab) lab.textContent='直链下载 APK · v'+ver+'（推荐）'; }
-      var ex=document.getElementById('hero-dl-extra');
-      if(ex){ var html=''; (v.downloads||[]).forEach(function(d){ if(d.kind==='source'||d.kind==='debug'){ html+='<a class="dl-btn small '+(d.kind==='debug'?'ghost ':'')+'rise r-'+(d.kind==='debug'?8:6)+'" href="'+esc(d.url)+'" target="_blank" rel="noopener"><span>'+esc(d.label)+'（v'+ver+'）</span></a>'; }});
-        html+='<a class="dl-btn small ghost rise r-7" href="https://github.com/fool593/LiquidGlassWatermark" target="_blank" rel="noopener"><span>GitHub 仓库 ↗</span></a>'; ex.innerHTML=html; }
-      var ud=document.getElementById('hero-update-detail'); if(ud){ ud.removeAttribute('data-i18n'); ud.innerHTML='<b>v'+ver+' 更新：</b>'+esc(v.whatsnew||''); }
-      var up=document.getElementById('hero-update'); if(up){ up.innerHTML='<b>本次更新（'+(v.date||'')+'）：</b>v'+ver+' 已发布；详情见更新日志。'; }
-      var ld=document.getElementById('jsonld'); if(ld){ try{ var o=JSON.parse(ld.textContent); o.softwareVersion=ver; if(v.downloads&&v.downloads[0]){ o.downloadUrl=v.downloads[0].url; if(v.downloads[0].sizeMB) o.fileSize=v.downloads[0].sizeMB+'MB'; } ld.textContent=JSON.stringify(o,null,2); }catch(e){} }
-    }
-    function applyAnn(j){
-      if(!j||!j.announcements||!j.announcements.length) return;
-      var sec=document.getElementById('ann-section'); var feed=document.getElementById('ann-feed'); if(!sec||!feed) return;
-      sec.removeAttribute('hidden'); var html='';
-      j.announcements.forEach(function(a){ html+='<div class="ann-card"><span class="ann-date">'+esc(a.date)+'</span><p>'+esc(a.text)+'</p></div>'; });
-      feed.innerHTML=html;
-    }
-    fetch('./version.json').then(function(r){return r.ok?r.json():null;}).then(applyVersion).catch(function(){});
-    fetch('./announcements.json').then(function(r){return r.ok?r.json():null;}).then(applyAnn).catch(function(){});
-  })();
-  </script>
+</div>
 </body>
 </html>

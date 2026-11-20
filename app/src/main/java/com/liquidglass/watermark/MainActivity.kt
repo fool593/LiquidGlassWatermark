@@ -16,6 +16,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var mpSlot = 0
     @Volatile var mpImage: ByteArray? = null
     @Volatile var mpVideoUri: Uri? = null
+    var showGifPanel by mutableStateOf(false)
     var showMotionPhotoPanel by mutableStateOf(false)
     var mpImageSet by mutableStateOf(false)
     var mpVideoSet by mutableStateOf(false)
@@ -126,7 +128,11 @@ class MainActivity : ComponentActivity() {
             }
             if (autoLogo >= 0) p.logoBrand = autoLogo
         }
-        setContent { LiquidGlassTheme { EditorScreen(this) } }
+        setContent {
+            com.liquidglass.watermark.ui.ProvideAdaptiveUiScale {
+                LiquidGlassTheme { EditorScreen(this) }
+            }
+        }
         ui.postDelayed(tick, 1000)
         // v14.55 自测钩子（真机/模拟器自动化）：
         //   adb shell am start -n com.liquidglass.watermark/.MainActivity --es ljgAutoTest "logo:/sdcard/logo.png"
@@ -310,14 +316,21 @@ class MainActivity : ComponentActivity() {
                     // v15.16 导出管线基准：任意时长 × 两条路径（hybrid / cpu），CSV 落 bench/
                     //   adb shell am start -n com.liquidglass.watermark/.MainActivity \
                     //       --es ljgAutoTest "bench:5,14,15,16,30,60,300"
+                    // v15.28 多帧率：第二段冒号后为帧率列表
+                    //   --es ljgAutoTest "bench:5,10,15:15,25,30"（5/10/15 秒 × 15/25/30fps）
                     spec.startsWith("bench") -> {
-                        val durs = spec.substringAfter("bench", "").trimStart(':', '-')
-                            .split(',', ' ')
-                            .mapNotNull { it.trim().toIntOrNull() }
+                        val body = spec.substringAfter("bench", "").trimStart(':', '-')
+                        val parts = body.split(':')
+                        fun parseList(s: String): List<Int> =
+                            s.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }
+                        val durs = parseList(parts.getOrElse(0) { "" })
                             .filter { it in 1..3_600 }
                             .ifEmpty { listOf(5, 14, 15, 16, 30, 60, 300) }
-                        DebugLog.log("AUTOTEST", "bench 开始 时长=$durs")
-                        val bf = ExportBench.run(this, preview, durs)
+                        val fps = parseList(parts.getOrElse(1) { "" })
+                            .filter { it in 1..240 }
+                            .ifEmpty { listOf(30) }
+                        DebugLog.log("AUTOTEST", "bench 开始 时长=$durs fps=$fps")
+                        val bf = ExportBench.run(this, preview, durs, fps)
                         DebugLog.log("AUTOTEST", "bench 结束 ${bf?.absolutePath ?: "FAILED"}")
                     }
                     // 验证 shader 编译、帧数/时长、结果文件与失败原因（全部落日志）
@@ -341,7 +354,7 @@ class MainActivity : ComponentActivity() {
                                         WatermarkRenderer.render(c2, frame,
                                             android.graphics.RectF(0f, 0f, frame.width.toFloat(), frame.height.toFloat()),
                                             EditorState.renderParams(), resources.displayMetrics.density,
-                                            frame.width / 393f / resources.displayMetrics.density,
+                                            WatermarkRenderer.unitForPhoto(frame.width.toFloat(), frame.height.toFloat(), resources.displayMetrics.density),
                                             null, 288, photoPreRotated = true)
                                         o
                                     },
@@ -614,6 +627,86 @@ class MainActivity : ComponentActivity() {
             onPicked(r)
         }
 
+    // v15.31 系统相册 Photo Picker（真·相册界面：缩略图九宫格，支持图片+视频）。
+    // 比 ACTION_OPEN_DOCUMENT 的文件选择器更符合"相册选择"预期；API33+ 原生，
+    // 旧版本由 Google Play 服务回退，完全不可用时回退文件选择器。
+    private val galleryPicker =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri == null) { return@registerForActivityResult }
+            handlePickedUri(uri)
+        }
+
+    // v15.37：相册入口支持「一次多选」——用户可直接勾选 1 张照片 + 1 段视频，
+    // 由本应用自动配对成动态照片（此前只能单选一个文件，必须绕去「动态照片」面板分两次选，太麻烦）。
+    private val galleryMultiPicker =
+        registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(2)) { uris ->
+            onPickedMulti(uris)
+        }
+
+    // v15.37：文档型多选（ACTION_OPEN_DOCUMENT + EXTRA_ALLOW_MULTIPLE）—— 一定支持多选。
+    // 实测部分机型/模拟器的 Photo Picker 即便 maxItems=2 仍是「点一下就返回」的单选行为，
+    // 用户会以为"还是只能选一个"。这里改用系统文件选择器（可同时勾 1 图 + 1 视频），
+    // 完全不依赖各家相册 UI 的多选实现差异。
+    private val docMultiPicker =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+            if (r.resultCode != RESULT_OK) return@registerForActivityResult
+            val uris = ArrayList<Uri>()
+            val clip = r.data?.clipData
+            if (clip != null) for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+            r.data?.data?.let { if (uris.isEmpty()) uris.add(it) }
+            onPickedMulti(uris)
+        }
+
+    /** v15.37：一次多选（1 张照片 + 1 段视频）直接配成动态照片——走系统文件多选，任何机型都支持多选 */
+    fun pickPairMedia() {
+        if (EditorState.isExporting) { toast(getString(R.string.export_busy)); return }
+        val ok = runCatching {
+            docMultiPicker.launch(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                }
+            )
+        }.onFailure { android.util.Log.w("LGW", "pickPairMedia launch failed", it) }.isSuccess
+        if (ok) return
+        // 极端情况下没有文档选择器：退回 Photo Picker 多选请求
+        runCatching {
+            galleryMultiPicker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+            )
+        }.onFailure { pickMedia() }
+    }
+
+    /** v15.31：从系统相册选择照片或视频（画布空态"选择照片或视频"按钮的归一化入口） */
+    fun pickMediaFromGallery() {
+        if (EditorState.isExporting) { toast(getString(R.string.export_busy)); return }
+        maybeTipVivo()
+        // v15.37：相册入口默认仍是 Photo Picker（各家相册的九宫格最直观）；
+        // 想「一次选 1 图 + 1 视频」配对动态照片，用空态下方的独立"照片+视频配对"入口（pickPairMedia），
+        // 那里走文档型多选，绝不依赖各家相册是否实现多选。
+        val multiOk = runCatching {
+            galleryMultiPicker.launch(
+                PickVisualMediaRequest(
+                    ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                )
+            )
+        }.isSuccess
+        if (multiOk) return
+        val launched = runCatching {
+            galleryPicker.launch(
+                PickVisualMediaRequest(
+                    ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                )
+            )
+        }.isSuccess
+        if (!launched) {
+            // Photo Picker 不可用（极老设备 + 无 Play 服务）：回退文件选择器
+            pickMedia()
+        }
+    }
+
     // 自定义预览衬底图：只选静态图，独立于主媒体链路，设置后作为无照片时的预览背景
     private val previewPicker =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -713,10 +806,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 显式导入视频（MP4 等）：按用户要求【选视频后自动切到 GIF（视频转动图）】；
-     *  若不想导出 GIF，可在导出栏手动切回 MP4 / HEVC。 */
+    /**
+     * 导入视频（MP4 等）。
+     * v15.30 修复"功能错位"：不再强制把导出格式切到 GIF——用户选 MP4/HEVC 时导入视频
+     * 就按所选格式导出；只有从「GIF」工具面板进入（pickVideoToGif / openGifPanel）才用 GIF。
+     */
     fun pickVideo() {
-        EditorState.motionExportFormat = "gif"
+        // v15.30：去掉 `motionExportFormat = "gif"` 强切（旧逻辑导致选 MP4 导入视频跳到 GIF）
         // 用 */* + EXTRA_MIME_TYPES 而非 video/*：部分 ROM 对 type=video/* 的选择器返回空结果
         val mimes = arrayOf(
             "video/mp4", "video/quicktime", "video/3gpp",
@@ -753,10 +849,26 @@ class MainActivity : ComponentActivity() {
     }
 
     /** v14.39 视频转动图独立入口：强制 GIF 导出格式后选视频（无需先选封面） */
+    /** v15.30：点导出栏「GIF」立即弹出 GIF 工具面板（参数 + 选视频），同时把格式切到 GIF */
+    fun openGifPanel() {
+        EditorState.motionExportFormat = "gif"
+        EditorState.persist(this)
+        EditorState.bumpExportBar()
+        showMotionPhotoPanel = false
+        showGifPanel = true
+    }
+
+    /** GIF 工具面板：选视频（显式入口，锁定 GIF 格式） */
     fun pickVideoToGif() {
         mpSlot = 0
         EditorState.motionExportFormat = "gif"
         pickVideo()
+    }
+
+    /** GIF 工具面板：已导入视频后导出 GIF（=主保存路径，格式已锁定 gif） */
+    fun exportGifFromPanel() {
+        showGifPanel = false
+        doSave()
     }
 
     /** v14.38 整段动图导入：选【一个】文件（视频或图片）自动填满封面+视频两槽 */
@@ -835,16 +947,28 @@ class MainActivity : ComponentActivity() {
             val vDur = videoDurationMs(
                 EditorState.motionUri ?: mpVideoUri.takeIf { EditorState.motionMp4 == null },
                 EditorState.motionMp4)
-            val motionMaxMs = if (vDur > 5_000L) 5_000L else 0L
-            if (motionMaxMs > 0) {
-                toast(getString(R.string.motion_cut_5s, vDur / 1000))
-                DebugLog.log("COMPOSE_MOTION", "视频 ${vDur}ms 超过动照片 5 秒规范，自动截取前 5 秒")
+            // v15.30：动照支持【剪辑时间轴】——未自定义时保持规范（超 5 秒自动截前 5 秒）；
+            // 自定义后按用户所选起点 + 片段导出（片段超出源时长自动收窄到片尾）。
+            EditorState.sanitizeGifParams()
+            val safeVDur = vDur.takeIf { it > 0L } ?: 0L
+            val maxStart = (safeVDur - 1L).coerceAtLeast(0L)
+            val mStart = if (EditorState.motionTrimCustomized)
+                EditorState.motionTrimStartMs.coerceIn(0L, maxStart) else 0L
+            val mDur = if (EditorState.motionTrimCustomized) {
+                if (safeVDur > 0L)
+                    EditorState.motionTrimDurationMs.coerceIn(100L, (safeVDur - mStart).coerceAtLeast(100L))
+                else EditorState.motionTrimDurationMs
+            } else if (safeVDur > 5_000L) 5_000L else 0L
+            if (mDur > 0 && safeVDur > mDur) {
+                toast(getString(R.string.motion_cut_5s, safeVDur / 1000))
+                DebugLog.log("COMPOSE_MOTION",
+                    "视频 ${safeVDur}ms → 动照片段 起点=${mStart}ms 长度=${mDur}ms")
             }
-            composeMotionPhotoNow(motionMaxMs)
+            composeMotionPhotoNow(mStart, mDur)
         } finally { exporting.set(false) }
     }
 
-    private fun composeMotionPhotoNow(motionMaxMs: Long = 0L) {
+    private fun composeMotionPhotoNow(motionStartMs: Long = 0L, motionMaxMs: Long = 0L) {
         // 主预览已载入：视频源 + 封面（面板封面优先，其次当前预览帧）
         val mainMp4 = EditorState.motionMp4
         val mainCover = EditorState.motionCoverBitmap
@@ -980,7 +1104,7 @@ class MainActivity : ComponentActivity() {
                 val c = android.graphics.Canvas(wm)
                 val dst = android.graphics.RectF(0f, 0f, coverBmp.width.toFloat(), coverBmp.height.toFloat())
                 val density = resources.displayMetrics.density
-                val unit = coverBmp.width / 393f / density
+                val unit = WatermarkRenderer.unitForPhoto(coverBmp.width.toFloat(), coverBmp.height.toFloat(), density)
                 WatermarkRenderer.render(c, coverBmp, dst, EditorState.renderParams(), density, unit, null, 1600)
                 val jpeg = java.io.ByteArrayOutputStream()
                 wm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, jpeg)
@@ -1009,7 +1133,7 @@ class MainActivity : ComponentActivity() {
                             android.graphics.Bitmap.Config.ARGB_8888)
                         val fc = android.graphics.Canvas(out)
                         val fd = android.graphics.RectF(0f, 0f, frame.width.toFloat(), frame.height.toFloat())
-                        val fUnit = frame.width / 393f / density
+                        val fUnit = WatermarkRenderer.unitForPhoto(frame.width.toFloat(), frame.height.toFloat(), density)
                         // 帧已由 Mp4Exporter 按 forceVideoRotation 转正，禁止 renderInner 二次旋转
                         // Match the shared preview/export glass-effect sampling policy on every tier.
                         val videoEdge = preview?.motionExportMaxEdge ?: 480
@@ -1026,7 +1150,9 @@ class MainActivity : ComponentActivity() {
                     // 动态照片视频轨不含音频（Google/vivo 动照片标准），避免破坏生态识别
                     includeAudio = false,
                     // v15.10 动照片 5 秒截断：超长视频自动只导出前 5 秒（motionMaxMs>0 时生效）
-                    maxDurationMs = motionMaxMs
+                    // v15.30 剪辑：起点 + 片段长度同时生效（startPtsUs 控制 seek，maxDurationMs 按片段内计时）
+                    maxDurationMs = motionMaxMs,
+                    startPtsUs = motionStartMs * 1000L
                 ) ?: run {
                     // If watermark transcoding is unavailable, retain the source clip with the
                     // watermarked still cover instead of returning no deliverable at all.
@@ -1486,11 +1612,46 @@ class MainActivity : ComponentActivity() {
         val isGifExport = EditorState.motionExportFormat == "gif"
         val selectedCover = EditorState.motionCoverBitmap
             ?: EditorState.previewBitmap?.takeIf { pendingImageUri != null && !EditorState.isDemo && !it.isRecycled }
+        // v15.30：预览解码上限跟随 GIF 时间轴（起点+片段长度）；非 GIF 不过早截断。
+        // 片段起点偏移大于 0 时起点前不预览（导出会 seek，预览保持一致）。
+        val previewMaxMs = if (isGifExport) {
+            // 时间轴已自定义：从起点解到片段终点；未自定义：默认前 5 秒（兼容旧行为）
+            if (EditorState.gifTrimCustomized)
+                (EditorState.gifTrimStartMs + EditorState.gifTrimDurationMs).coerceAtLeast(1L)
+            else VideoGifTimeline.MAX_DURATION_MS.toLong()
+        } else 0L
         Thread {
             val duration = videoDurationMs(uri, null)
+            // v15.31：导入时把 content:// 复制【一次】到 cacheDir 并缓存路径 ——
+            // 修复 550MB 大视频 GIF 导出"动态片段解码失败"：旧逻辑 GIF 导出再复制第二次
+            // （第二次打开 content:// 流失败/超时 → 静默失败且无日志）。
+            // 现在预览与导出统一复用这个本地文件（file:// 直读，零重复复制）。
+            val localFile = java.io.File(cacheDir, "lgw_media_${System.currentTimeMillis()}.mp4")
+            val localOk = if (uri.scheme.equals("file", true)) {
+                // 已是本地文件：直接引用，不复制
+                EditorState.motionLocalPath = uri.path
+                true
+            } else {
+                val copied = MotionDecoder.copyUriToFile(this, uri, localFile)
+                if (copied && localFile.length() > 0) {
+                    EditorState.motionLocalPath = localFile.absolutePath
+                    true
+                } else {
+                    runCatching { localFile.delete() }
+                    // 复制失败：记录原因不静默
+                    DebugLog.log("IMPORT", "视频复制失败：${MotionDecoder.lastFailReason}")
+                    false
+                }
+            }
+            if (!localOk) {
+                runOnUiThread { toast(getString(R.string.video_decode_fail) + "（${MotionDecoder.lastFailReason}）") }
+                return@Thread
+            }
+            val localUri = android.net.Uri.fromFile(
+                java.io.File(EditorState.motionLocalPath!!))
             var decoded = runCatching {
                 MotionDecoder.decode(this, ByteArray(0), 720, 12, 60, 30_000,
-                    minFrames = 1, srcUri = uri, maxDurationMs = VideoGifTimeline.MAX_DURATION_MS.toLong())
+                    minFrames = 1, srcUri = localUri, maxDurationMs = previewMaxMs)
             }.getOrNull()
             if (decoded == null || decoded.frames.isEmpty()) {
                 runOnUiThread { toast(getString(R.string.video_decode_fail) + diag()) }
@@ -1502,8 +1663,8 @@ class MainActivity : ComponentActivity() {
                 selectedCover.height > selectedCover.width) {
                 val corrected = runCatching {
                     MotionDecoder.decode(this, ByteArray(0), 720, 12, 60, 30_000,
-                        minFrames = 1, srcUri = uri, rotationOverride = 90,
-                        maxDurationMs = VideoGifTimeline.MAX_DURATION_MS.toLong())
+                        minFrames = 1, srcUri = localUri, rotationOverride = 90,
+                        maxDurationMs = previewMaxMs)
                 }.getOrNull()
                 if (corrected != null && corrected.frames.isNotEmpty()) {
                     decoded.frames.forEach { runCatching { it.recycle() } }
@@ -1533,8 +1694,8 @@ class MainActivity : ComponentActivity() {
                 EditorState.sourceUri = uri; EditorState.isDemo = false
                 mpVideoUri = uri; mpVideoSet = true
                 refreshHard()
-                toast(if (isGifExport && duration > VideoGifTimeline.MAX_DURATION_MS)
-                    "视频超过五秒，预览和 GIF 将使用前五秒" else getString(R.string.video_loaded))
+                toast(if (isGifExport && duration > previewMaxMs && !EditorState.gifTrimCustomized)
+                    "视频超过五秒，GIF 默认截取前五秒（可在 GIF 面板调整）" else getString(R.string.video_loaded))
             }
         }.start()
     }
@@ -1548,6 +1709,68 @@ class MainActivity : ComponentActivity() {
             toast(getString(R.string.pick_failed))
             return
         }
+        handlePickedUri(uri)
+    }
+
+    /**
+     * v15.31：收到一个被选中的媒体 Uri 后的统一处理。
+     * 三个入口共用：
+     *  - 旧文件选择器（mediaPicker → onPicked）
+     *  - 系统相册 Photo Picker（galleryPicker，见 [pickMediaFromGallery]）
+     * 按 mime 分发：视频 → importVideoUri；GIF/动图/图片 → 走 onPicked 的剩余原有逻辑。
+     */
+    /**
+     * v15.37：相册多选结果分发。
+     *  - 1 个 → 走原有单素材导入（图片/GIF/视频）
+     *  - 1 图 + 1 视频 → 自动配对成动态照片（封面 + 视频），并打开动态照片面板
+     *  - 其它组合（2 图 / 2 视频）→ 提示后只导入第一个，避免静默丢文件
+     */
+    private fun onPickedMulti(uris: List<Uri>) {
+        if (EditorState.isExporting) { toast(getString(R.string.export_busy)); return }
+        val list = uris.distinct()
+        if (list.isEmpty()) return
+        if (list.size == 1) { handlePickedUri(list[0]); return }
+        val pairs = list.map { u ->
+            u to (runCatching { contentResolver.getType(u) }.getOrNull()?.startsWith("video/") == true)
+        }
+        val imgUri = pairs.firstOrNull { !it.second }?.first
+        val vidUri = pairs.firstOrNull { it.second }?.first
+        if (imgUri != null && vidUri != null) {
+            pairMotionMedia(imgUri, vidUri)
+        } else {
+            toast("动态照片需要「1 张照片 + 1 段视频」，已先导入第一个素材")
+            handlePickedUri(list[0])
+        }
+    }
+
+    /** v15.37：把用户一次选中的「照片 + 视频」直接配对成动态照片（等价手动面板两次选材） */
+    private fun pairMotionMedia(imageUri: Uri, videoUri: Uri) {
+        Thread {
+            val bytes = runCatching { BitmapUtils.readBytes(this, imageUri) }.getOrNull()
+            val cover = bytes?.let { runCatching { BitmapUtils.decodeCover(it) }.getOrNull() }
+            runOnUiThread {
+                if (bytes == null || cover == null) {
+                    toast("封面照片读取失败，请重试")
+                    return@runOnUiThread
+                }
+                mpImage = bytes
+                mpImageSet = true
+                EditorState.motionCoverBitmap?.let { if (!it.isRecycled) runCatching { it.recycle() } }
+                EditorState.motionCoverBitmap = cover
+                EditorState.previewBitmap?.let { if (!it.isRecycled) runCatching { it.recycle() } }
+                EditorState.previewBitmap = cover
+                EditorState.isDemo = false
+                DebugLog.log("PAIR", "已配对封面 ${cover.width}x${cover.height}，开始导入视频")
+                refreshHard()
+                // 封面就绪后再导入视频：importVideoUri 会把 motionCoverBitmap 作为动态照片封面一起带过去
+                importVideoUri(videoUri)
+                showMotionPhotoPanel = true
+                toast("已配对为动态照片（封面 + 视频），点「合成」即可导出")
+            }
+        }.start()
+    }
+
+    private fun handlePickedUri(uri: Uri) {
         // 自定义品牌 logo 选择：直接进入 logo 导入，不当作主图
         if (pendingLogoPick) {
             pendingLogoPick = false
@@ -1785,6 +2008,12 @@ class MainActivity : ComponentActivity() {
                                 "$mk $it".trim() else it.trim()
                     }
                     info.shotTime?.let { EditorState.params.dateText = it }
+                    // v15.32：geoMode=EXIF 时自动从相册原文件读取 GPS 参数
+                    if (EditorState.params.geoMode == EditorState.GEO_EXIF) {
+                        (runCatching { GeoUtils.readExifGeo(this, uri) }.getOrNull())?.let {
+                            EditorState.params.geoText = it
+                        }
+                    }
                     refreshHard()
                     // 双保险：mime 报 webp 但上方 WebP 分支未走时（mime 变量偶发 null），事后再试一次系统解码；
                     // 成功→替换为动图预览，失败→静默保持静态（不弹旧提示）
@@ -1824,6 +2053,95 @@ class MainActivity : ComponentActivity() {
         return if (r.isBlank()) "" else "\n(" + r + ")"
     }
 
+    // ---------- v15.32 地理位置 ----------
+    /** 手动读取当前照片原文件的 EXIF GPS 参数（用户要求：读取相册原文件里的地理参数） */
+    fun readExifGeoFromSource() {
+        val uri = EditorState.sourceUri ?: pendingImageUri
+        Thread {
+            val ll = runCatching { GeoUtils.readExifLatLng(this, uri) }.getOrNull()
+            if (ll == null) {
+                runOnUiThread { toast(getString(R.string.geo_no_gps)) }
+                return@Thread
+            }
+            val place = runCatching { GeoUtils.reverseGeocode(this, ll.first, ll.second) }.getOrNull()
+            runOnUiThread {
+                val p = EditorState.params
+                p.geoMode = EditorState.GEO_EXIF
+                p.geoLat = ll.first; p.geoLng = ll.second
+                p.geoText = if (p.geoStyle == EditorState.GEO_STYLE_PLACE && !place.isNullOrBlank())
+                    place else GeoUtils.formatCoord(ll.first, ll.second)
+                bump()
+                toast(getString(R.string.geo_exif_ok))
+            }
+        }.start()
+    }
+
+    /** 使用当前设备位置（需位置权限；未授权先请求，授权后继续） */
+    fun useCurrentLocation() {
+        val hasFine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        val hasCoarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) {
+            // permLauncher 只支持单权限：请求 FINE（Android 9- 一并授予 COARSE）
+            pendingPermAction = { useCurrentLocation() }
+            permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            return
+        }
+        Thread {
+            val loc = runCatching { GeoUtils.lastKnown(this) }.getOrNull()
+            if (loc == null) {
+                runOnUiThread { toast(getString(R.string.geo_no_loc)) }
+                return@Thread
+            }
+            // v15.35：先反查真实地名（省/市/区县/街道），失败才退回经纬度
+            val place = runCatching { GeoUtils.reverseGeocode(this, loc.latitude, loc.longitude) }.getOrNull()
+            runOnUiThread {
+                val p = EditorState.params
+                p.geoMode = EditorState.GEO_CURRENT
+                p.geoLat = loc.latitude; p.geoLng = loc.longitude
+                p.geoText = if (p.geoStyle == EditorState.GEO_STYLE_PLACE && !place.isNullOrBlank())
+                    place else GeoUtils.formatCoord(loc.latitude, loc.longitude)
+                bump()
+                toast(if (!place.isNullOrBlank()) getString(R.string.geo_place_ok, place)
+                      else getString(R.string.geo_current_ok))
+            }
+        }.start()
+    }
+
+    /** v15.35：在“真实地名 / 经纬度”之间切换，用已缓存的坐标，不必重新定位 */
+    fun applyGeoStyle(style: Int) {
+        val p = EditorState.params
+        p.geoStyle = style
+        if (p.geoMode == EditorState.GEO_OFF || p.geoMode == EditorState.GEO_CUSTOM) { bump(); return }
+        if (p.geoLat == 0.0 && p.geoLng == 0.0) {
+            // 旧版本只存了文本、没有坐标：重新定位一次（按新选的写法填充）
+            useCurrentLocation()
+            return
+        }
+        if (style == EditorState.GEO_STYLE_COORD) {
+            p.geoText = GeoUtils.formatCoord(p.geoLat, p.geoLng)
+            bump()
+            return
+        }
+        val lat = p.geoLat; val lng = p.geoLng
+        Thread {
+            val place = runCatching { GeoUtils.reverseGeocode(this, lat, lng) }.getOrNull()
+            runOnUiThread {
+                p.geoText = place ?: GeoUtils.formatCoord(lat, lng)
+                bump()
+                if (place.isNullOrBlank()) toast(getString(R.string.geo_place_fail))
+            }
+        }.start()
+    }
+
+    /** 清除地理位置显示（GEO_OFF） */
+    fun clearGeo() {
+        EditorState.params.geoMode = EditorState.GEO_OFF
+        EditorState.params.geoText = ""
+        bump()
+    }
+
     /** WebP 系统解码失败后回退静态图：解码首帧做预览，标记源为静态，不弹"已按静态图处理"（已尝试过动图解码） */
     private fun fallbackStaticFromWebP(bytes: ByteArray, uri: Uri?) {        val info = runCatching { BitmapUtils.decodePreviewBytes(bytes) }.getOrNull()
         if (info == null) {
@@ -1845,6 +2163,12 @@ class MainActivity : ComponentActivity() {
                         "$mk $it".trim() else it.trim()
             }
             info.shotTime?.let { EditorState.params.dateText = it }
+            // v15.32：geoMode=EXIF 时自动从相册原文件读取 GPS 参数
+            if (EditorState.params.geoMode == EditorState.GEO_EXIF) {
+                (runCatching { GeoUtils.readExifGeo(this, uri) }.getOrNull())?.let {
+                    EditorState.params.geoText = it
+                }
+            }
             refreshHard()
             toast(getString(R.string.webp_decode_fail))
         }
@@ -2123,8 +2447,10 @@ class MainActivity : ComponentActivity() {
                     ?: error("请先选择一张动图")
                 val gi = BitmapUtils.decodeGif(bytes)
                 val movie = gi.movie
-                // 分辨率完全跟随源 GIF（8192 仅为防退化上限，正常源不缩）
-                val maxEdge = 8192
+                // v15.28：GIF 素材导出同样应用用户自定义分辨率（480p/720p 长边）。
+                // 源 GIF 小于目标尺寸时保持源大小不放大；帧率保留源（GIF→GIF 不重采样）。
+                EditorState.sanitizeGifParams()
+                val maxEdge = EditorState.gifEdgePx
                 val sc = minOf(1f, maxEdge.toFloat() / maxOf(gi.w, gi.h).toFloat())
                 val rot = ((EditorState.photoRotation % 360) + 360) % 360
                 val rawW = maxOf(1, (gi.w * sc).toInt())
@@ -2228,12 +2554,14 @@ class MainActivity : ComponentActivity() {
         var outW = 0; var outH = 0
         var decoded = 0
         var quantTimeMs = 0L
+        EditorState.sanitizeGifParams()
+        val wpMaxEdge = EditorState.gifEdgePx   // v15.28：动态 WebP → GIF 也应用自定义分辨率
         val quant = GifQuant.Quantizer()
         val mainH = Handler(Looper.getMainLooper())
         val finishFail = { msg: String ->
             ui.post { progressPct = -1; toast(getString(R.string.save_fail, msg)) }
         }
-        WebPDecoder.decodeAsync(mainH, this, wp, 960, gifMaxFrames, 120_000,
+        WebPDecoder.decodeAsync(mainH, this, wp, wpMaxEdge, gifMaxFrames, 120_000,
             onFrame = { bmp, delay ->
                 checkCancelled()
                 if (outW == 0) {
@@ -2264,7 +2592,7 @@ class MainActivity : ComponentActivity() {
                 val enc = GifEncoder(outW, outH, true)
                 var d2 = 0
                 var encTimeMs = 0L   // v14.96 呼吸帧时间累计（WebP 帧播放时间）
-                WebPDecoder.decodeAsync(mainH, this, wp, 960, gifMaxFrames, 120_000,
+                WebPDecoder.decodeAsync(mainH, this, wp, wpMaxEdge, gifMaxFrames, 120_000,
                     onFrame = { bmp2, delay2 ->
                         checkCancelled()
                         // v14.96 呼吸帧时间：累计帧延迟（ms→秒），呼吸按播放节奏起伏
@@ -2380,9 +2708,20 @@ class MainActivity : ComponentActivity() {
                     return@Thread
                 }
                 // ---- GIF 分支：分辨率/帧率完全跟随源（8192 上限仅为防内存退化），流式两遍防 OOM ----
-                // 源文件统一落盘【一次】：probe + 两遍解码复用本地文件，杜绝每个 fallback 候选重复复制
+                // v15.31：优先复用【导入时已缓存的本地文件】（file:// 直读，零二次复制），
+                // 避免 550MB 大视频 GIF 导出把 content:// 再复制第二次导致"动态片段解码失败"。
+                // 仅当没有缓存路径时才临时复制。
                 var gifOwnLocal = false
                 val gifLocal: java.io.File? = when {
+                    EditorState.motionLocalPath != null -> {
+                        val lp = java.io.File(EditorState.motionLocalPath!!)
+                        if (lp.exists() && lp.length() > 0) lp
+                        else {
+                            DebugLog.log("SAVE", "导入缓存文件丢失 ${EditorState.motionLocalPath}，回退重新复制")
+                            EditorState.motionLocalPath = null
+                            null
+                        }
+                    }
                     motionUri != null && motionUri.scheme.equals("file", true) ->
                         java.io.File(motionUri.path ?: motionUri.toString())
                     motionUri != null -> {
@@ -2394,7 +2733,10 @@ class MainActivity : ComponentActivity() {
                     else -> java.io.File(cacheDir, "lgw_giflocal_${System.currentTimeMillis()}.mp4").also {
                         it.writeBytes(mp4 ?: error("视频源丢失")); gifOwnLocal = true }
                 }
-                if (gifLocal == null) error(getString(R.string.motion_decode_fail))
+                if (gifLocal == null) {
+                    error(getString(R.string.motion_decode_fail) +
+                        "（${MotionDecoder.lastFailReason.takeIf { it.isNotBlank() } ?: "源视频复制失败"}）")
+                }
                 val gifLocalUri = android.net.Uri.fromFile(gifLocal)
                 checkCancelled()
                 // 先确定源尺寸：全分辨率解 1 帧（本地文件；minFrames=1 允许单帧探测）
@@ -2409,9 +2751,11 @@ class MainActivity : ComponentActivity() {
                 val rawH = probe.frames[0].height.coerceAtLeast(1)
                 probe.frames.forEach { runCatching { it.recycle() } }
                 val rotW = rot % 180 != 0
-                // v15.21 用户要求"GIF 保持原画质"：长边封顶 480→1080（≤1080p 源不再降采样，
-                // 4K 源封顶 1080 防体积/耗时爆炸）。噪点改由【关闭抖动】解决，不再靠降分辨率掩盖。
-                val gifMaxEdge = 1080f
+                // v15.28 GIF 自定义参数：分辨率（480p/720p 长边）与帧率（15/25/30）由用户选择，
+                // 不再"跟随源分辨率/帧率"（旧行为：长边封顶 1080 + 全帧率 240）。源小于目标分辨率时保持源大小。
+                EditorState.sanitizeGifParams()
+                val gifFps = EditorState.gifFps
+                val gifMaxEdge = EditorState.gifEdgePx.toFloat()
                 val gsc = minOf(1f, gifMaxEdge / maxOf(rawW, rawH).toFloat())
                 val scaledW = maxOf(1, (rawW * gsc).toInt())
                 val scaledH = maxOf(1, (rawH * gsc).toInt())
@@ -2429,14 +2773,23 @@ class MainActivity : ComponentActivity() {
                             android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                     } finally { runCatching { mmr.release() } }
                 }.getOrDefault(0L)
-                val gifDurMs = sourceGifDurMs.takeIf { it > 0L }
-                    ?.coerceAtMost(VideoGifTimeline.MAX_DURATION_MS.toLong())
-                    ?: VideoGifTimeline.MAX_DURATION_MS.toLong()
-                if (sourceGifDurMs > VideoGifTimeline.MAX_DURATION_MS)
+                // v15.28 时间轴剪辑：未自定义时保持旧行为（片头起、截取前 5 秒/全片）；
+                // 自定义后按用户起点与时长裁剪，超出源时长自动收窄到片尾
+                val srcDurSafe = sourceGifDurMs.takeIf { it > 0L } ?: VideoGifTimeline.MAX_DURATION_MS.toLong()
+                val trimStartMs = if (EditorState.gifTrimCustomized)
+                    EditorState.gifTrimStartMs.coerceIn(0L, (srcDurSafe - 1L).coerceAtLeast(0L))
+                else 0L
+                val availMs = (srcDurSafe - trimStartMs).coerceAtLeast(1L)
+                val trimDurMs = if (EditorState.gifTrimCustomized)
+                    EditorState.gifTrimDurationMs.coerceIn(100L, availMs)
+                else minOf(availMs, VideoGifTimeline.MAX_DURATION_MS.toLong())
+                val gifDurMs = trimDurMs
+                // 仅"未自定义 + 源超 5 秒"提示自动截取；用户主动剪辑时不打扰
+                if (!EditorState.gifTrimCustomized && sourceGifDurMs > VideoGifTimeline.MAX_DURATION_MS)
                     ui.post { toast("视频超过五秒，GIF 已自动截取前五秒") }
                 val quant = GifQuant.Quantizer()
                 // 第一遍量化：降采样到 ≤360 宽统计色表（色表对分辨率不敏感，缩略图统计足够，
-                // 提速 9-25 倍、不卡顿，观感不变）；第二遍仍按源分辨率全量编码
+                // 提速 9-25 倍、不卡顿，观感不变）；第二遍按用户选择的目标分辨率编码
                 val quantScale = minOf(1f, 360f / maxOf(outW, outH))
                 val quantW = (outW * quantScale).roundToInt().coerceAtLeast(1)
                 val quantH = (outH * quantScale).roundToInt().coerceAtLeast(1)
@@ -2445,26 +2798,27 @@ class MainActivity : ComponentActivity() {
                 var decodedMs = 0L
                 // 帧数硬上限：GIF 单文件有实际极限（1200 帧≈40s@30fps），超长视频截断并提示，防无界导出卡死
                 val gifMaxFrames = 1_200
-                val quantTimeline = VideoGifTimeline()
-                // GIF 解码预算同样按源时长+帧数放宽（软解 60fps 大分辨率需要分钟级，固定 300s 会掐死）
+                val quantTimeline = VideoGifTimeline(startMs = trimStartMs.toInt(), limitMs = trimDurMs.toInt())
+                // GIF 解码预算按片段时长+帧数放宽（软解 60fps 大分辨率需要分钟级，固定 300s 会掐死）
                 val gifDecodeTimeoutMs = (300_000L).coerceAtLeast(
-                    gifDurMs * 6 + (gifDurMs * 240L / 1000L) * 150L
+                    gifDurMs * 6 + (gifDurMs * gifFps / 1000L) * 150L
                 ).coerceAtMost(30 * 60_000L).toInt()
                 val ok = MotionDecoder.decodeFrames(
                     // v15.22 满血速度：第一遍仅统计色表（直方图在 ≤360 宽算，与分辨率无关），
-                    // 解码用 480 即可，避免全分辨率解码白耗；第二遍才按 8192 全分辨率编码。
-                    this, ByteArray(0), 480, 240, gifDecodeTimeoutMs, gifMaxFrames,
+                    // 解码用 480 即可，避免全分辨率解码白耗；第二遍才按目标分辨率编码。
+                    this, ByteArray(0), 480, gifFps, gifDecodeTimeoutMs, gifMaxFrames,
                     srcUri = gifLocalUri,
                     rotationOverride = EditorState.motionForceVideoRot,
-                    maxDurationMs = VideoGifTimeline.MAX_DURATION_MS.toLong(),
+                    maxDurationMs = gifDurMs,
+                    startPtsUs = trimStartMs * 1000L,
                     onFrame = { bmp, delayMs ->
                         checkCancelled()
-                        EditorState.exportTimeSec = quantTimeline.elapsedMs / 1000f
+                        EditorState.exportTimeSec = quantTimeline.sourceTimeMs() / 1000f
                         val delayCs = quantTimeline.takeDelayCs(delayMs)
                         if (delayCs > 0) quant.feed(ed.renderMotionFrame(bmp, quantW, quantH))
                         decoded++
                         decodedMs += delayMs.coerceAtLeast(1)
-                        // 第一遍进度按真实 PTS 累计 / 源时长推进（12→38）；时长未知时回退帧数估算
+                        // 第一遍进度按真实 PTS 累计 / 片段时长推进（12→38）；时长未知时回退帧数估算
                         publishProgress(
                             if (gifDurMs > 0) (12 + 26 * decodedMs / gifDurMs).toInt().coerceIn(12, 38)
                             else (12 + 26 * decoded / gifMaxFrames).coerceAtMost(38))
@@ -2488,15 +2842,17 @@ class MainActivity : ComponentActivity() {
                 // 第二遍：流式再解码，直接编码（每帧延迟=真实帧间隔，厘秒）
                 val enc = GifEncoder(outW, outH, true)
                 var encoded = 0
-                val encodeTimeline = VideoGifTimeline()
+                val encodeTimeline = VideoGifTimeline(startMs = trimStartMs.toInt(), limitMs = trimDurMs.toInt())
                 val encodedOk = MotionDecoder.decodeFrames(
-                    this, ByteArray(0), 8192, 240, gifDecodeTimeoutMs, gifMaxFrames,
+                    // v15.28：第二遍解码直接出目标分辨率（gifEdgePx），省去全分辨率解码+软缩放
+                    this, ByteArray(0), EditorState.gifEdgePx, gifFps, gifDecodeTimeoutMs, gifMaxFrames,
                     srcUri = gifLocalUri,
                     rotationOverride = EditorState.motionForceVideoRot,
-                    maxDurationMs = VideoGifTimeline.MAX_DURATION_MS.toLong(),
+                    maxDurationMs = gifDurMs,
+                    startPtsUs = trimStartMs * 1000L,
                     onFrame = { bmp, delayMs ->
                         checkCancelled()
-                        EditorState.exportTimeSec = encodeTimeline.elapsedMs / 1000f
+                        EditorState.exportTimeSec = encodeTimeline.sourceTimeMs() / 1000f
                         val delayCs = encodeTimeline.takeDelayCs(delayMs)
                         if (delayCs > 0) enc.addFrame(
                             palette.toIndices(ed.renderMotionFrame(bmp, outW, outH), dither = false), palette.rgb, delayCs)
@@ -2635,4 +2991,93 @@ class MainActivity : ComponentActivity() {
     }
 
     fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    /** v15.28 当前视频源时长（供 GIF 时间轴编辑显示）；探测失败回退 5 秒默认片段上限 */
+    fun gifSourceDurationMs(): Long {
+        val d = videoDurationMs(EditorState.motionUri, EditorState.motionMp4)
+        return if (d > 0L) d else VideoGifTimeline.MAX_DURATION_MS.toLong()
+    }
+
+    /** v15.30 动照面板视频时长（供动照时间轴编辑显示）；优先手动选视频，其次主预览预解码 */
+    fun mpVideoDurationMs(): Long {
+        val d = if (mpVideoUri != null) {
+            videoDurationMs(mpVideoUri!!, null)
+        } else if (EditorState.motionMp4 != null) {
+            videoDurationMs(null, EditorState.motionMp4!!)
+        } else 0L
+        return if (d > 0L) d else VideoGifTimeline.MAX_DURATION_MS.toLong()
+    }
+
+    /** v15.28 重置 GIF 剪辑时间轴：回到默认整段前 5 秒并持久化 */
+    fun resetGifTrim() {
+        EditorState.gifTrimStartMs = 0L
+        EditorState.gifTrimDurationMs = 5_000L
+        EditorState.gifTrimCustomized = false
+        EditorState.persist(this)
+        EditorState.bumpExportBar()
+    }
+
+    /** v15.30：动态照片剪辑时间轴更新（时间轴拖动后调用，同步持久化并刷新 UI） */
+    fun updateMotionTrim() {
+        EditorState.persist(this)
+        EditorState.bumpExportBar()
+    }
+
+    /**
+     * v15.31：预览时间轴选中的片段（剪辑软件体验核心功能）。
+     * 把当前 GIF 时间轴选中的 [startMs, startMs+durMs) 片段解码进预览区，
+     * 画布随即播放该片段，所见即所得；导出前先确认截取内容正确。
+     * 复用导入时缓存的本地文件（motionLocalPath），不重复复制。
+     */
+    fun previewGifTrim() {
+        if (EditorState.isExporting) { toast(getString(R.string.export_busy)); return }
+        val local = EditorState.motionLocalPath?.let { java.io.File(it) }
+        val srcUri = when {
+            local != null && local.exists() && local.length() > 0 -> android.net.Uri.fromFile(local)
+            EditorState.motionUri != null -> EditorState.motionUri
+            EditorState.motionMp4 != null -> null // 字节数组场景，decode 内部落盘
+            else -> { toast(getString(R.string.mp_missing)); return }
+        }
+        val mp4Bytes = if (srcUri == null) (EditorState.motionMp4 ?: ByteArray(0)) else ByteArray(0)
+        EditorState.sanitizeGifParams()
+        val startMs = EditorState.gifTrimStartMs.coerceAtLeast(0L)
+        var durMs = EditorState.gifTrimDurationMs.coerceAtLeast(300L)
+        // 防越界：起点+长度不超过源时长
+        Thread {
+            try {
+                val tim = VideoGifTimeline(startMs = startMs.toInt(), limitMs = durMs.toInt())
+                val frames = runCatching {
+                    MotionDecoder.decode(this, mp4Bytes, 720, 12, 120, 60_000,
+                        minFrames = 1, srcUri = srcUri,
+                        rotationOverride = EditorState.motionForceVideoRot,
+                        maxDurationMs = durMs, startPtsUs = startMs * 1000L)
+                }.getOrNull()
+                if (frames == null || frames.frames.isEmpty()) {
+                    ui.post { toast(getString(R.string.video_decode_fail)) }
+                    return@Thread
+                }
+                // 更新预览帧与运动帧序列（预览区立即播放该片段）
+                ui.post {
+                    val old = EditorState.previewBitmap
+                    EditorState.motionFrames?.forEach { runCatching { if (!it.isRecycled) it.recycle() } }
+                    // 保留运动源，替换的是"预览用帧序列"
+                    EditorState.motionFrames = frames.frames.toMutableList()
+                    EditorState.motionDelays = frames.delaysMs
+                    EditorState.motionForceVideoRot = frames.rotation
+                    EditorState.previewBitmap = frames.frames.firstOrNull()
+                    if (old != null && !old.isRecycled) runCatching { old.recycle() }
+                    EditorState.isDemo = false
+                    preview?.invalidate()
+                    preview?.invalidateBlur()
+                    bump()
+                    toast(String.format(java.util.Locale.US, "预览片段 %.1fs — %.1fs",
+                        startMs / 1000f, (startMs + durMs) / 1000f))
+                }
+            } catch (t: Throwable) {
+                DebugLog.logThrowable("PREVIEW_GIF_TRIM", t)
+                ui.post { toast(t.message ?: "片段预览失败") }
+            }
+        }.start()
+    }
 }
+

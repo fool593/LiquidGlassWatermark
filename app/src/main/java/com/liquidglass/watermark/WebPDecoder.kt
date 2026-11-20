@@ -76,6 +76,7 @@ object WebPDecoder {
             var frameBitmap: Bitmap? = null
             var lastTs = 0L
             var frameCount = 0
+            var loopBackStreak = 0   // v15.28：连续与首帧匹配的帧数（≥2 才算完整回环）
             val deadline = System.currentTimeMillis() + timeoutMs
             val finish: (Boolean) -> Unit = { ok ->
                 if (!finished) {
@@ -120,9 +121,16 @@ object WebPDecoder {
                         val delay = if (lastTs == 0L) 100 else (now - lastTs).toInt().coerceIn(16, 500)
                         val f = frameBmp.copy(Bitmap.Config.ARGB_8888, false)
                         val first = firstFrame
+                        // v15.28 回环判定加固：旧逻辑"任一帧与首帧 49 点相同 → 判回环结束"，
+                        // 含静止段/中途回到首帧画面的动画会被提前截断（导出帧数不足）。
+                        // 改为【连续 ≥2 帧匹配首帧】才判定完整播完一遍；期间帧照常发射，不丢帧。
                         if (first != null && samePixels(f, first)) {
-                            // 回到首帧：动画已完整播一遍，丢弃重复帧并结束
-                            f.recycle(); finish(frameCount > 0); return
+                            loopBackStreak++
+                            if (loopBackStreak >= 2) {
+                                f.recycle(); finish(frameCount > 0); return
+                            }
+                        } else {
+                            loopBackStreak = 0
                         }
                         if (first == null) firstFrame = f.copy(Bitmap.Config.ARGB_8888, false)
                         lastTs = now
