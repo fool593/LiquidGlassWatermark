@@ -1,0 +1,84 @@
+name: 🐛 Bug 报告 / Bug report
+description: 反馈 Bug——请填清设备型号、安卓版本并附截图，信息不全的问题可能无法定位
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！**请尽量填清下面的信息**。没有设备型号、安卓版本和截图的问题，作者很难定位，可能会先被关闭或要求补充信息。
+  - type: input
+    id: device-model
+    attributes:
+      label: 设备型号 / Device model
+      description: 例如 Pixel 8、Redmi Note 12、小米 14…
+      placeholder: "例：Redmi Note 12"
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: 安卓版本 / Android version
+      description: 例如 Android 10、Android 14、MIUI 14…
+      placeholder: "例：Android 14"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: 应用版本 / App version
+      description: "你装的是哪个包？光线恢复版（export-speed-restored）还是 UI 优化版（UI-performance）？或者从设置里看版本号。"
+      placeholder: "例：v15.16 export-speed-restored"
+    validations:
+      required: true
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: 问题类型 / Issue type
+      description: 问题发生在哪个环节？
+      options:
+        - 照片水印（编辑/保存）
+        - 视频水印（导入/处理/导出）
+        - 动态照片
+        - 界面卡顿/闪退
+        - 文字/Logo/字体
+        - 语言/主题切换
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么？/ What happened?
+      description: 描述问题现象，以及**你期望的效果**。附上截图会更直观。
+      placeholder: |
+        实际现象：……
+        期望效果：……
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce-steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 怎么一步一步触发这个问题的？写清楚每一步。
+      placeholder: |
+        1. 打开应用，导入一张照片
+        2. 选择玻璃参数，把「折射强度」拉到最大
+        3. 点击保存
+        4. 发现……
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图 / Screenshots
+      description: "直接把截图拖进输入框即可（会自动上传）。照片水印问题请同时贴：原图、加了水印的导出图。"
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息 / Extra info
+      description: 视频分辨率/时长、具体参数值、是否所有视频都这样、日志等
+    validations:
+      required: false

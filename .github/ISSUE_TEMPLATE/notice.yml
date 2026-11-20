@@ -1,0 +1,45 @@
+name: 使用知会 / Notice of Use
+description: 按仓库使用条款，拉取/使用/集成/商用本项目前请先通过此模板知会作者。
+title: "[使用知会] <你的用途概述>"
+labels: [notice]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢知会。按 NOTICE.md 条款，凡拉取、使用、修改、分发、集成或商用本仓库
+        （或其衍生水印能力）前，请填写以下信息。收到后我会尽快回复确认。
+  - type: input
+    id: purpose
+    attributes:
+      label: 用途 / Purpose
+      description: 简要说明你的使用/集成/商用方式（如：个人使用、App 内集成、二次开发等）。
+      placeholder: 例如：个人学习使用 / 集成到我的摄影 App
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: 联系方式 / Contact
+      description: 邮箱、GitHub 或其它可回复方式。
+      placeholder: name@example.com 或 @username
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 使用类型 / Type of use
+      options:
+        - 个人学习 / Personal learning
+        - 个人使用 / Personal use
+        - 应用内集成 / In-app integration
+        - 二次开发 / Derivative development
+        - 商业使用 / Commercial use
+        - 其他 / Other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 补充说明 / Details
+      description: 可选的更多细节（平台、预期分发范围等）。
+      placeholder: 自愿填写

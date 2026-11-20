@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用知会 / Notice of Use
+    url: https://github.com/fool593/LiquidGlassWatermark/issues/new?template=notice.yml
+    about: 按 NOTICE.md 条款，拉取/使用/集成/商用本项目前请先通过此模板知会作者。
