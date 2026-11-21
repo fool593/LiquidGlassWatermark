@@ -1,29 +1,29 @@
 {
-  "versionName": "15.38",
-  "versionCode": 1538,
-  "tag": "v15.38",
+  "versionName": "15.39",
+  "versionCode": 1539,
+  "tag": "v15.39",
   "date": "2026-11-21",
-  "whatsnew": "底部 Dock 精简为 5 项（形状 / 玻璃 / 文字 / 位置 / 设置，原「光泽」并入「玻璃」子页签，功能零丢失）；新增相册一次多选配对动态照片入口；修复方案2 型号上下无效、位置行排序开关无效、分隔竖线溢出水印条、上下滑块需拉满才换行、默认/系统字体无法区分，以及手机端 Dock 胶囊过短与界面显扁显长的跨机型适配问题。",
-  "notes": "底部 Dock 精简为 5 项：形状 / 玻璃 / 文字 / 位置 / 设置。原「光泽」并入「玻璃」，页内以子页签承载——高光强度、边缘光、内阴影、投影、鲜艳度、高光样式与玻璃全部参数零丢失，Dock 每格可用宽度提升约 20%，标签不再拥挤。\n相册一次多选配对动态照片：新增「一次选「照片 + 视频」配对动态照片」入口，走系统文件选择器（ACTION_OPEN_DOCUMENT + ALLOW_MULTIPLE），任何机型都支持多选；勾选 2 项后自动配对封面 + 视频并直接进入合成面板。\n方案2（左右分栏）补齐两个失效控件：型号上下滑块真正参与绘制；「位置行放到时间上方」改为按开关排序，块高随真实行高计算。\n分隔竖线溢出水印条修复：竖线高度取「块高」与「玻璃内高 − 上下留白 − 2px」的较小值（经典 / 方案2 双分支钳制），并新增 fitTop() 把文字块硬夹在条内，调大字号后不再冲出上下沿。\n上下滑块量程重锚定：满行程 ±40 = 精确 ±1 行高，拉到极限正好落到相邻行位置（视觉互换），中段线性可感知；旧换算在 2.75 密度下满行程约 110px（2~3 行高），中段几乎不动。\n默认字体与系统字体真正分离：默认字体直读出厂字库（主题 overlay 不覆盖源文件），系统字体取当前生效字体，用同段文字渲染 96×44 位图逐像素比对判定是否被第三方主题替换；界面字族固定为出厂字体，避免被主题字体压窄导致界面「变扁变长」。\nDock 与界面跨机型适配：胶囊高度 = 屏宽 × 15.5%（夹 46~58dp），左右留白 16dp → 10dp，手机端由「短而圆」变为接近满宽的真胶囊，平板封顶 560dp 居中。",
+  "whatsnew": "字体切换彻底修好：默认字体直读出厂字库、系统字体取当前生效字体，typeface 改为逐帧同步，切换即时可见、不再失灵；Dock 精简至 5 项后改为按项数计算的紧凑胶囊（约 330dp）并整体上移、水平居中。",
+  "notes": "字体切换真正生效（修复多年顽疾）：① 出厂字库不再写死文件名，改为扫描 /system/fonts 真实文件，按 CJK 优先、拉丁兜底排序，逐个试加载并用「能否渲染出字形」校验，画不出字的坏字库直接丢弃——避免一路回落到被主题接管的 SANS_SERIF，导致默认字体与系统字体变成同一套字。② 新增 applyTypeface()，在 measure() 与 drawContent() 首行逐帧比对并同步标题/副标题 Paint 的 typeface，切换即时生效、零重建；导出线程快照、方案切换、提前重绘任一处不同步也不会再拿旧字体。\n主题替换判定不再误报：原先拿出厂 CJK 字库与 Typeface.DEFAULT 直接像素比对，中英混排时拉丁是 Roboto、汉字才走 CJK，永远不相等，连原生 Android 都误报「已被主题替换」。现按字符集分开比（拉丁样本对 Roboto/Droid、汉字样本对 CJK 字库），文案改为中性的「系统字体与出厂字体不同 / 系统字体=出厂字体」，并接入 [TEXT] 渲染日志（出厂文件路径、是否同字）。\nDock 紧凑居中 + 整体上移：宽度不再铺满屏宽，按「项数 × 62dp + 22dp」计算（5 项约 330dp，超宽屏封顶 560dp），成为 iOS 式短胶囊；底距由 10dp 增至 22dp，悬浮感更强、离屏幕底边更远（有导航栏机型再叠加 inset）；高度仍按屏宽 15.5%（46~58dp），5 格平分每格约 62dp，标签不再拥挤。",
   "downloads": [
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/app-release.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.39/app-release.apk",
       "label": "稳定版 APK",
       "kind": "apk",
       "sizeMB": 14.31
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/LiquidGlassWatermark_v15.38_source.zip",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.39/LiquidGlassWatermark_v15.39_source.zip",
       "label": "源码 ZIP",
       "kind": "source",
-      "sizeMB": 3.32
+      "sizeMB": 3.33
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/app-debug.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.39/app-debug.apk",
       "label": "测试版 APK",
       "kind": "debug",
-      "sizeMB": 19.24
+      "sizeMB": 19.26
     }
   ],
-  "generatedAt": 1795221530
+  "generatedAt": 1795225000
 }
