@@ -1,6 +1,35 @@
 {
   "releases": [
     {
+      "versionCode": 1540,
+      "versionName": "15.40",
+      "tag": "v15.40",
+      "date": "2026-11-21",
+      "notes": "胶囊变圆的根因：底层用的是 CircleShape（圆角 50%，rx 按宽度算）。Dock 原本接近满宽，rx≈165dp 而高只有 52dp，弧线极浅看着像胶囊；一旦缩短，rx 跟着缩，上下两条边就整条变弧，形状退化成椭圆。KSU 原版没问题只是因为它一直近满宽。\n修复：胶囊主体改为 RoundedCornerShape(pillH / 2)——半径只跟高度走（固定 26dp），上下边是直线、两端是半圆，宽度再短仍是胶囊。选中指示片原来也用 CircleShape，短 Dock 上缩成椭圆且左端会和端弧糊成一坨，现改为 RoundedCornerShape(lensH / 2)，lensH = pillH − 16dp；胶囊内部左右留白由 4dp 加到 10dp，首尾格的图标与镜片完全落在直线段内。拖动/点选命中、镜片跟随位移、按压回弹与折射参数全部原样保留。\n上一版（v15.39）的两项主修复继续有效：字体切换（扫 /system/fonts 真实字库 + 逐帧 applyTypeface）与 Dock 紧凑居中上移（项数 × 62dp + 22dp，底距 22dp）。",
+      "published": true,
+      "files": {},
+      "downloads": [
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/app-release.apk",
+          "label": "稳定版 APK",
+          "kind": "apk",
+          "sizeMB": 14.31
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/LiquidGlassWatermark_v15.40_source.zip",
+          "label": "源码 ZIP",
+          "kind": "source",
+          "sizeMB": 3.33
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/app-debug.apk",
+          "label": "测试版 APK",
+          "kind": "debug",
+          "sizeMB": 18.93
+        }
+      ]
+    },
+    {
       "versionCode": 1539,
       "versionName": "15.39",
       "tag": "v15.39",
