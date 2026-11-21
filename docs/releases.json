@@ -1,6 +1,35 @@
 {
   "releases": [
     {
+      "versionCode": 1538,
+      "versionName": "15.38",
+      "tag": "v15.38",
+      "date": "2026-11-21",
+      "notes": "底部 Dock 精简为 5 项：形状 / 玻璃 / 文字 / 位置 / 设置。原「光泽」并入「玻璃」，页内以子页签承载——高光强度、边缘光、内阴影、投影、鲜艳度、高光样式与玻璃全部参数零丢失，Dock 每格可用宽度提升约 20%，标签不再拥挤。\n相册一次多选配对动态照片：新增「一次选「照片 + 视频」配对动态照片」入口，走系统文件选择器（ACTION_OPEN_DOCUMENT + ALLOW_MULTIPLE），任何机型都支持多选；勾选 2 项后自动配对封面 + 视频并直接进入合成面板。\n方案2（左右分栏）补齐两个失效控件：型号上下滑块真正参与绘制；「位置行放到时间上方」改为按开关排序，块高随真实行高计算。\n分隔竖线溢出水印条修复：竖线高度取「块高」与「玻璃内高 − 上下留白 − 2px」的较小值（经典 / 方案2 双分支钳制），并新增 fitTop() 把文字块硬夹在条内，调大字号后不再冲出上下沿。\n上下滑块量程重锚定：满行程 ±40 = 精确 ±1 行高，拉到极限正好落到相邻行位置（视觉互换），中段线性可感知；旧换算在 2.75 密度下满行程约 110px（2~3 行高），中段几乎不动。\n默认字体与系统字体真正分离：默认字体直读出厂字库（主题 overlay 不覆盖源文件），系统字体取当前生效字体，用同段文字渲染 96×44 位图逐像素比对判定是否被第三方主题替换；界面字族固定为出厂字体，避免被主题字体压窄导致界面「变扁变长」。\nDock 与界面跨机型适配：胶囊高度 = 屏宽 × 15.5%（夹 46~58dp），左右留白 16dp → 10dp，手机端由「短而圆」变为接近满宽的真胶囊，平板封顶 560dp 居中。",
+      "published": true,
+      "files": {},
+      "downloads": [
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/app-release.apk",
+          "label": "稳定版 APK",
+          "kind": "apk",
+          "sizeMB": 14.31
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/LiquidGlassWatermark_v15.38_source.zip",
+          "label": "源码 ZIP",
+          "kind": "source",
+          "sizeMB": 3.32
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.38/app-debug.apk",
+          "label": "测试版 APK",
+          "kind": "debug",
+          "sizeMB": 19.24
+        }
+      ]
+    },
+    {
       "versionCode": 1527,
       "versionName": "15.27",
       "tag": "v15.27",
@@ -19,7 +48,7 @@
           "label": "源码 ZIP",
           "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/LiquidGlassWatermark_v15.27_source.zip",
           "kind": "source",
-          "sizeMB": 3.40
+          "sizeMB": 3.4
         },
         {
           "label": "测试版 APK",
