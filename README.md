@@ -1,62 +1,65 @@
-# LiquidGlass Watermark · 液态玻璃水印 v15.40
+# LiquidGlass Watermark · 液态玻璃水印 v15.41
 
 Android 图片 / 视频水印编辑器。Kotlin + Jetpack Compose，底部导航为 **KernelSU 管理器真源码移植的液态玻璃悬浮 Dock**。
 
 - 包名：`com.liquidglass.watermark`（debug 包为 `com.liquidglass.watermark.debug`）
-- 版本：**versionCode 1540 / versionName 15.40**
+- 版本：**versionCode 1541 / versionName 15.41**
 - 平台：minSdk 26 / targetSdk 37 / compileSdk 37，JVM 17
 
 ---
 
-## 1. 本版更新（v15.40）
+## 1. 本版更新（v15.41）
 
-### 1.1 Dock 缩短后胶囊不再变圆（保持 KSU 形态）
+### 1.1 Dock 变成真正的悬浮液态玻璃（透得过、看得见后面）
 
-| 现象 | 根因 | 修复 |
-|---|---|---|
-| Dock 精简为 5 项后，胶囊在视觉上变成椭圆 / 圆形 | 网格底层用的是 `CircleShape`（圆角 50%，`rx` 按**宽度**算）。Dock 原本接近满宽，`rx≈165dp` 而高只有 52dp，弧线极浅，看着像胶囊；一旦缩短，`rx` 也跟着缩，上下两条边就整条变弧，形状退化成椭圆。KSU 原版之所以没问题，只是因为它一直近满宽 | 胶囊主体改用 `RoundedCornerShape(pillH / 2)` —— **半径只跟高度走**（固定 26dp）。上下边是直线、两端是半圆，宽度再怎么短也仍是胶囊 |
-| 选中指示片（玻璃镜片）同样被缩成椭圆，左端还会和胶囊端弧糊在一起像一坨圆 | 指示片也用的 `CircleShape`，`rx` 随格子宽度变化 | 指示片改为 `RoundedCornerShape(lensH / 2)`，并令 `lensH = pillH − 16dp`；同时在胶囊内部左右留白 4dp → **10dp**，首尾格的图标与镜片完全落在直线段内，不再压到端弧 |
+| 改动 | 说明 |
+|---|---|
+| 参数面板延长到屏幕底 | 面板高度由 232dp 改为 **232dp + Dock 占位**，一直铺到屏幕底边穿过 Dock。Dock 玻璃后面不再是空背景板，而是真实的参数内容——隔着一层玻璃能看到后面的选项 |
+| 导出栏与 Dock 合为底部悬浮层 | 导出栏（MP4 / HEVC / GIF / 模式）位置不变，仍紧贴 Dock 正上方；两者一起作为悬浮层压在面板上，不再占用 Column 的流式空间 |
+| 整条 Dock 栏玻璃化 | 底部悬浮层整体做一块通体玻璃（模糊 14dp + 通透增强 + 极淡染色，顶部 26dp 圆角）。不是只有胶囊是玻璃，整条栏都透光 |
+| 胶囊更透明 | 胶囊表面填充 0.4 → **0.14**，更接近 iOS 的透明玻璃胶囊，后方的参数内容透过透镜可见 |
 
-实测（1080×2340 模拟器，5 项 Dock ≈ 330dp）：胶囊上下沿平直、两端为半圆，选中镜片独立成片、四周留出余量，与 KSU 的悬浮玻璃形态一致；拖动/点选、镜片跟随位移与按压回弹逻辑均未改动。
+### 1.2 按住胶囊的重影修掉
 
-### 1.2 顺带确认上一版的两项主修复仍然有效
+重影有两个来源，都处理了：
 
-- **字体切换**：默认字体 = 出厂字库（`NotoSansCJK-Regular.ttc`，窄体）、系统字体 = 当前生效字体（Roboto，宽体），逐帧 `applyTypeface` 同步，切换即时可见。
-- **Dock 布局**：宽度 = 项数 × 62dp + 22dp（5 项 ≈ 330dp，封顶 560dp），水平居中，底距 22dp。
+- **隐形镜像层**：KSU 原实现用一条 `.alpha(0f) + drawBackdrop` 的整宽副本把图标记录到 `tabsBackdrop` 供放大镜取样。但 `drawBackdrop` 的合成层不受外层 alpha 控制，实际会再画一遍 44dp 高的胶囊底色 → 按住时出现上下两层轮廓。**该副本已删除**，镜片只取真实背景。
+- **整条按压高光**：`interactiveHighlight` 在按下时会在整行铺一层方角高光板，看起来像多出来的一层底。**该层已移除**，按压反馈改由镜片单独承担。
+- 顺带把胶囊的按压放大（16dp 缩放）去掉——缩放会让玻璃层绘制边界露出直边色块。
 
-## 2. v15.39 更新
+### 1.3 分层重构：玻璃 → 镜片 → 内容
 
-### 2.1 字体切换彻底修好（真正的切换，不再"时灵时不灵"）
+Dock 由单层改为三层，内容永远画在镜片之上：
 
-| 问题 | 根因 | 修复 |
-|---|---|---|
-| 选「默认字体」没有变化 / 选「系统字体」也没有变化 / 有时任何字体都不生效 | ① 出厂字库写死 5 个文件名，很多 ROM 上名字对不上 → `loadFactory` 一路回落到 `SANS_SERIF`，而它早被主题字体接管，于是「默认」=「系统」；② typeface 只在 `Ctx` 创建时设一次，靠"模式变了就重建 Ctx"兜底，导出线程快照 / 方案切换 / 提前重绘任一处不同步就拿到旧 Paint | ① 改为**扫描 `/system/fonts` 真实文件**，按「CJK 优先 → 拉丁兜底」挑选，逐个试加载并用"能否渲染出字形"校验（坏字库直接丢弃），全部失败才回落并如实标注；② 新增 `applyTypeface()`，在 `measure()` 与 `drawContent()` **逐帧**比对并同步 `titlePaint/subPaint` 的 typeface |
-| 「主题替换」状态误报（连 AOSP 原生机都显示"已被主题替换"） | 拿「出厂 CJK 字库」直接和 `Typeface.DEFAULT` 比：中英混排时 DEFAULT 的拉丁是 Roboto、汉字才走 CJK，永远不相等 | 按字符集分开判定：拉丁样本对 `Roboto/Droid`、汉字样本对 CJK 字库；文案改为中性的「系统字体与出厂字体不同 / 系统字体=出厂字体」 |
+1. 胶囊玻璃层（阴影 / 折射 / 高光，按胶囊形状裁剪）
+2. 镜片层（选中指示 / 按下放大，固定半径胶囊片，底色只留 6% 淡色）
+3. 内容层（图标 + 文字，选中项用强调蓝；点击、拖动、镜片跟随全部保持原逻辑）
 
-### 2.2 Dock 改为紧凑居中、整体上移
+原来镜片是不透明黑底，会把选中格的图标整块盖掉；现在图标始终清晰，也不会再出现"按住后图标消失 / 重影"。
 
-- 宽度：按 **项数 × 62dp + 22dp** 计算（5 项 ≈ 330dp），超宽屏封顶 560dp。
-- 位置：底距 22dp，悬浮更高（有导航栏机型再叠加 inset）。
-- 高度沿用屏宽 15.5%（46~58dp 夹取）。
+## 2. v15.40 要点
 
-## 3. v15.38 要点
+- Dock 胶囊改为固定半径（半径随高度 26dp，不随宽度），缩短后仍是胶囊而非椭圆；指示片同步改形，胶囊内衬 4dp → 10dp。
 
-- Dock 由 6 项精简为 5 项：形状 / 玻璃 / 文字 / 位置 / 设置；原「光泽」并入「玻璃」页内子页签，功能零丢失。
-- 相册一次多选配对动态照片（`ACTION_OPEN_DOCUMENT + EXTRA_ALLOW_MULTIPLE`）。
-- 方案2 型号上下 / 位置行排序开关 / 分隔竖线溢出 / 上下滑块量程 / Dock 跨机型自适应等修复。
+## 3. v15.39 要点
+
+- 字体切换彻底修复：扫描 `/system/fonts` 真实字库并按"能否渲染出字形"校验，`applyTypeface()` 逐帧同步 typeface。
+- Dock 紧凑居中（项数 × 62dp + 22dp，5 项 ≈ 330dp）、底距 22dp。
 
 ## 4. 已知问题与限制
 
-- 主题字体判定依赖字形比对，vivo / OPPO / 小米各代主题字库未逐一真机验证；文案已改为中性描述。
+- 面板被 Dock 压住的最后几行需要下滑才能看全（这是悬浮 Dock 的预期行为，滚动即可）。
+- 底部悬浮层的模糊在低端机上会有一点点 GPU 开销（玻璃整体只有一层，影响可控）。
+- 主题字体判定依赖字形比对，vivo / OPPO / 小米各代主题字库未逐一真机验证。
 - 「真实地名」需定位权限；无权限或模拟器无地理数据时该行不绘制。
 - 超大字号（>100sp 且文案长）标题可能横向超出玻璃条，仅保证纵向不溢出。
-- `app/src/test/java/...core/**` 引用不存在的 `core.export` 包，`testDebugUnitTest` 无法编译；不影响 assemble。
+- `app/src/test/**` 引用不存在的 `core.export` 包，`testDebugUnitTest` 无法编译，不影响 assemble。
 - 平板横向布局未专门适配（Dock 封顶 560dp 居中）。
-- 导出栏（MP4 / HEVC / GIF / 模式 / 动照）在窄屏上需横向滑动，最右侧按钮默认在可视区外。
+- 导出栏在窄屏上需横向滑动，最右侧按钮默认在可视区外。
 
 ## 5. 安装
 
-下载 `LiquidGlassWatermark_v15.40_release.apk`（Release 附件）直接覆盖安装（同签名）。
+下载 `LiquidGlassWatermark_v15.41_release.apk`（Release 附件）直接覆盖安装（同签名）。
 
 ## 6. 从源码构建
 
@@ -65,25 +68,22 @@ Android 图片 / 视频水印编辑器。Kotlin + Jetpack Compose，底部导航
 ./gradlew :app:assembleRelease   # 正式包（需 keystore.properties）
 ```
 
-`keystore.properties` 不入库，参考 `keystore.properties.example` 自建。
-
 ## 7. 版本信息
 
 | 项 | 值 |
 |---|---|
-| versionCode / versionName | 1540 / 15.40 |
+| versionCode / versionName | 1541 / 15.41 |
 | minSdk / targetSdk / compileSdk | 26 / 37 / 37 |
 | 签名 | V3，证书 SHA-256 `22bd1ff1…04a439` |
-| 渲染入口 | `WatermarkRenderer.kt`（CLASSIC / SINGLE / STACK / SPLIT） |
-| 字体 | `FontSupport.kt` + `resolveTypeface` + `applyTypeface` |
-| Dock | `ui/ksu/FloatingBottomBar.kt`（`barShape` / `pillShape` / `DockInnerPad`） |
+| Dock | `ui/ksu/FloatingBottomBar.kt`（barShape / pillShape / DockInnerPad / DockAccent） |
+| 底部悬浮层 | `ui/EditorScreen.kt`（EditorContent 的 shelf 玻璃层） |
 
 ## 8. 历史版本
 
-- **v15.40** — Dock 胶囊改为固定半径（半径随高度、不随宽度），缩短后仍是胶囊；指示片同步改形并加内衬。
-- **v15.39** — 字体切换彻底修复（扫真实字库 + 逐帧同步 typeface）；Dock 紧凑居中上移。
+- **v15.41** — Dock 真正悬浮玻璃化（面板穿过 Dock、整条栏玻璃、胶囊 0.14 透明）+ 按住重影修复 + 三层分层。
+- **v15.40** — Dock 胶囊固定半径，缩短后不再是椭圆。
+- **v15.39** — 字体切换彻底修复；Dock 紧凑居中上移。
 - **v15.38** — Dock 精简为 5 项（玻璃 + 光泽合并）；多选配对、竖线溢出、位置行排序、滑块量程修复。
-- **v15.37** — 真机实测 bug 修复；v15.36 Dock 宽度自适应；v15.35 Dock 压缩；v15.34 KSU Dock 真源码移植；v15.28~33 iOS27 通道 / 流体呼吸 / 高级光学 / 四行独立字号。
 
 ## 9. 许可
 

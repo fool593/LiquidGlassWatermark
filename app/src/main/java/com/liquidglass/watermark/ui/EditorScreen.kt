@@ -270,12 +270,14 @@ private fun EditorContent(act: MainActivity) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .padding(start = 12.dp, end = 12.dp, top = 4.dp)
                     // v15.28 UI 重构：参数面板由固定 190dp 加高到 224dp，6 个 tab 内容更舒展。
                     // v15.35：Dock 压缩后把省下的高度还给画布，面板 268→232dp（内部仍可滚动）。
-                    .height(232.dp)
+                    // v15.41：+ dockSlot —— 面板不再在 Dock 前截断，而是穿过 Dock 一直铺到屏幕底，
+                    // 于是 Dock 玻璃后面是真参数内容（能透过胶囊看见后面的选项），而不是一块空背景板。
+                    .height(232.dp + dockSlot)
                     .glassSurface()
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .padding(start = 10.dp, end = 10.dp, top = 8.dp)
                     // 导出中：在 Initial 阶段消费全部指针，冻结滑块/开关/参数按钮（触摸不到下层控件）；
                     // 仅锁参数面板，下方 ExportBar 与底部导航在本 Box 之外，仍可点击切换页面。
                     .pointerInput(act.progressPct >= 0) {
@@ -308,13 +310,39 @@ private fun EditorContent(act: MainActivity) {
                     else -> SettingsTab(act)
                 }
             }
-            // 导出栏（常驻）：格式（MP4/HEVC/GIF）可先选好再选素材，不依赖是否已选视频
-            ExportBar(act)
-            // v15.34：Dock 高度占位。原来只有 14dp，Dock 实际 ~74dp（含间距/导航栏）→ 整条导出栏被盖住。
-            Spacer(Modifier.height(dockSlot))
+            // 导出栏（常驻）与 Dock 一起作为底部悬浮层，位置不变（导出栏仍在 Dock 正上方），
+            // 但不再占用 Column 的流式空间 —— 面板内容可以一直延伸到 Dock 背后。
         }
-        Box(Modifier.align(Alignment.BottomCenter)) {
-            BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it })
+        // v15.41：底部悬浮层 = 导出栏 + Dock，整层做一块通体玻璃（不是只有胶囊是玻璃）。
+        // 玻璃只做模糊/通透，不加实心底板，所以背后的参数内容仍然看得见（只是被磨砂化）；
+        // 胶囊依旧是叠在这块玻璃上的透镜，两层都是玻璃。
+        val shelfBackdrop = LocalGlassBackdrop.current
+        val shelfDark = darkModeState
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .drawBackdrop(
+                    backdrop = shelfBackdrop,
+                    shape = { RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp) },
+                    effects = {
+                        padding = maxOf(padding, 40.dp.toPx())
+                        vibrancy()
+                        blur(14.dp.toPx())
+                    },
+                    onDrawSurface = {
+                        drawRect(
+                            if (shelfDark) Color.White.copy(alpha = 0.05f)
+                            else Color.Black.copy(alpha = 0.04f)
+                        )
+                    },
+                )
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                ExportBar(act)
+                Spacer(Modifier.height(4.dp))
+                BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it })
+            }
         }
         // 动态照片合成面板（覆盖层）
         if (act.showMotionPhotoPanel) {

@@ -133,6 +133,10 @@ private val iosIndicatorSpecular: Highlight = Highlight(
     style = HighlightStyle.Default(angle = -45f, falloff = 0.8f)
 )
 
+/** Dock 强调色（选中项）。v15.41：由选中项自己取色——原来靠隐形镜像层画蓝色图标，
+ *  那层删掉后会失去选中高亮，这里直接在 item 内部按 selected 切换内容色。 */
+private val DockAccent = Color(0xFF0091FF)
+
 @Composable
 fun RowScope.KsuFloatingBottomBarItem(
     selected: Boolean,
@@ -141,36 +145,40 @@ fun RowScope.KsuFloatingBottomBarItem(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scale = LocalFloatingBottomBarTabScale.current
-    Column(
-        modifier
-            .semantics(mergeDescendants = true) {
-                this.selected = selected
-                role = Role.Tab
-                onClick {
-                    onClick()
-                    true
+    CompositionLocalProvider(
+        LocalContentColor provides if (selected) DockAccent else LocalContentColor.current
+    ) {
+        Column(
+            modifier
+                .semantics(mergeDescendants = true) {
+                    this.selected = selected
+                    role = Role.Tab
+                    onClick {
+                        onClick()
+                        true
+                    }
                 }
-            }
-            .onKeyEvent { event ->
-                val activationKey = event.key == Key.Enter ||
-                        event.key == Key.NumPadEnter || event.key == Key.Spacebar
-                if (activationKey) {
-                    if (event.type == KeyEventType.KeyUp) onClick()
-                    true
-                } else false
-            }
-            .focusable()
-            .fillMaxHeight()
-            .weight(1f)
-            .graphicsLayer {
-                val scale = scale()
-                scaleX = scale
-                scaleY = scale
-            },
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        content = content
-    )
+                .onKeyEvent { event ->
+                    val activationKey = event.key == Key.Enter ||
+                            event.key == Key.NumPadEnter || event.key == Key.Spacebar
+                    if (activationKey) {
+                        if (event.type == KeyEventType.KeyUp) onClick()
+                        true
+                    } else false
+                }
+                .focusable()
+                .fillMaxHeight()
+                .weight(1f)
+                .graphicsLayer {
+                    val scale = scale()
+                    scaleX = scale
+                    scaleY = scale
+                },
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            content = content
+        )
+    }
 }
 
 @Composable
@@ -199,11 +207,13 @@ fun KsuFloatingBottomBar(
     // lensH = pillH - 16dp，使指示片在垂直中段的水平位置天然落在胶囊直线段内（不再越出外轮廓）。
     val lensH = (pillH.value - 16f).dp
     val pillShape = remember(lensH) { RoundedCornerShape(lensH / 2) }
-    val accentColor = Color(0xFF0091FF)
+    val accentColor = DockAccent
     val tabContentColor = if (isInDark) Color(0xFFF5F7FA) else Color(0xFF1A1D24)
     // KSU 取 MiuixTheme.colorScheme.surfaceContainer；这里用对应的明暗容器色
     val surfaceContainer = if (isInDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7)
-    val containerColor = if (isBlurEnabled) surfaceContainer.copy(alpha = 0.4f) else surfaceContainer
+    // v15.41：Dock 改成真正「能看见后面内容」的液态玻璃——表面填充 0.4 → 0.14，
+    // 更像 iOS 的透明玻璃胶囊（背后参数选项透过透镜可见），而不是一块填满的实心底板。
+    val containerColor = if (isBlurEnabled) surfaceContainer.copy(alpha = 0.14f) else surfaceContainer
     val tabsBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -318,19 +328,16 @@ fun KsuFloatingBottomBar(
         modifier = modifier,
         contentAlignment = Alignment.CenterStart
     ) {
-        Row(
+        // ① 胶囊玻璃层：只负责玻璃本体（阴影 / 折射 / 高光），不画任何内容。
+        // v15.41 分层：玻璃 → 镜片 → 内容，三层叠起来，内容永远在镜片之上，
+        // 所以选中格的图标不会再被镜片底板盖掉（原来按住时图标整块消失像是"重影"）。
+        Box(
             Modifier
+                .fillMaxWidth()
                 .onGloballyPositioned { coords ->
                     totalWidthPx = coords.size.width.toFloat()
                     val contentWidthPx = totalWidthPx - with(density) { (DockInnerPad * 2).toPx() }
                     tabWidthPx = (contentWidthPx / tabsCount).coerceAtLeast(0f)
-                }
-                .selectableGroup()
-                // v15.35 修复：KSU 的拖动检测只认「拖动」，轻点不会命中任何 tab。
-                // 这里在条形上补一层 tap：点击直接选中所在格，拖动仍由 DampedDragAnimation 接管
-                // （tap 手势在超过 touch slop 后自行取消，不会和拖动抢事件）。
-                .pointerInput(tabsCount, tabWidthPx) {
-                    detectTapGestures { pos -> activateTab(indexAt(pos.x)) }
                 }
                 .graphicsLayer { translationX = panelOffset }
                 .dropShadow(
@@ -341,6 +348,10 @@ fun KsuFloatingBottomBar(
                         alpha = if (isInDark) 0.2f else 0.1f,
                     ),
                 )
+                // v15.41：先裁剪再画玻璃。drawBackdrop 的折射/模糊会画到 padding 区域，
+                // 裁剪必须放在它【之前】才生效（放在链尾只能裁剪其内部内容），
+                // 否则按压重绘时会把 40dp 采样区的直边露出来。
+                .clip(barShape)
                 .then(
                     if (isBlurEnabled) {
                         Modifier.drawBackdrop(
@@ -356,71 +367,35 @@ fun KsuFloatingBottomBar(
                                 )
                             },
                             highlight = { baseHighlight.copy(alpha = 0.75f) },
-                            layerBlock = {
-                                val width = size.width.coerceAtLeast(1f)
-                                val s = lerp(1f, 1f + 16.dp.toPx() / width, dampedDragAnimation.pressProgress)
-                                scaleX = s
-                                scaleY = s
-                            },
-                            onDrawSurface = { drawRect(containerColor) },
+                            // v15.41：胶囊本体不再随按压放大。原来 layerBlock 把整条玻璃按 16dp 放大，
+                            // 绘制边界会露出直边色块（按压时左右两端出现两道矩形边缘），也是"重影"来源之一。
+                            // 按压反馈交给上面的镜片层，胶囊保持恒定几何。
+                            // 表面填充改由 Modifier.background 承担（严格按 barShape 裁剪），
+                            // onDrawSurface 不再画整块矩形，避免玻璃层边界露出直边色块。
                         )
+                            .background(containerColor, barShape)
                     } else {
                         Modifier.background(containerColor, barShape)
                     }
                 )
-                .then(
-                    if (isBlurEnabled) {
-                        interactiveHighlight.modifier.then(interactiveHighlight.gestureModifier)
-                    } else Modifier
-                )
-                .then(dampedDragAnimation.modifier)
                 .height(pillH)
-                .padding(horizontal = DockInnerPad, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CompositionLocalProvider(LocalContentColor provides tabContentColor) {
-                content(::activateTab)
-            }
-        }
-        if (isBlurEnabled) {
-            CompositionLocalProvider(
-                LocalFloatingBottomBarTabScale provides {
-                    lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
-                },
-                LocalContentColor provides accentColor,
-            ) {
-                Row(
-                    Modifier
-                        .clearAndSetSemantics {}
-                        .alpha(0f)
-                        .layerBackdrop(tabsBackdrop)
-                        .graphicsLayer { translationX = panelOffset }
-                        .drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { barShape },
-                            effects = {
-                                vibrancy()
-                                blur(4.dp.toPx())
-                                ksuLens(
-                                    refractionHeight = 24.dp.toPx(),
-                                    refractionAmount = 24.dp.toPx(),
-                                )
-                            },
-                            onDrawSurface = { drawRect(containerColor) },
-                        )
-                        .then(interactiveHighlight.modifier)
-                        .height(indicatorH)
-                        .padding(horizontal = DockInnerPad),
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = { content(::activateTab) }
-                )
-            }
-        }
+                // v15.41：显式按胶囊形状裁剪玻璃层。drawBackdrop 的折射/模糊会画到 padding 区域，
+                // 按压时重绘会把这些直边区域露出来（左右两端两道矩形）。裁剪后玻璃只在胶囊内可见。
+                .clip(barShape)
+        )
+        // v15.41：去掉 KSU 的「隐形镜像层」。
+        // 原实现用一条 .alpha(0f) + drawBackdrop 的整宽副本记录图标到 tabsBackdrop，
+        // 供按下的放大透镜取样；但 drawBackdrop 的合成层不受外层 alpha 控制，实际会再画一遍
+        // 44dp 高的胶囊底色 → 按住胶囊时出现上下两层轮廓（重影）。副本删除后，
+        // 镜片只取真实背景，按下只有一层玻璃在放大，不再有重影。
         if (tabWidthPx > 0f) {
             val tabWidthDp = with(density) { tabWidthPx.toDp() }
             if (isBlurEnabled) {
                 Box(
                     Modifier
+                        // v15.41：镜片保留在内容之上，但底色不再是不透明黑（原来绘制 alpha=1 的黑块，
+                        // 选中格的图标会被整块盖掉）。现在只留 6% 的淡色玻璃底，图标清晰可见；
+                        // 按住放大时只是这层玻璃在折射，不再出现两层轮廓的重影。
                         .padding(horizontal = DockInnerPad)
                         .graphicsLayer {
                             val progressOffset = dampedDragAnimation.value * tabWidthPx
@@ -448,9 +423,9 @@ fun KsuFloatingBottomBar(
                             },
                             onDrawSurface = {
                                 val progress = dampedDragAnimation.pressProgress
+                                val rest = 0.06f * (1f - progress)
                                 drawRect(
-                                    color = if (!isInDark) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f),
-                                    alpha = 1f - progress,
+                                    color = if (!isInDark) Color.Black.copy(alpha = rest) else Color.White.copy(alpha = rest)
                                 )
                                 drawRect(Color.Black.copy(alpha = 0.03f * progress))
                             },
@@ -479,22 +454,37 @@ fun KsuFloatingBottomBar(
                         .width(tabWidthDp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    CompositionLocalProvider(LocalContentColor provides accentColor) {
-                        Row(
-                            Modifier
-                                .clearAndSetSemantics {}
-                                .wrapContentWidth(align = Alignment.Start, unbounded = true)
-                                .requiredWidth(with(density) { (totalWidthPx - (DockInnerPad * 2).toPx()).toDp() })
-                                .height(lensH)
-                                .graphicsLayer {
-                                    val progressOffset = dampedDragAnimation.value * tabWidthPx
-                                    translationX = if (isLtr) -progressOffset else progressOffset
-                                },
-                            verticalAlignment = Alignment.CenterVertically,
-                            content = { content(::activateTab) }
-                        )
-                    }
+                    // v15.41：这里原先还会再画一份内容（KSU 的强调色副本），
+                    // 但内容层现在已经在镜片之上单独绘制，再画一次就是「重影」。
+                    // 非模糊模式下只保留这片淡蓝底板即可。
                 }
+            }
+        }
+        // ③ 内容层（图标 + 文字）：画在镜片之上，永远清晰；手势与拖动逻辑与原先完全一致。
+        Row(
+            Modifier
+                .selectableGroup()
+                // v15.35 修复：KSU 的拖动检测只认「拖动」，轻点不会命中任何 tab。
+                // 这里在条形上补一层 tap：点击直接选中所在格，拖动仍由 DampedDragAnimation 接管
+                // （tap 手势在超过 touch slop 后自行取消，不会和拖动抢事件）。
+                .pointerInput(tabsCount, tabWidthPx) {
+                    detectTapGestures { pos -> activateTab(indexAt(pos.x)) }
+                }
+                .graphicsLayer { translationX = panelOffset }
+                // v15.41：interactiveHighlight 这块「整条按压高光」在按下时会铺出一块方角高光板
+                // （裁剪也拦不住它的合成层），看起来像多出来的一层底——正是用户说的"重影"。
+                // 按压反馈现在完全由下面的镜片层承担，这里不再叠加。
+                .then(dampedDragAnimation.modifier)
+                .fillMaxWidth()
+                .height(pillH)
+                // v15.41：内容层也按胶囊裁剪。按下时 interactiveHighlight 会在整块 Row 上铺一层高光，
+                // 不裁剪就会露出直边矩形（就是按住后左右两端那两块方角）。
+                .clip(barShape)
+                .padding(horizontal = DockInnerPad, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides tabContentColor) {
+                content(::activateTab)
             }
         }
     }
