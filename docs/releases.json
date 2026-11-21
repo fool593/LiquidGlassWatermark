@@ -1,0 +1,63 @@
+{
+  "releases": [
+    {
+      "versionCode": 1527,
+      "versionName": "15.27",
+      "tag": "v15.27",
+      "date": "2026-11-15",
+      "notes": "GIF 编码器性能与画质：LZW 压缩字典由 HashMap 改为扁平 IntArray(1<<20) + 代次戳，O(1) reset、全程零分配、无 GC 压力，GIF 导出更快更稳；输出字节与旧版逐字节一致（已在桌面 Python 端口 720p~4K 验证）。\nGIF 调色板量化升级：6/6/6 桶改用桶内实际 RGB 质心替代固定网格中心，平滑渐变区阶梯色带大幅消除，零噪声、不增耗时。\nMP4 / HEVC 导出绿幕修复：修正尾帧音频填充导致视频结束后整段绿幕的问题，并按真实解码终点校验，输出比真实终点短 800ms 以上一律丢弃 .tmp，绝不放行残缺 MP4。\nGIF / 动图黑光晕修复：透明帧跳过阴影渲染（skipShadow），透明区域不再出现黑边光晕。\n导出管线精简：GPU 导出路径重构瘦身，选择器候选顺序更稳健，异常自动回退 CPU 逐帧。\n其它：移除不再引用的 RomGuard、内置字体与 NOTICE.txt；编辑器交互与多语言文案微调。",
+      "published": true,
+      "files": {},
+      "downloads": [
+        {
+          "label": "稳定版 APK",
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/app-release.apk",
+          "kind": "apk",
+          "sizeMB": 14.88
+        },
+        {
+          "label": "源码 ZIP",
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/LiquidGlassWatermark_v15.27_source.zip",
+          "kind": "source",
+          "sizeMB": 3.40
+        },
+        {
+          "label": "测试版 APK",
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.27/app-debug.apk",
+          "kind": "debug",
+          "sizeMB": 19.54
+        }
+      ]
+    },
+    {
+      "versionCode": 1519,
+      "versionName": "15.19",
+      "tag": "v15.19",
+      "date": "2026-11-16",
+      "notes": "动态照片预览稳定性优化：修复部分运行环境下预览动态照片时画面偶发绿色闪烁的异常，预览更干净、更稳。\n预览渲染兼容性增强：在更多机型与运行环境下，玻璃折射 / 高光 / 镜头等光学效果会自动选择更稳的渲染路径，避免偶发花屏，真机观感不变。\n测试版与正式版一眼区分：测试版（debug）使用橙色图标 + 名称「液态玻璃水印·测试」，正式版为蓝色图标，虚拟机 / 多包场景不再混淆。",
+      "published": true,
+      "files": {},
+      "downloads": [
+        {
+          "label": "稳定版 APK",
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.19/app-release.apk",
+          "kind": "apk",
+          "sizeMB": 27.28
+        },
+        {
+          "label": "源码 ZIP",
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.19/LiquidGlassWatermark_v15.19_source.zip",
+          "kind": "source",
+          "sizeMB": 0
+        },
+        {
+          "label": "测试版 APK",
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.19/app-debug.apk",
+          "kind": "debug",
+          "sizeMB": 0
+        }
+      ]
+    }
+  ],
+  "generatedAt": 1794722226
+}

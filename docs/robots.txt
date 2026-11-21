@@ -1,0 +1,11 @@
+# Liquid Glass Watermark — robots.txt
+# 本站所有资源允许搜索引擎抓取与收录
+User-agent: *
+Allow: /
+
+# 阻止抓取无意义的响应头缓存目录（GitHub Pages 无此类目录，留作边界）
+Disallow: /*.tmp$
+Disallow: /downloads/*.part
+
+# 站点地图
+Sitemap: https://fool593.github.io/LiquidGlassWatermark/sitemap.xml
