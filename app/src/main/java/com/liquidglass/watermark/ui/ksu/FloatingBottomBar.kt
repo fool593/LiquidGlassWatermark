@@ -104,7 +104,7 @@ val DockIndicatorHeight: Dp = 44.dp
 val DockSideMargin: Dp = 10.dp
 
 /** 无系统导航栏时 KSU 使用的底部留白；有导航栏时为 6dp + inset。v15.35：28→10dp。 */
-val DockBottomGap: Dp = 10.dp
+val DockBottomGap: Dp = 22.dp
 
 /**
  * v15.36：Dock 胶囊最大宽度。

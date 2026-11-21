@@ -943,9 +943,13 @@ private fun PreviewArea(modifier: Modifier, act: MainActivity) {
 private fun BottomNav(tab: Int, onSelect: (Int) -> Unit, onDockHeight: (Int) -> Unit = {}) {
     val b = LocalGlassBackdrop.current
     val tabs = tabNames()
+    // v15.39：Dock 精简到 5 项后改为「紧凑居中」——不再铺满整条屏宽，
+    // 按 项数 × 62dp + 内边距 算宽度（5 项 ≈ 330dp），像 iOS 那样一条不长的悬浮胶囊，
+    // 超宽屏仍封顶 DockMaxWidth；水平居中由外层 Box 的 contentAlignment 负责。
+    val compactDockWidth = (62.dp * tabs.size + 22.dp).coerceAtMost(DockMaxWidth)
     // v15.35：Dock 已压缩（52dp 胶囊 + 10dp 底距），底部占位同步变小；有导航栏时用 6dp + inset。
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val bottomPadding = if (bottomInset != 0.dp) 6.dp + bottomInset else DockBottomGap
+    val bottomPadding = if (bottomInset != 0.dp) 10.dp + bottomInset else DockBottomGap
     Box(
         Modifier
             .fillMaxWidth()
@@ -956,10 +960,8 @@ private fun BottomNav(tab: Int, onSelect: (Int) -> Unit, onDockHeight: (Int) -> 
             modifier = Modifier
                 // KSU 源码原样：吞掉底栏空白区域的点击，避免穿透到底层画布
                 .pointerInput(Unit) { detectTapGestures { } }
-                // v15.36：宽度自适应。真机上原来 Row 是「按内容包住」→ 胶囊短而圆；
-                // 这里改为铺满可用宽度（手机 ≈ 满宽真胶囊），平板超宽时封顶并居中。
-                .widthIn(max = DockMaxWidth)
-                .fillMaxWidth()
+                // v15.36 起宽度不再 fillMaxWidth；v15.39 改为紧凑定宽 + 居中
+                .width(compactDockWidth)
                 .padding(start = DockSideMargin, end = DockSideMargin, bottom = bottomPadding),
             selectedIndex = tab,
             onSelected = onSelect,

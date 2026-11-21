@@ -351,7 +351,7 @@ object WatermarkRenderer {
         val st = if (bold) systemTypefaceBold else systemTypefaceNormal
         return if (st != null) {
             lastResolvedTypefaceName = if (FontSupport.isSystemThemed())
-                "系统字体(主题替换)" + if (bold) "(粗)" else "(常规)"
+                "系统字体(与出厂不同)" + if (bold) "(粗)" else "(常规)"
             else "系统字体(=出厂)" + if (bold) "(粗)" else "(常规)"
             st
         } else {
@@ -574,9 +574,23 @@ object WatermarkRenderer {
         return top.coerceIn(lo, hi)
     }
 
+    /**
+     * v15.39：把当前参数里的字体模式**逐帧**落到这组 Paint 上。
+     * 旧实现只在 Ctx 创建时设一次 typeface，靠「模式变了就重建 Ctx」兜底；
+     * 只要有一处参数来源与 EditorState.params 不同步（导出线程快照、方案切换、预览重绘提前）
+     * 就会拿到旧字体的 Paint，表现正是用户报的「字体切换时灵时不灵」。
+     * 这里直接比对引用，不用重建对象、每帧零分配。
+     */
+    private fun applyTypeface(c: Ctx, p: EditorState.Params) {
+        val tfTitle = resolveTypeface(p.fontMode, true)
+        val tfSub = resolveTypeface(p.fontMode, false)
+        if (c.titlePaint.typeface !== tfTitle) c.titlePaint.typeface = tfTitle
+        if (c.subPaint.typeface !== tfSub) c.subPaint.typeface = tfSub
+    }
+
     private fun measure(c: Ctx, p: EditorState.Params, density: Float, sUnit: Float,
                         compact: Float = 1f, extend: Float = 1f): Ui {
-        // v15.33：四行字体集成——主/型号/时间/地理位置各自独立字号（倍率滑块），
+        applyTypeface(c, p)
         // 默认 1f 时与旧版完全一致。字号基准仍取自 titleSp/subSp，几何随动。
         val titleSize = p.titleSp * density * sUnit * p.fontTitleScale
         val subSize = p.subSp * density * sUnit * p.fontCodeScale          // 型号行
@@ -1064,6 +1078,7 @@ object WatermarkRenderer {
 
     private fun drawContent(c: Ctx, canvas: Canvas, p: EditorState.Params, ui: Ui, density: Float,
                             skipShadow: Boolean = false) {
+        applyTypeface(c, p)
         // —— 文字绘制诊断（独立 tag TEXT，节流）：实锤"字体看不见"是值空、颜色异常、还是被覆盖 ——
         // v15.15 追加 fontMode / 实际解析出的 typeface 名，供字体模式切换前后对比验证
         // v15.16 修复：导出期间不再写（每 ~1s 一次 appendText + SimpleDateFormat + 轮转检查，
@@ -1075,7 +1090,7 @@ object WatermarkRenderer {
             "size=${ui.titleSize.toInt()}/${ui.subSize.toInt()} color=${Integer.toHexString(p.textColor)} " +
             "wmRect=${c.wmRect.width().toInt()}x${c.wmRect.height().toInt()} " +
             "fontMode=$activeMode(${if (activeMode == FONT_MODE_SYSTEM) "系统字体" else "默认字体"}) " +
-            "typeface=$lastResolvedTypefaceName", 1000L)
+            "typeface=$lastResolvedTypefaceName fstat=[${FontSupport.status()}]", 1000L)
         // Keep logo geometry on the same overall scale as text and glass; brandScale remains its
         // independent fine control inside the scaled layout box.
         val logoUnit = ui.sUnit
