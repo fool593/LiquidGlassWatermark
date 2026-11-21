@@ -1,29 +1,29 @@
 {
-  "versionName": "15.39",
-  "versionCode": 1539,
-  "tag": "v15.39",
+  "versionName": "15.40",
+  "versionCode": 1540,
+  "tag": "v15.40",
   "date": "2026-11-21",
-  "whatsnew": "字体切换彻底修好：默认字体直读出厂字库、系统字体取当前生效字体，typeface 改为逐帧同步，切换即时可见、不再失灵；Dock 精简至 5 项后改为按项数计算的紧凑胶囊（约 330dp）并整体上移、水平居中。",
-  "notes": "字体切换真正生效（修复多年顽疾）：① 出厂字库不再写死文件名，改为扫描 /system/fonts 真实文件，按 CJK 优先、拉丁兜底排序，逐个试加载并用「能否渲染出字形」校验，画不出字的坏字库直接丢弃——避免一路回落到被主题接管的 SANS_SERIF，导致默认字体与系统字体变成同一套字。② 新增 applyTypeface()，在 measure() 与 drawContent() 首行逐帧比对并同步标题/副标题 Paint 的 typeface，切换即时生效、零重建；导出线程快照、方案切换、提前重绘任一处不同步也不会再拿旧字体。\n主题替换判定不再误报：原先拿出厂 CJK 字库与 Typeface.DEFAULT 直接像素比对，中英混排时拉丁是 Roboto、汉字才走 CJK，永远不相等，连原生 Android 都误报「已被主题替换」。现按字符集分开比（拉丁样本对 Roboto/Droid、汉字样本对 CJK 字库），文案改为中性的「系统字体与出厂字体不同 / 系统字体=出厂字体」，并接入 [TEXT] 渲染日志（出厂文件路径、是否同字）。\nDock 紧凑居中 + 整体上移：宽度不再铺满屏宽，按「项数 × 62dp + 22dp」计算（5 项约 330dp，超宽屏封顶 560dp），成为 iOS 式短胶囊；底距由 10dp 增至 22dp，悬浮感更强、离屏幕底边更远（有导航栏机型再叠加 inset）；高度仍按屏宽 15.5%（46~58dp），5 格平分每格约 62dp，标签不再拥挤。",
+  "whatsnew": "修掉 Dock 缩短后胶囊变圆的问题：胶囊改用固定半径（半径只跟高度走，不跟宽度走），上下边保持直线、两端半圆，宽度再短也仍是 KSU 那种胶囊；选中指示片同步改形并加大胶囊内衬，首尾格不再压到端弧。",
+  "notes": "胶囊变圆的根因：底层用的是 CircleShape（圆角 50%，rx 按宽度算）。Dock 原本接近满宽，rx≈165dp 而高只有 52dp，弧线极浅看着像胶囊；一旦缩短，rx 跟着缩，上下两条边就整条变弧，形状退化成椭圆。KSU 原版没问题只是因为它一直近满宽。\n修复：胶囊主体改为 RoundedCornerShape(pillH / 2)——半径只跟高度走（固定 26dp），上下边是直线、两端是半圆。选中指示片原来也用 CircleShape，短 Dock 上缩成椭圆且左端会和端弧糊成一坨，现改为 RoundedCornerShape(lensH / 2)，lensH = pillH − 16dp；胶囊内部左右留白由 4dp 加到 10dp，首尾格的图标与镜片完全落在直线段内。拖动/点选命中、镜片跟随位移、按压回弹与折射参数全部原样保留。\n上一版（v15.39）的两项主修复继续有效：字体切换（扫 /system/fonts 真实字库 + 逐帧 applyTypeface）与 Dock 紧凑居中上移（项数 × 62dp + 22dp，底距 22dp）。",
   "downloads": [
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.39/app-release.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/app-release.apk",
       "label": "稳定版 APK",
       "kind": "apk",
       "sizeMB": 14.31
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.39/LiquidGlassWatermark_v15.39_source.zip",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/LiquidGlassWatermark_v15.40_source.zip",
       "label": "源码 ZIP",
       "kind": "source",
       "sizeMB": 3.33
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.39/app-debug.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/app-debug.apk",
       "label": "测试版 APK",
       "kind": "debug",
-      "sizeMB": 19.26
+      "sizeMB": 18.93
     }
   ],
-  "generatedAt": 1795225000
+  "generatedAt": 1795229000
 }
