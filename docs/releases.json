@@ -1,6 +1,40 @@
 {
   "releases": [
     {
+      "versionCode": 1542,
+      "downloads": [
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/app-release.apk",
+          "label": "Release APK",
+          "sizeMB": 14.3,
+          "kind": "release"
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/app-debug.apk",
+          "label": "Debug APK",
+          "sizeMB": 19.1,
+          "kind": "debug"
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/LiquidGlassWatermark_v15.42_source.zip",
+          "label": "源码包",
+          "sizeMB": 3.3,
+          "kind": "source"
+        }
+      ],
+      "date": "2026-11-21",
+      "published": true,
+      "tag": "v15.42",
+      "notes": "Dock 真正悬浮：删掉底部底板玻璃，能透看后面的选项",
+      "files": [
+        "app-release.apk",
+        "app-debug.apk",
+        "LiquidGlassWatermark_v15.42_source.zip",
+        "LiquidGlassWatermark_v15.42_release.apk"
+      ],
+      "versionName": "15.42"
+    },
+    {
       "versionName": "15.41",
       "downloads": [
         {
@@ -180,5 +214,5 @@
       ]
     }
   ],
-  "generatedAt": "2026-11-21T10:04:19+08:00"
+  "generatedAt": "2026-11-21T10:27:06+08:00"
 }
