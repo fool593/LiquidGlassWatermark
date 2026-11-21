@@ -1,34 +1,35 @@
 {
-  "versionName": "15.41",
-  "versionCode": 1541,
-  "tag": "v15.41",
+  "versionName": "15.42",
+  "versionCode": 1542,
+  "tag": "v15.42",
   "date": "2026-11-21",
   "whatsnew": [
-    "Dock 变成真正的悬浮液态玻璃：参数面板穿过 Dock，能透过玻璃看见后面的选项",
-    "整条 Dock 栏玻璃化，不再只有胶囊是玻璃；胶囊填充透明度 0.4 -> 0.14",
-    "修掉按住胶囊的重影：移除隐形镜像层、整条按压高光板、按压缩放",
-    "选中镜片层与图标分层，镜片不再盖住选中项图标"
+    "删掉底部整条底板玻璃：Dock 后面不再被填满，两侧与下方都能直接看见参数选项",
+    "Dock 胶囊再降透明度（填充 0.14 -> 0.05，高光 0.75 -> 0.4），后面内容透得过来",
+    "面板内容让开系统导航栏，三键导航的黑栏不再切掉最后一行",
+    "六个参数页各加 120dp 滚动留白，滚到底时最后一行能推到导出栏上方",
+    "按住胶囊重影保持已修（隐形镜像层/整条高光板/按压缩放均已移除）"
   ],
-  "notes": "Dock 面板穿透 + 整条栏玻璃 + 按压重影修复",
+  "notes": "Dock 真正悬浮：删掉底部底板玻璃，能透看后面的选项",
   "downloads": [
     {
-      "kind": "release",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/app-release.apk",
+      "label": "Release APK",
       "sizeMB": 14.3,
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/app-release.apk",
-      "label": "Release APK"
+      "kind": "release"
     },
     {
-      "kind": "debug",
-      "sizeMB": 18.9,
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/app-debug.apk",
-      "label": "Debug APK"
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/app-debug.apk",
+      "label": "Debug APK",
+      "sizeMB": 19.1,
+      "kind": "debug"
     },
     {
-      "kind": "source",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/LiquidGlassWatermark_v15.42_source.zip",
+      "label": "源码包",
       "sizeMB": 3.3,
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/LiquidGlassWatermark_v15.41_source.zip",
-      "label": "源码包"
+      "kind": "source"
     }
   ],
-  "generatedAt": "2026-11-21T10:04:19+08:00"
+  "generatedAt": "2026-11-21T10:27:06+08:00"
 }
