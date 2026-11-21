@@ -1,6 +1,39 @@
 {
   "releases": [
     {
+      "versionCode": 1543,
+      "versionName": "15.43",
+      "tag": "v15.43",
+      "date": "2026-11-21",
+      "published": true,
+      "notes": "Dock 玻璃参数化：6 个可折叠滑块 + 滑块回弹与崩溃提示修复",
+      "downloads": [
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.43/app-release.apk",
+          "label": "Release APK",
+          "sizeMB": 14.3,
+          "kind": "release"
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.43/app-debug.apk",
+          "label": "Debug APK",
+          "sizeMB": 19.5,
+          "kind": "debug"
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.43/LiquidGlassWatermark_v15.43_source.zip",
+          "label": "源码包",
+          "sizeMB": 3.3,
+          "kind": "source"
+        }
+      ],
+      "files": [
+        "app-release.apk",
+        "app-debug.apk",
+        "LiquidGlassWatermark_v15.43_source.zip",
+        "LiquidGlassWatermark_v15.43_release.apk"
+      ]
+    },    {
       "versionCode": 1542,
       "downloads": [
         {
