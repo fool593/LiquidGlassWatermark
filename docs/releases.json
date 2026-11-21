@@ -1,6 +1,40 @@
 {
   "releases": [
     {
+      "versionName": "15.41",
+      "downloads": [
+        {
+          "kind": "release",
+          "sizeMB": 14.3,
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/app-release.apk",
+          "label": "Release APK"
+        },
+        {
+          "kind": "debug",
+          "sizeMB": 18.9,
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/app-debug.apk",
+          "label": "Debug APK"
+        },
+        {
+          "kind": "source",
+          "sizeMB": 3.3,
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/LiquidGlassWatermark_v15.41_source.zip",
+          "label": "源码包"
+        }
+      ],
+      "versionCode": 1541,
+      "files": [
+        "app-release.apk",
+        "app-debug.apk",
+        "LiquidGlassWatermark_v15.41_source.zip",
+        "LiquidGlassWatermark_v15.41_release.apk"
+      ],
+      "tag": "v15.41",
+      "published": true,
+      "notes": "Dock 面板穿透 + 整条栏玻璃 + 按压重影修复",
+      "date": "2026-11-21"
+    },
+    {
       "versionCode": 1540,
       "versionName": "15.40",
       "tag": "v15.40",
@@ -146,5 +180,5 @@
       ]
     }
   ],
-  "generatedAt": 1795225000
+  "generatedAt": "2026-11-21T10:04:19+08:00"
 }
