@@ -1,29 +1,34 @@
 {
-  "versionName": "15.40",
-  "versionCode": 1540,
-  "tag": "v15.40",
+  "versionName": "15.41",
+  "versionCode": 1541,
+  "tag": "v15.41",
   "date": "2026-11-21",
-  "whatsnew": "修掉 Dock 缩短后胶囊变圆的问题：胶囊改用固定半径（半径只跟高度走，不跟宽度走），上下边保持直线、两端半圆，宽度再短也仍是 KSU 那种胶囊；选中指示片同步改形并加大胶囊内衬，首尾格不再压到端弧。",
-  "notes": "胶囊变圆的根因：底层用的是 CircleShape（圆角 50%，rx 按宽度算）。Dock 原本接近满宽，rx≈165dp 而高只有 52dp，弧线极浅看着像胶囊；一旦缩短，rx 跟着缩，上下两条边就整条变弧，形状退化成椭圆。KSU 原版没问题只是因为它一直近满宽。\n修复：胶囊主体改为 RoundedCornerShape(pillH / 2)——半径只跟高度走（固定 26dp），上下边是直线、两端是半圆。选中指示片原来也用 CircleShape，短 Dock 上缩成椭圆且左端会和端弧糊成一坨，现改为 RoundedCornerShape(lensH / 2)，lensH = pillH − 16dp；胶囊内部左右留白由 4dp 加到 10dp，首尾格的图标与镜片完全落在直线段内。拖动/点选命中、镜片跟随位移、按压回弹与折射参数全部原样保留。\n上一版（v15.39）的两项主修复继续有效：字体切换（扫 /system/fonts 真实字库 + 逐帧 applyTypeface）与 Dock 紧凑居中上移（项数 × 62dp + 22dp，底距 22dp）。",
+  "whatsnew": [
+    "Dock 变成真正的悬浮液态玻璃：参数面板穿过 Dock，能透过玻璃看见后面的选项",
+    "整条 Dock 栏玻璃化，不再只有胶囊是玻璃；胶囊填充透明度 0.4 -> 0.14",
+    "修掉按住胶囊的重影：移除隐形镜像层、整条按压高光板、按压缩放",
+    "选中镜片层与图标分层，镜片不再盖住选中项图标"
+  ],
+  "notes": "Dock 面板穿透 + 整条栏玻璃 + 按压重影修复",
   "downloads": [
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/app-release.apk",
-      "label": "稳定版 APK",
-      "kind": "apk",
-      "sizeMB": 14.31
+      "kind": "release",
+      "sizeMB": 14.3,
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/app-release.apk",
+      "label": "Release APK"
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/LiquidGlassWatermark_v15.40_source.zip",
-      "label": "源码 ZIP",
-      "kind": "source",
-      "sizeMB": 3.33
-    },
-    {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.40/app-debug.apk",
-      "label": "测试版 APK",
       "kind": "debug",
-      "sizeMB": 18.93
+      "sizeMB": 18.9,
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/app-debug.apk",
+      "label": "Debug APK"
+    },
+    {
+      "kind": "source",
+      "sizeMB": 3.3,
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.41/LiquidGlassWatermark_v15.41_source.zip",
+      "label": "源码包"
     }
   ],
-  "generatedAt": 1795229000
+  "generatedAt": "2026-11-21T10:04:19+08:00"
 }
