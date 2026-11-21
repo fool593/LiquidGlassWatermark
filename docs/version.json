@@ -1,35 +1,35 @@
 {
-  "versionName": "15.42",
-  "versionCode": 1542,
-  "tag": "v15.42",
+  "versionName": "15.43",
+  "versionCode": 1543,
+  "tag": "v15.43",
   "date": "2026-11-21",
   "whatsnew": [
-    "删掉底部整条底板玻璃：Dock 后面不再被填满，两侧与下方都能直接看见参数选项",
-    "Dock 胶囊再降透明度（填充 0.14 -> 0.05，高光 0.75 -> 0.4），后面内容透得过来",
-    "面板内容让开系统导航栏，三键导航的黑栏不再切掉最后一行",
-    "六个参数页各加 120dp 滚动留白，滚到底时最后一行能推到导出栏上方",
-    "按住胶囊重影保持已修（隐形镜像层/整条高光板/按压缩放均已移除）"
+    "Dock 玻璃新增参数体系：磨砂厚度 / 背后模糊 / 边缘折射高度 / 边缘折射位移 / 玻璃染色 / 边缘高光，设置页可折叠展开",
+    "修复滑块一拖就弹回：设置页现在订阅 dockGlassRev，拖动与点击跳转都能保存到持久化值",
+    "修复启动反复弹崩溃日志：崩溃堆栈提示一次后即删除，不再每次冷启动重复弹",
+    "低版本（Android 11 及以下）补上软件模糊快照 + 软件折射，背后内容是真糊掉的色块而非清晰重影",
+    "模糊上限提到 24dp、折射按滑块走，默认值按 iOS 观感调校"
   ],
-  "notes": "Dock 真正悬浮：删掉底部底板玻璃，能透看后面的选项",
+  "notes": "Dock 玻璃参数化：6 个可折叠滑块 + 滑块回弹与崩溃提示修复",
   "downloads": [
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/app-release.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.43/app-release.apk",
       "label": "Release APK",
       "sizeMB": 14.3,
       "kind": "release"
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/app-debug.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.43/app-debug.apk",
       "label": "Debug APK",
-      "sizeMB": 19.1,
+      "sizeMB": 19.5,
       "kind": "debug"
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.42/LiquidGlassWatermark_v15.42_source.zip",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.43/LiquidGlassWatermark_v15.43_source.zip",
       "label": "源码包",
       "sizeMB": 3.3,
       "kind": "source"
     }
   ],
-  "generatedAt": "2026-11-21T10:27:06+08:00"
+  "generatedAt": "2026-11-21T11:21:24+08:00"
 }
