@@ -213,7 +213,9 @@ fun KsuFloatingBottomBar(
     val surfaceContainer = if (isInDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7)
     // v15.41：Dock 改成真正「能看见后面内容」的液态玻璃——表面填充 0.4 → 0.14，
     // 更像 iOS 的透明玻璃胶囊（背后参数选项透过透镜可见），而不是一块填满的实心底板。
-    val containerColor = if (isBlurEnabled) surfaceContainer.copy(alpha = 0.14f) else surfaceContainer
+    // v15.42：再降一档透明度。v15.41 的 0.14 在浅色主题下叠上 0.75 白色高光后，
+    // 胶囊看起来仍接近一块实心浅色片，后面参数选项透不过来。
+    val containerColor = if (isBlurEnabled) surfaceContainer.copy(alpha = 0.05f) else surfaceContainer
     val tabsBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -366,7 +368,7 @@ fun KsuFloatingBottomBar(
                                     refractionAmount = 24.dp.toPx(),
                                 )
                             },
-                            highlight = { baseHighlight.copy(alpha = 0.75f) },
+                            highlight = { baseHighlight.copy(alpha = 0.4f) },
                             // v15.41：胶囊本体不再随按压放大。原来 layerBlock 把整条玻璃按 16dp 放大，
                             // 绘制边界会露出直边色块（按压时左右两端出现两道矩形边缘），也是"重影"来源之一。
                             // 按压反馈交给上面的镜片层，胶囊保持恒定几何。

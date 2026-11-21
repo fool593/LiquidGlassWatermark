@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -105,6 +106,11 @@ private fun tabNames(): List<String> = listOf(
 
 /** v15.38：Dock 图标显式映射，避免精简项数后图标按序错位（0 形状 / 1 玻璃 / 3 文字 / 4 位置 / 5 设置）。 */
 private val DOCK_ICON_IDS = listOf(0, 1, 3, 4, 5)
+
+/** v15.42：面板滚动内容底部留白 = 导出栏(约 38dp) + Dock 胶囊 + 底部间距。
+ *  悬浮层已无底板，参数内容一路铺到屏幕底（透过 Dock 玻璃可见）；
+ *  滚到底时最后一行能被推到导出栏上方，不会被 Dock 永久压住。 */
+private val PanelNavInset = 120.dp
 
 // 深色模式白字 / 浅色模式黑字，跟随应用内 darkModeState（非系统主题）
 @Composable
@@ -277,6 +283,10 @@ private fun EditorContent(act: MainActivity) {
                     // 于是 Dock 玻璃后面是真参数内容（能透过胶囊看见后面的选项），而不是一块空背景板。
                     .height(232.dp + dockSlot)
                     .glassSurface()
+                    // v15.42：面板玻璃铺到屏幕底，但内容必须让开系统导航栏。
+                    // 不加这一层时三键导航的黑色栏会盖住面板最后一行（"…（仅圆角形状生效）"被切掉半行）。
+                    // 玻璃背景仍由 glassSurface() 画满整个 Box，只是内容区收缩到导航栏上方。
+                    .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(start = 10.dp, end = 10.dp, top = 8.dp)
                     // 导出中：在 Initial 阶段消费全部指针，冻结滑块/开关/参数按钮（触摸不到下层控件）；
                     // 仅锁参数面板，下方 ExportBar 与底部导航在本 Box 之外，仍可点击切换页面。
@@ -313,30 +323,15 @@ private fun EditorContent(act: MainActivity) {
             // 导出栏（常驻）与 Dock 一起作为底部悬浮层，位置不变（导出栏仍在 Dock 正上方），
             // 但不再占用 Column 的流式空间 —— 面板内容可以一直延伸到 Dock 背后。
         }
-        // v15.41：底部悬浮层 = 导出栏 + Dock，整层做一块通体玻璃（不是只有胶囊是玻璃）。
-        // 玻璃只做模糊/通透，不加实心底板，所以背后的参数内容仍然看得见（只是被磨砂化）；
-        // 胶囊依旧是叠在这块玻璃上的透镜，两层都是玻璃。
-        val shelfBackdrop = LocalGlassBackdrop.current
-        val shelfDark = darkModeState
+        // v15.42：底部悬浮层不再铺任何底板玻璃。v15.41 在这里加的那块「通体玻璃」
+        // （fillMaxWidth + 26dp 圆角 + blur14 + 淡染色）实际是一层不透明底板：它盖住了
+        // Dock 与导出栏下方那一整条参数内容，Dock 左右两侧只剩空背景 —— 正是用户要删掉的东西。
+        // 现在整条底部悬浮层只有内容本身（导出栏按钮 / Dock 胶囊），背景完全让给参数面板，
+        // 参数内容一直铺到屏幕底，从 Dock 胶囊与两侧空隙都能看见后面的选项。
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .drawBackdrop(
-                    backdrop = shelfBackdrop,
-                    shape = { RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp) },
-                    effects = {
-                        padding = maxOf(padding, 40.dp.toPx())
-                        vibrancy()
-                        blur(14.dp.toPx())
-                    },
-                    onDrawSurface = {
-                        drawRect(
-                            if (shelfDark) Color.White.copy(alpha = 0.05f)
-                            else Color.Black.copy(alpha = 0.04f)
-                        )
-                    },
-                )
         ) {
             Column(Modifier.fillMaxWidth()) {
                 ExportBar(act)
@@ -1027,7 +1022,7 @@ private fun ShapeTab(act: MainActivity) {
         stringResource(R.string.shape_rect)
     )
     val shapeValues = listOf(EditorState.SHAPE_ROUNDED, EditorState.SHAPE_CAPSULE, EditorState.SHAPE_ELLIPSE, EditorState.SHAPE_RECT)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.shape_section))
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             shapeNames.zip(shapeValues).forEach { (name, shp) ->
@@ -1145,7 +1140,7 @@ private fun GlassTab(act: MainActivity) {
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.glass_section))
         // v15.28 iOS27 风格通道：默认关闭（观感与旧版一致）；开启后玻璃更通透、
         // 边缘多一条高亮"芯线"、色散更克制、内阴影更轻（引擎内低成本增强，不重写算法）
@@ -1287,7 +1282,7 @@ private fun GlossTab(act: MainActivity) {
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.gloss_section))
         IntSlider(stringResource(R.string.specular_short), p.specular, 0..100, "%.0f", b, gamma = 1.5f) { p.specular = it; act.bump() }
         IntSlider(stringResource(R.string.edge_light), p.edgeLight, 0..100, "%.0f", b, gamma = 1.5f) { p.edgeLight = it; act.bump() }
@@ -1324,7 +1319,7 @@ private fun TextTab(act: MainActivity) {
         0xFFFF9500.toInt(), 0xFFFFCC00.toInt(), 0xFF34C759.toInt(),
         0xFF5AC8FA.toInt(), 0xFF007AFF.toInt(), 0xFFAF52DE.toInt()
     )
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.text_section))
         // ponytail: 每个输入框独立还原按钮（机型/型号/时间各一个），不是统一大按钮
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1609,7 +1604,7 @@ private fun PosTab(act: MainActivity) {
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.pos_section))
         FloatSlider(stringResource(R.string.pos_x), p.relX * 100, 0f..100f, "%.0f%%", b) { p.relX = it / 100f; act.bump() }
         FloatSlider(stringResource(R.string.pos_y), p.relY * 100, 0f..100f, "%.0f%%", b) { p.relY = it / 100f; act.bump() }
@@ -1656,7 +1651,7 @@ private fun SettingsTab(act: MainActivity) {
         stringResource(R.string.preset_crystal_short),
         stringResource(R.string.preset_vitremark_short)
     )
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.settings_section))
         // 深色/浅色模式：胶囊开关（用户要求放设置页内、胶囊开合，不放顶栏）
         Text(stringResource(R.string.dark_mode), color = tSub(0.7f), fontSize = 13.sp)
