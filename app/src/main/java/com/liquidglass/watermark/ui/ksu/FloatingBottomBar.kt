@@ -32,7 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -116,6 +116,13 @@ val DockMaxWidth: Dp = 560.dp
 val LocalFloatingBottomBarTabScale = staticCompositionLocalOf { { 1f } }
 
 /**
+ * v15.40：胶囊内部左右留白（tab 区从 4dp 加到 8dp）。
+ * 胶囊缩短后两端是半径 26dp 的半圆，4dp 留白会让首尾两格的内容压到圆弧上；
+ * 8dp 起排后图标/指示片都落在直线段内，视觉与 KSU 原版一致。
+ */
+private val DockInnerPad: Dp = 10.dp
+
+/**
  * KSU 指示器高光（原实现为 miuix `BloomStroke` 双光源 + 重力感应的 primary light）。
  * 本工程玻璃引擎同源但不含 BloomStroke，这里用等价的 Default 光照：角度固定 -45°，
  * 仍由 Highlight 的 stroke + 模糊 + Plus 混合生成同一圈镜面亮边。
@@ -177,12 +184,21 @@ fun KsuFloatingBottomBar(
     content: @Composable RowScope.((Int) -> Unit) -> Unit
 ) {
     val isInDark = darkModeState
-    val pillShape = remember { CircleShape }
     // v15.37：Dock 胶囊按屏宽自适应——窄屏（手机 360dp 左右）不再"又短又圆"，
     // 宽屏（平板/折叠展开）也不会又细又长；高度取屏宽 15.5%，46~58dp 之间夹取。
     val screenW = LocalConfiguration.current.screenWidthDp
     val pillH = (screenW * 0.155f).coerceIn(46f, 58f).dp
+    // v15.40：胶囊主体改为「固定半径 = 高度一半」的真胶囊。
+    // 原来用 CircleShape（50% 圆角，rx 按宽度算），Dock 一缩短 rx 跟着缩，
+    // 上下边变成整条弧线 → 视觉上从胶囊退化成椭圆/圆。KSU 原版近满宽、弧线极浅才没露馅。
+    // 固定半径后：上下边是直线、两端是半圆，宽度再短也仍是胶囊。
+    val barShape = remember(pillH) { RoundedCornerShape(pillH / 2) }
     val indicatorH = (pillH.value - 8f).dp
+    // v15.40：选中指示器改为固定半径（= 指示器高度一半）的胶囊片，并按胶囊端弧收窄一圈。
+    // 原来用 CircleShape：rx 跟着宽度缩，短 Dock 上直接缩成椭圆，左端还会和胶囊端弧糊成一坨。
+    // lensH = pillH - 16dp，使指示片在垂直中段的水平位置天然落在胶囊直线段内（不再越出外轮廓）。
+    val lensH = (pillH.value - 16f).dp
+    val pillShape = remember(lensH) { RoundedCornerShape(lensH / 2) }
     val accentColor = Color(0xFF0091FF)
     val tabContentColor = if (isInDark) Color(0xFFF5F7FA) else Color(0xFF1A1D24)
     // KSU 取 MiuixTheme.colorScheme.surfaceContainer；这里用对应的明暗容器色
@@ -210,7 +226,7 @@ fun KsuFloatingBottomBar(
     val onSelectedUpdated by rememberUpdatedState(onSelected)
     fun indexAt(positionX: Float): Int {
         if (tabWidthPx == 0f) return currentIndex
-        val horizontalPaddingPx = with(density) { 4.dp.toPx() }
+        val horizontalPaddingPx = with(density) { DockInnerPad.toPx() }
         val logicalX = if (isLtr) positionX else totalWidthPx - positionX
         return ((logicalX - horizontalPaddingPx) / tabWidthPx)
             .toInt()
@@ -306,7 +322,7 @@ fun KsuFloatingBottomBar(
             Modifier
                 .onGloballyPositioned { coords ->
                     totalWidthPx = coords.size.width.toFloat()
-                    val contentWidthPx = totalWidthPx - with(density) { 8.dp.toPx() }
+                    val contentWidthPx = totalWidthPx - with(density) { (DockInnerPad * 2).toPx() }
                     tabWidthPx = (contentWidthPx / tabsCount).coerceAtLeast(0f)
                 }
                 .selectableGroup()
@@ -318,7 +334,7 @@ fun KsuFloatingBottomBar(
                 }
                 .graphicsLayer { translationX = panelOffset }
                 .dropShadow(
-                    shape = pillShape,
+                    shape = barShape,
                     shadow = Shadow(
                         radius = 8.dp,
                         color = Color.Black,
@@ -329,7 +345,7 @@ fun KsuFloatingBottomBar(
                     if (isBlurEnabled) {
                         Modifier.drawBackdrop(
                             backdrop = backdrop,
-                            shape = { pillShape },
+                            shape = { barShape },
                             effects = {
                                 padding = maxOf(padding, 40.dp.toPx())
                                 vibrancy()
@@ -349,7 +365,7 @@ fun KsuFloatingBottomBar(
                             onDrawSurface = { drawRect(containerColor) },
                         )
                     } else {
-                        Modifier.background(containerColor, pillShape)
+                        Modifier.background(containerColor, barShape)
                     }
                 )
                 .then(
@@ -359,7 +375,7 @@ fun KsuFloatingBottomBar(
                 )
                 .then(dampedDragAnimation.modifier)
                 .height(pillH)
-                .padding(4.dp),
+                .padding(horizontal = DockInnerPad, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CompositionLocalProvider(LocalContentColor provides tabContentColor) {
@@ -381,7 +397,7 @@ fun KsuFloatingBottomBar(
                         .graphicsLayer { translationX = panelOffset }
                         .drawBackdrop(
                             backdrop = backdrop,
-                            shape = { pillShape },
+                            shape = { barShape },
                             effects = {
                                 vibrancy()
                                 blur(4.dp.toPx())
@@ -394,7 +410,7 @@ fun KsuFloatingBottomBar(
                         )
                         .then(interactiveHighlight.modifier)
                         .height(indicatorH)
-                        .padding(horizontal = 4.dp),
+                        .padding(horizontal = DockInnerPad),
                     verticalAlignment = Alignment.CenterVertically,
                     content = { content(::activateTab) }
                 )
@@ -405,7 +421,7 @@ fun KsuFloatingBottomBar(
             if (isBlurEnabled) {
                 Box(
                     Modifier
-                        .padding(horizontal = 4.dp)
+                        .padding(horizontal = DockInnerPad)
                         .graphicsLayer {
                             val progressOffset = dampedDragAnimation.value * tabWidthPx
                             translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
@@ -446,20 +462,20 @@ fun KsuFloatingBottomBar(
                                 alpha = dampedDragAnimation.pressProgress,
                             )
                         }
-                        .height(indicatorH)
+                        .height(lensH)
                         .width(tabWidthDp)
                 )
             } else {
                 Box(
                     Modifier
-                        .padding(horizontal = 4.dp)
+                        .padding(horizontal = DockInnerPad)
                         .graphicsLayer {
                             val progressOffset = dampedDragAnimation.value * tabWidthPx
                             translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
                         }
                         .clip(pillShape)
                         .background(accentColor.copy(alpha = 0.15f), pillShape)
-                        .height(indicatorH)
+                        .height(lensH)
                         .width(tabWidthDp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
@@ -468,8 +484,8 @@ fun KsuFloatingBottomBar(
                             Modifier
                                 .clearAndSetSemantics {}
                                 .wrapContentWidth(align = Alignment.Start, unbounded = true)
-                                .requiredWidth(with(density) { (totalWidthPx - 8.dp.toPx()).toDp() })
-                                .height(indicatorH)
+                                .requiredWidth(with(density) { (totalWidthPx - (DockInnerPad * 2).toPx()).toDp() })
+                                .height(lensH)
                                 .graphicsLayer {
                                     val progressOffset = dampedDragAnimation.value * tabWidthPx
                                     translationX = if (isLtr) -progressOffset else progressOffset
