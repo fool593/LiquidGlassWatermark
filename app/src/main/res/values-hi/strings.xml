@@ -233,4 +233,14 @@
     <string name="glass_tier_high">high (पूरा डिस्पर्शन + फ्रेनल)</string>
     <string name="glass_tier_low">low (रिफ्रैक्शन + वार्प रखता है)</string>
     <string name="scale_comp">स्केल कम्पनसेशन</string>
+    <string name="dock_glass_section">Dock glass settings</string>
+    <string name="dock_frost">Frost</string>
+    <string name="dock_blur">Blur</string>
+    <string name="dock_glass_hint">0 = clear, 100 = strong. Defaults match iOS.</string>
+    <string name="dock_expand">खोलें</string>
+    <string name="dock_collapse">बंद करें</string>
+    <string name="dock_refract_h">Edge refraction height</string>
+    <string name="dock_refract">Edge refraction shift</string>
+    <string name="dock_tint">Glass tint</string>
+    <string name="dock_rim">Edge highlight</string>
 </resources>

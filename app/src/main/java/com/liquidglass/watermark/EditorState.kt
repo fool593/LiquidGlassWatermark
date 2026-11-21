@@ -599,6 +599,35 @@ object EditorState {
     var exportBarRev by mutableStateOf(0)
         private set
     fun bumpExportBar() { exportBarRev++ }
+
+    // ── v15.43 Dock 玻璃自定义（全局设置，不随方案切换）──
+    // 磨砂厚度与背后模糊半径，0..100，设置页两个滑块直接改这两个值。
+    // 用一个 Compose State 做信号令牌：Dock 是只有 act 参数的 composable，
+    // 不订阅 State 时会被跳过（拖动滑块后视觉不变）。值本身仍放在普通字段里，
+    // 避免每帧读 State 带来的重组开销。
+    var dockGlassRev by mutableStateOf(0)
+        private set
+    @JvmField var dockFrost: Int = 40
+    @JvmField var dockBlur: Int = 50
+    // v15.43 参数体系扩展：边缘折射高度 / 边缘折射位移 / 镜片内部放大 / 玻璃染色 / 边缘高光。
+    // 默认值即「iOS 观感」档：轻微边缘弯折 + 极淡染色 + 细白边。
+    @JvmField var dockRefractH: Int = 45
+    @JvmField var dockRefract: Int = 55
+    @JvmField var dockTint: Int = 35
+    @JvmField var dockRim: Int = 50
+    fun bumpDockGlass() { dockGlassRev++ }
+    fun persistDockGlass(ctx: android.content.Context) {
+        runCatching {
+            ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit()
+                .putInt("dockFrost", dockFrost)
+                .putInt("dockBlur", dockBlur)
+                .putInt("dockRefractH", dockRefractH)
+                .putInt("dockRefract", dockRefract)
+                .putInt("dockTint", dockTint)
+                .putInt("dockRim", dockRim)
+                .apply()
+        }
+    }
     /** 自定义预览衬底图：无用户照片时用作预览背景（独立于水印对象，更换才变） */
     @Volatile @JvmField var previewCustomBitmap: Bitmap? = null
     fun setPreviewCustom(b: Bitmap?) {
@@ -914,6 +943,13 @@ object EditorState {
             modelCodeCustom = sp.getBoolean(planKey("modelCodeCustom"), false)
             // 深浅模式为全局设置：从独立键恢复（首次升级从旧方案值迁移），不随方案切换改变
             darkModeState = sp.getBoolean("globalDark", sp.getBoolean(planKey("darkMode"), true))
+            // v15.43：Dock 磨砂/模糊（全局键，不属于任何方案）
+            dockFrost = sp.getInt("dockFrost", dockFrost).coerceIn(0, 100)
+            dockBlur = sp.getInt("dockBlur", dockBlur).coerceIn(0, 100)
+            dockRefractH = sp.getInt("dockRefractH", dockRefractH).coerceIn(0, 100)
+            dockRefract = sp.getInt("dockRefract", dockRefract).coerceIn(0, 100)
+            dockTint = sp.getInt("dockTint", dockTint).coerceIn(0, 100)
+            dockRim = sp.getInt("dockRim", dockRim).coerceIn(0, 100)
             // 观感默认升级：旧版本不读 shape/blur/opacity，用代码新默认（修复透镜被压淡、形状非胶囊）
             val freshLook = sp.getInt("pver", 0) < PARAMS_VERSION
             val p = params

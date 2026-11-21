@@ -399,11 +399,41 @@ private class DrawBackdropNode(
 
     private fun updateEffects() {
         if (com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled) {
+            // v15.43：软件模糊路径同样要跑一遍 effects，否则 ksuLens 注册的 softwareLens
+            // 会被丢掉，胶囊只剩"软件模糊过的平面"、没有折射。
+            if (effectScope.size.hasFiniteArea()) {
+                try {
+                    effectScope.apply(effects)
+                } catch (_: Throwable) {
+                    effectScope.softwareLens = null
+                }
+            }
             graphicsLayer?.renderEffect = null
             padding = 0f
             return
         }
-        if (!isRenderEffectSupported()) return
+        if (!isRenderEffectSupported()) {
+            // v15.43：没有 RenderEffect（Android 11 及以下，或软件 GPU）时不再直接 return。
+            //
+            // 之前这里一 return，effects{} 整个没执行 —— 而 ksuLens()/lens() 在 AGSL 不可用时
+            // 正是在 effects{} 里注册 softwareLens（软件折射：按形状裁剪 + 径向放大 + 边缘斜面）。
+            // 于是低版本上 softwareLens 恒为 null，胶囊只剩一块平的半透明色，一点折射都没有。
+            //
+            // 软件折射完全不依赖 RenderEffect（它在 LayerBackdrop 里用 scale/clipPath 画出来），
+            // 所以这里照常跑一遍 effects 拿到 softwareLens，只是不挂 renderEffect、不留采样 padding。
+            if (!effectScope.size.hasFiniteArea()) return
+            try {
+                effectScope.apply(effects)
+                graphicsLayer?.renderEffect = null
+                padding = 0f
+            } catch (_: Throwable) {
+                graphicsLayer?.renderEffect = null
+                padding = 0f
+                effectScope.softwareLens = null
+                effectUnsupported = true
+            }
+            return
+        }
         if (effectUnsupported) {
             graphicsLayer?.renderEffect = null
             padding = 0f

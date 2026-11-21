@@ -51,6 +51,9 @@ class App : Application() {
                 val f = File(ctx.getDir("crash", Context.MODE_PRIVATE), "last.txt")
                 if (f.exists() && f.length() > 0) {
                     val tail = f.readText().trim().lines().takeLast(14).joinToString("\n")
+                    // v15.43：提示一次就删。之前这个文件从不清理，只要历史上崩过一次，
+                    // 之后每次冷启动都会重复弹这条 Toast（用户反馈的"启动频繁弹崩溃日志"）。
+                    runCatching { f.delete() }
                     Toast.makeText(
                         ctx,
                         "上次发生崩溃，请把这段反馈给开发者：\n$tail",

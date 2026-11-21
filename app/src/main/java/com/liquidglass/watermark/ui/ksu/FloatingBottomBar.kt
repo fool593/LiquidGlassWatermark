@@ -46,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.border
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -53,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.input.key.Key
@@ -80,6 +82,8 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.liquidglass.watermark.darkModeState
 import com.liquidglass.watermark.glass.Backdrop
+import com.liquidglass.watermark.glass.isRenderEffectSupported
+import com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled
 import com.liquidglass.watermark.glass.backdrops.layerBackdrop
 import com.liquidglass.watermark.glass.backdrops.rememberCombinedBackdrop
 import com.liquidglass.watermark.glass.backdrops.rememberLayerBackdrop
@@ -189,6 +193,21 @@ fun KsuFloatingBottomBar(
     backdrop: Backdrop,
     tabsCount: Int,
     isBlurEnabled: Boolean = true,
+    // v15.43：Dock 玻璃可调。0..100：
+    //   frostLevel —— 磨砂厚度（表面奶白浓度 + 磨砂渐变），越大越"糊"，0 = 几乎全透
+    //   blurLevel  —— 背后模糊半径，0 = 完全清晰（能直接读后面的字），越大越糊
+    frostLevel: Int = 40,
+    blurLevel: Int = 50,
+    // v15.43 参数体系扩展（全部 0..100，默认即 iOS 观感档）：
+    //   refractHLevel —— 折射高度（斜面带厚度，越大边缘"厚度感"越强）
+    //   refractLevel  —— 折射位移（边缘把背后内容弯折多少，越大越明显）
+    //   zoomLevel     —— 镜片内部放大（胶囊内部的轻微放大率）
+    //   tintLevel     —— 玻璃染色（奶白/雾面浓度，与磨砂互补）
+    //   rimLevel      —— 边缘高光（顶部细白边强度）
+    refractHLevel: Int = 45,
+    refractLevel: Int = 55,
+    tintLevel: Int = 35,
+    rimLevel: Int = 50,
     content: @Composable RowScope.((Int) -> Unit) -> Unit
 ) {
     val isInDark = darkModeState
@@ -211,11 +230,49 @@ fun KsuFloatingBottomBar(
     val tabContentColor = if (isInDark) Color(0xFFF5F7FA) else Color(0xFF1A1D24)
     // KSU 取 MiuixTheme.colorScheme.surfaceContainer；这里用对应的明暗容器色
     val surfaceContainer = if (isInDark) Color(0xFF2C2C2E) else Color(0xFFF2F2F7)
-    // v15.41：Dock 改成真正「能看见后面内容」的液态玻璃——表面填充 0.4 → 0.14，
-    // 更像 iOS 的透明玻璃胶囊（背后参数选项透过透镜可见），而不是一块填满的实心底板。
-    // v15.42：再降一档透明度。v15.41 的 0.14 在浅色主题下叠上 0.75 白色高光后，
-    // 胶囊看起来仍接近一块实心浅色片，后面参数选项透不过来。
-    val containerColor = if (isBlurEnabled) surfaceContainer.copy(alpha = 0.05f) else surfaceContainer
+    // v15.43：胶囊改成「透明 + 轻微磨砂」，且磨砂/模糊都可由用户调（设置页两个滑块）。
+    // 两个 0..100 的输入映射到视觉参数：
+    //   frost 0 → 填充 0.03（几乎全透，能读清后面的字）；frost 100 → 0.45（厚奶玻璃）
+    //   blur  0 → 0.6dp（基本清晰）；blur 100 → 14dp（完全糊成一片）
+    val frost = frostLevel.coerceIn(0, 100) / 100f
+    val blurAmt = blurLevel.coerceIn(0, 100) / 100f
+    // v15.43：没有 RenderEffect 的机型（Android 11 及以下 / 模拟器）硬件模糊是关掉的。
+    // 但取样端已经补了「软件模糊快照」（见 PrepareSoftwareGlassBackdropLive）：
+    // 面板图层每 0.45s 抓一帧降采样 + FastBlur 写进 softwareImage，LayerBackdrop 会优先
+    // 用它来画 —— 所以低版本上胶囊后面同样是被真糊掉的面板内容，不再是 1:1 清晰重影。
+    // 只有连这条软件路径都拿不到（softwareBlurEnabled=false，极少见）才退回加厚奶白底。
+    val blurSupported = isRenderEffectSupported()
+    val sampleBlurred = blurSupported || softwareBlurEnabled
+    val frostEff = frost
+    val tintAmt = tintLevel.coerceIn(0, 100) / 100f
+    // 染色系数：0 → 0.55×（更水、更透），100 → 1.55×（更奶、更像磨砂玻璃）
+    val tintFactor = 0.55f + 1.0f * tintAmt
+    // 有模糊：填充 0.16~0.44（再按染色系数缩放）；没模糊：0.58~0.75 硬压清晰文字。
+    val fillAlpha = (if (sampleBlurred) 0.16f + 0.28f * frost else 0.58f + 0.17f * frost)
+        .coerceIn(0f, 0.82f) * tintFactor
+    val containerColor = if (isBlurEnabled) surfaceContainer.copy(alpha = fillAlpha.coerceIn(0f, 0.85f))
+    else surfaceContainer.copy(alpha = 0.55f)
+    // 磨砂层：上沿亮、下沿暗的竖向渐变 + 一圈高光边。
+    // 这两个是纯 Compose 绘制（不依赖 AGSL / RenderEffect），
+    // 所以 Android 8~12 上即使 blur() 与 RuntimeShader 全部被平台门控掉，
+    // 胶囊仍然有「磨砂面 + 玻璃边」的观感，不会退化成一块平的半透明色。
+    val frostBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = ((if (isInDark) 0.02f else 0.03f) + 0.22f * frostEff) * tintFactor),
+            Color.White.copy(alpha = (0.01f + 0.05f * frostEff) * tintFactor),
+            Color.Black.copy(alpha = (if (isInDark) 0.06f else 0.035f) * (0.4f + frostEff))
+        )
+    )
+    // 边缘高光：iOS 那种"顶部一道细白边 + 四周极淡包边"，强度由滑块控制（0..100 → 0.06..0.46）
+    val rimBase = rimLevel.coerceIn(0, 100) / 100f
+    val rimColor = Color.White.copy(alpha = (0.06f + 0.40f * rimBase).coerceIn(0f, 0.55f))
+    // 折射滑块 → 像素。dp 换算放在这里，绘制处直接取用（避免每帧 with(density)）。
+    val refractHPx = with(LocalDensity.current) {
+        ((refractHLevel.coerceIn(0, 100) / 100f) * 20f).dp.toPx()
+    }
+    val refractAmtPx = with(LocalDensity.current) {
+        ((refractLevel.coerceIn(0, 100) / 100f) * 18f).dp.toPx()
+    }
     val tabsBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -360,15 +417,23 @@ fun KsuFloatingBottomBar(
                             backdrop = backdrop,
                             shape = { barShape },
                             effects = {
-                                padding = maxOf(padding, 40.dp.toPx())
+                                padding = maxOf(padding, 40.dp.toPx(), refractAmtPx + 8.dp.toPx())
                                 vibrancy()
-                                blur(4.dp.toPx())
+                                // v15.43：模糊半径跟着滑块的 blurLevel 走（0.6dp ~ 24dp）。
+                                // iOS 底部 bar 的模糊是"重糊"（物体轮廓完全消失、只剩色块），
+                                // 默认 50 ≈ 12dp 更接近它；0 时几乎不糊，能直接读清后面的字。
+                                if (blurAmt > 0.02f) blur((0.6f + 23.4f * blurAmt).dp.toPx())
+                                // v15.43：边缘折射由两个滑块控制：
+                                //   refractHLevel → 折射高度（斜面带厚度）0..20dp
+                                //   refractLevel  → 折射位移（边缘弯折量）0..18dp，同时决定软件折射放大率
+                                // 默认 45/55 ≈ 9dp/9.9dp，放大率约 18%：边缘能明显看到内容"被掰弯"，
+                                // 但不会像早期 24dp 那样把背后滑杆白圆放大成两块白斑。
                                 ksuLens(
-                                    refractionHeight = 24.dp.toPx(),
-                                    refractionAmount = 24.dp.toPx(),
+                                    refractionHeight = refractHPx,
+                                    refractionAmount = refractAmtPx,
                                 )
                             },
-                            highlight = { baseHighlight.copy(alpha = 0.4f) },
+                            highlight = { baseHighlight.copy(alpha = 0.22f) },
                             // v15.41：胶囊本体不再随按压放大。原来 layerBlock 把整条玻璃按 16dp 放大，
                             // 绘制边界会露出直边色块（按压时左右两端出现两道矩形边缘），也是"重影"来源之一。
                             // 按压反馈交给上面的镜片层，胶囊保持恒定几何。
@@ -376,8 +441,15 @@ fun KsuFloatingBottomBar(
                             // onDrawSurface 不再画整块矩形，避免玻璃层边界露出直边色块。
                         )
                             .background(containerColor, barShape)
+                            // v15.43：磨砂面 + 玻璃边。这两层是纯 Compose 绘制，
+                            // 不依赖 AGSL / RenderEffect，低版本上同样生效。
+                            .background(frostBrush, barShape)
+                            .border(1.dp, rimColor, barShape)
                     } else {
-                        Modifier.background(containerColor, barShape)
+                        Modifier
+                            .background(containerColor, barShape)
+                            .background(frostBrush, barShape)
+                            .border(1.dp, rimColor, barShape)
                     }
                 )
                 .height(pillH)

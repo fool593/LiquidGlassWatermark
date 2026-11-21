@@ -326,4 +326,14 @@
     <string name="canvas_auto">自动</string>
     <string name="canvas_land">横屏</string>
     <string name="canvas_port">竖屏</string>
+    <string name="dock_glass_section">Dock 玻璃参数（类型 / 磨砂 / 折射 / 染色）</string>
+    <string name="dock_frost">磨砂厚度</string>
+    <string name="dock_blur">背后模糊</string>
+    <string name="dock_glass_hint">磨砂 0 = 几乎全透；模糊 0 = 后面清晰；折射 0 = 平玻璃。默认值即 iOS 观感档。</string>
+    <string name="dock_expand">展开</string>
+    <string name="dock_collapse">收起</string>
+    <string name="dock_refract_h">边缘折射高度</string>
+    <string name="dock_refract">边缘折射位移</string>
+    <string name="dock_tint">玻璃染色</string>
+    <string name="dock_rim">边缘高光</string>
 </resources>

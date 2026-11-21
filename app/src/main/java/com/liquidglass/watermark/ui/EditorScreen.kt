@@ -4,6 +4,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -192,6 +193,19 @@ private fun EditorContent(act: MainActivity) {
     // 用 onSizeChanged 实测（含 navigationBarsPadding 与底部间距），不依赖写死的常量，
     // 换机型 / 字体缩放 / 导航栏高度变化都自动对齐。
     val density = LocalDensity.current
+    // v15.43：给 Dock 单独准备一块「参数面板」backdrop。
+    //
+    // 原来 Dock 取样的是全屏 scene（EditorScreen 最底层那张背景渐变图层），
+    // 所以 Dock 玻璃后面永远是背景色 —— 参数选项根本不在取样范围里，
+    // 无论把胶囊做成多透明都不可能"透看后面的选项"。
+    // 这里把参数面板整棵子树录进一块独立图层，Dock 改用这块图取样，
+    // 玻璃后面就是真实的参数卡片/按钮/滑杆。
+    val panelBackdrop = rememberLayerBackdrop()
+    // v15.43：面板内容会滚动，Dock 的取样必须跟着更新。低版本（无 RenderEffect）没有
+    // 硬件模糊，这里每 0.45s 把面板图层抓下来降采样 + FastBlur 写回 softwareImage，
+    // 于是胶囊后面是真模糊的面板内容（能看出有东西、读不出字），而不是清晰重影。
+    var panelSize by remember { mutableStateOf(IntSize.Zero) }
+    PrepareSoftwareGlassBackdropLive(panelBackdrop, panelSize)
     var dockHeightPx by remember { mutableIntStateOf(-1) }
     val dockSlot: androidx.compose.ui.unit.Dp =
         // +6dp：给 Dock 自身的 dropShadow（radius 10dp）留出余量，不让阴影压到导出栏下沿
@@ -282,6 +296,10 @@ private fun EditorContent(act: MainActivity) {
                     // v15.41：+ dockSlot —— 面板不再在 Dock 前截断，而是穿过 Dock 一直铺到屏幕底，
                     // 于是 Dock 玻璃后面是真参数内容（能透过胶囊看见后面的选项），而不是一块空背景板。
                     .height(232.dp + dockSlot)
+                    .onSizeChanged { panelSize = it }
+                    // v15.43：把面板整棵子树录进 panelBackdrop（见上方注释）。
+                    // 放在 glassSurface() 之前，录的是「玻璃卡 + 里面所有控件」的最终像素。
+                    .layerBackdrop(panelBackdrop)
                     .glassSurface()
                     // v15.42：面板玻璃铺到屏幕底，但内容必须让开系统导航栏。
                     // 不加这一层时三键导航的黑色栏会盖住面板最后一行（"…（仅圆角形状生效）"被切掉半行）。
@@ -336,7 +354,7 @@ private fun EditorContent(act: MainActivity) {
             Column(Modifier.fillMaxWidth()) {
                 ExportBar(act)
                 Spacer(Modifier.height(4.dp))
-                BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it })
+                BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it }, backdrop = panelBackdrop)
             }
         }
         // 动态照片合成面板（覆盖层）
@@ -963,8 +981,17 @@ private fun PreviewArea(modifier: Modifier, act: MainActivity) {
 }
 
 @Composable
-private fun BottomNav(tab: Int, onSelect: (Int) -> Unit, onDockHeight: (Int) -> Unit = {}) {
-    val b = LocalGlassBackdrop.current
+private fun BottomNav(
+    tab: Int,
+    onSelect: (Int) -> Unit,
+    onDockHeight: (Int) -> Unit = {},
+    // v15.43：默认仍是全屏背景，但 EditorContent 会传入「参数面板」backdrop，
+    // 这样 Dock 玻璃后面是真实的面板内容而不是背景渐变。
+    backdrop: Backdrop = LocalGlassBackdrop.current,
+) {
+    val b = backdrop
+    // v15.43：订阅 Dock 玻璃参数令牌，设置页拖滑块后 Dock 立即重组。
+    EditorState.dockGlassRev
     val tabs = tabNames()
     // v15.39：Dock 精简到 5 项后改为「紧凑居中」——不再铺满整条屏宽，
     // 按 项数 × 62dp + 内边距 算宽度（5 项 ≈ 330dp），像 iOS 那样一条不长的悬浮胶囊，
@@ -990,6 +1017,12 @@ private fun BottomNav(tab: Int, onSelect: (Int) -> Unit, onDockHeight: (Int) -> 
             onSelected = onSelect,
             backdrop = b,
             tabsCount = tabs.size,
+            frostLevel = EditorState.dockFrost,
+            blurLevel = EditorState.dockBlur,
+            refractHLevel = EditorState.dockRefractH,
+            refractLevel = EditorState.dockRefract,
+            tintLevel = EditorState.dockTint,
+            rimLevel = EditorState.dockRim,
         ) { activateTab ->
             tabs.forEachIndexed { index, label ->
                 KsuFloatingBottomBarItem(
@@ -1639,6 +1672,11 @@ private fun SettingsTab(act: MainActivity) {
     // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
     // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
     act.rev
+    // v15.43 关键修复：SettingsTab 也必须订阅 Dock 玻璃参数令牌。
+    // 之前 Dock 滑块 onChange 只调 bumpDockGlass()（递增这个 State），SettingsTab 不读它 →
+    // 本面板重组作用域不失效 → IntSlider 的 value 参数仍是旧值 → 松手/点击后 localVal 被回读成旧值，
+    // 表现就是「拖动或点击后滑块弹回原位、参数没保存」。
+    EditorState.dockGlassRev
     val b = LocalGlassBackdrop.current
     val p = params
     val ctx = LocalContext.current
@@ -1697,6 +1735,57 @@ private fun SettingsTab(act: MainActivity) {
             }
         }
         Text(stringResource(R.string.font_mode_hint), color = tSub(0.55f), fontSize = 10.sp)
+        Spacer(Modifier.height(6.dp))
+        // ── v15.43 Dock 玻璃：可折叠参数面板 ──
+        // 折叠状态下只占一行，点开才展开 6 个滑块（磨砂 / 模糊 / 折射高度 / 折射位移 / 染色 / 高光），
+        // 避免一页被滑块占满。折叠状态不落盘（纯 UI），参数本身落盘。
+        var dockGlassOpen by remember { mutableStateOf(false) }
+        Row(
+            Modifier.fillMaxWidth().clickable { dockGlassOpen = !dockGlassOpen }.padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(stringResource(R.string.dock_glass_section), color = tSub(0.7f), fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            Text(
+                stringResource(if (dockGlassOpen) R.string.dock_collapse else R.string.dock_expand),
+                color = tSub(0.5f), fontSize = 11.sp
+            )
+        }
+        AnimatedVisibility(visible = dockGlassOpen) {
+            Column {
+                IntSlider(stringResource(R.string.dock_frost), EditorState.dockFrost, 0..100, "%.0f%%", b) {
+                    EditorState.dockFrost = it
+                    EditorState.bumpDockGlass()
+                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                }
+                IntSlider(stringResource(R.string.dock_blur), EditorState.dockBlur, 0..100, "%.0f%%", b) {
+                    EditorState.dockBlur = it
+                    EditorState.bumpDockGlass()
+                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                }
+                IntSlider(stringResource(R.string.dock_refract_h), EditorState.dockRefractH, 0..100, "%.0f%%", b) {
+                    EditorState.dockRefractH = it
+                    EditorState.bumpDockGlass()
+                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                }
+                IntSlider(stringResource(R.string.dock_refract), EditorState.dockRefract, 0..100, "%.0f%%", b) {
+                    EditorState.dockRefract = it
+                    EditorState.bumpDockGlass()
+                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                }
+                IntSlider(stringResource(R.string.dock_tint), EditorState.dockTint, 0..100, "%.0f%%", b) {
+                    EditorState.dockTint = it
+                    EditorState.bumpDockGlass()
+                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                }
+                IntSlider(stringResource(R.string.dock_rim), EditorState.dockRim, 0..100, "%.0f%%", b) {
+                    EditorState.dockRim = it
+                    EditorState.bumpDockGlass()
+                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                }
+                Text(stringResource(R.string.dock_glass_hint), color = tSub(0.55f), fontSize = 10.sp)
+            }
+        }
         Spacer(Modifier.height(6.dp))
         ToggleRow(stringResource(R.string.software_blur), p.softwareBlur, b) {
             p.softwareBlur = it

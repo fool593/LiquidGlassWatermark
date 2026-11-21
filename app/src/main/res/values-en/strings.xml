@@ -273,4 +273,14 @@
     <string name="canvas_auto">Auto</string>
     <string name="canvas_land">Landscape</string>
     <string name="canvas_port">Portrait</string>
+    <string name="dock_glass_section">Dock glass (frost / refraction / tint)</string>
+    <string name="dock_frost">Frost amount</string>
+    <string name="dock_blur">Backdrop blur</string>
+    <string name="dock_glass_hint">Frost 0 = nearly clear; blur 0 = sharp backdrop; refraction 0 = flat glass. Defaults match iOS.</string>
+    <string name="dock_expand">Expand</string>
+    <string name="dock_collapse">Collapse</string>
+    <string name="dock_refract_h">Edge refraction height</string>
+    <string name="dock_refract">Edge refraction shift</string>
+    <string name="dock_tint">Glass tint</string>
+    <string name="dock_rim">Edge highlight</string>
 </resources>
