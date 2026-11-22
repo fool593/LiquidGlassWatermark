@@ -1,6 +1,40 @@
 {
   "releases": [
     {
+      "versionCode": 1573,
+      "versionName": "15.73",
+      "tag": "v15.73",
+      "date": "2026-11-22",
+      "published": true,
+      "notes": "Dock 底板贴边 + 点击切 tab + 长按放大贴合 + 纯净源码包",
+      "downloads": [
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.73/app-release.apk",
+          "label": "Release APK",
+          "sizeMB": 14.3,
+          "kind": "release"
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.73/app-debug.apk",
+          "label": "Debug APK",
+          "sizeMB": 19.0,
+          "kind": "debug"
+        },
+        {
+          "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.73/LiquidGlassWatermark_v15.73_source.zip",
+          "label": "源码包",
+          "sizeMB": 3.2,
+          "kind": "source"
+        }
+      ],
+      "files": [
+        "app-release.apk",
+        "app-debug.apk",
+        "LiquidGlassWatermark_v15.73_source.zip",
+        "LiquidGlassWatermark_v15.73_release.apk"
+      ]
+    },
+    {
       "versionCode": 1543,
       "versionName": "15.43",
       "tag": "v15.43",
@@ -33,7 +67,8 @@
         "LiquidGlassWatermark_v15.43_source.zip",
         "LiquidGlassWatermark_v15.43_release.apk"
       ]
-    },    {
+    },
+    {
       "versionCode": 1542,
       "downloads": [
         {
@@ -247,5 +282,5 @@
       ]
     }
   ],
-  "generatedAt": "2026-11-21T10:27:06+08:00"
+  "generatedAt": "2026-11-22T20:28:23+08:00"
 }
