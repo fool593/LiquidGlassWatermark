@@ -2,10 +2,7 @@
 // Source: manager/app/src/main/java/me/weishu/kernelsu/ui/component/liquid/Lens.kt
 // (itself adapted from Kyant0/AndroidLiquidGlass, mirrored from compose-miuix-ui example)
 //
-// 与工程内 Lens.kt 的差别：KSU 版本把色散强度做成 float uniform（0..1），
-// 并把 padding 直接抬到 refractionAmount（透镜外溢区），因此玻璃边缘的色散
-// 和放大比例与 KSU 管理器逐参数一致。这里只把 scope API 换成工程内的
-// BackdropEffectScope / runtimeShaderEffect，shader 字符串沿用同一份。
+
 package com.liquidglass.watermark.glass.effects
 
 import androidx.compose.foundation.shape.CornerBasedShape
@@ -30,12 +27,12 @@ fun BackdropEffectScope.ksuLens(
     }
     val radii = roundedRectCornerRadii() ?: return
 
-    // AGSL 不可用（低端 GPU / SwiftShader）：保留软件折射，避免退化为纯色块
     if (!isRuntimeShaderSupported()) {
         softwareLens = SoftwareLens(
             heightPx = refractionHeight,
             amountPx = refractionAmount,
-            shape = shape
+            shape = shape,
+            dispersion = chromaticAberration,
         )
         return
     }

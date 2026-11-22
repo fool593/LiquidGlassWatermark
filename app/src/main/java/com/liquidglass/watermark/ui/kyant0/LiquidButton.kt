@@ -60,7 +60,7 @@ fun LiquidButton(
                 effects = {
                     vibrancy()
                     blur(2f.dp.toPx())
-                    // 折射克制：12/24dp 会把按钮文字折射成重影，降到视觉可辨但文字清晰的强度
+
                     lens(7f.dp.toPx(), 15f.dp.toPx(), depthEffect = true, scaleCompensation = 1f)
                 },
                 layerBlock = if (isInteractive) {

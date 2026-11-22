@@ -11,15 +11,8 @@ import android.os.Build
 import android.os.Handler
 import java.nio.ByteBuffer
 
-/**
- * 动态 WebP 解码（API28+，ImageDecoder + AnimatedImageDrawable 抓帧）。
- * 兼容性最好：不依赖第三方库，Android 9 起的系统解码器原生支持 animated WebP。
- * 动画推进依赖主线程 Choreographer，故必须在传入的 handler（通常主线程）上执行；
- * 每帧经 onFrame 回调（可流式消费，由调用方负责 recycle），onDone 必定被调用一次。
- */
 object WebPDecoder {
 
-    /** 探测 animated WebP：RIFF/WEBP + VP8X 动画标志（bit 0x02）或 ANIM chunk */
     fun looksLikeAnimatedWebP(bytes: ByteArray): Boolean {
         if (bytes.size < 30) return false
         if (bytes[0] != 0x52.toByte() || bytes[1] != 0x49.toByte() ||
@@ -36,27 +29,18 @@ object WebPDecoder {
             if (size < 0 || off.toLong() + 8L + size > bytes.size.toLong()) return false
             when (four) {
                 "VP8X" -> {
-                    // VP8X payload: 8 字节 chunk 头后第 1 字节为 flags（bit1=animation，FFmpeg VP8X_FLAG_ANIMATION=0x02）
+
                     if (off + 9 <= bytes.size && (bytes[off + 8].toInt() and 0x02) != 0) return true
-                    // animation 位没设不代表一定静态：非标准工具可能漏标 flags 但仍有 ANIM/ANMF，继续扫描
+
                 }
-                "ANIM", "ANMF" -> return true   // 动画控制块或帧数据块 → 动态 WebP
-                "VP8 ", "VP8L" -> return false  // 出现首帧 chunk 而无 VP8X 动画标志/ANIM → 静态
+                "ANIM", "ANMF" -> return true
+                "VP8 ", "VP8L" -> return false
             }
             off += 8 + size + (size and 1)
         }
         return false
     }
 
-    /**
-     * 异步解码动态 WebP。
-     * @param handler 解码与回调所在线程（动画需主线程，通常传 Handler(Looper.getMainLooper())）
-     * @param maxEdge 最长边上限（预览 480；导出受内存限制可取 960）
-     * @param maxFrames 最多帧数
-     * @param timeoutMs 总超时
-     * @param onFrame 每帧回调 (bitmap, delayMs)，主线程；bitmap 由调用方 recycle（流式）
-     * @param onDone 结束回调 (ok)，主线程；ok=至少产出 1 帧
-     */
     fun decodeAsync(
         handler: Handler,
         ctx: Context,
@@ -76,7 +60,7 @@ object WebPDecoder {
             var frameBitmap: Bitmap? = null
             var lastTs = 0L
             var frameCount = 0
-            var loopBackStreak = 0   // v15.28：连续与首帧匹配的帧数（≥2 才算完整回环）
+            var loopBackStreak = 0
             val deadline = System.currentTimeMillis() + timeoutMs
             val finish: (Boolean) -> Unit = { ok ->
                 if (!finished) {
@@ -89,8 +73,7 @@ object WebPDecoder {
                     onDone(ok)
                 }
             }
-            // API 26/27 无 ImageDecoder / AnimatedImageDrawable（均 API 28 起）→ 动图 WebP 解码
-            // 不支持，直接失败（调用方提示换图），避免 NewApi 调用在旧系统抛异常/崩溃。
+
             if (android.os.Build.VERSION.SDK_INT < 28) { finish(false); return@post }
             try {
                 val src = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
@@ -108,7 +91,7 @@ object WebPDecoder {
                 val frameBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 frameBitmap = frameBmp
                 val canvas = Canvas(frameBmp)
-                d.setRepeatCount(2) // 播两遍，便于识别回环（回到首帧即完整一遍）
+                d.setRepeatCount(2)
                 d.callback = object : Drawable.Callback {
                     override fun invalidateDrawable(who: Drawable) {
                         if (finished) return
@@ -121,9 +104,7 @@ object WebPDecoder {
                         val delay = if (lastTs == 0L) 100 else (now - lastTs).toInt().coerceIn(16, 500)
                         val f = frameBmp.copy(Bitmap.Config.ARGB_8888, false)
                         val first = firstFrame
-                        // v15.28 回环判定加固：旧逻辑"任一帧与首帧 49 点相同 → 判回环结束"，
-                        // 含静止段/中途回到首帧画面的动画会被提前截断（导出帧数不足）。
-                        // 改为【连续 ≥2 帧匹配首帧】才判定完整播完一遍；期间帧照常发射，不丢帧。
+
                         if (first != null && samePixels(f, first)) {
                             loopBackStreak++
                             if (loopBackStreak >= 2) {
@@ -146,7 +127,7 @@ object WebPDecoder {
                         decodeHandler.removeCallbacks(what)
                     }
                 }
-                // 首帧：未启动时 draw 即首帧
+
                 canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
                 d.draw(canvas)
                 val f0 = frameBmp.copy(Bitmap.Config.ARGB_8888, false)
@@ -156,7 +137,7 @@ object WebPDecoder {
                 onFrame(f0, 100)
                 if (frameCount >= maxFrames) { finish(true); return@post }
                 d.start()
-                // 超时兜底
+
                 decodeHandler.postDelayed({ finish(frameCount > 0) }, timeoutMs.toLong() + 500)
             } catch (t: Throwable) {
                 finish(frameCount > 0)
@@ -164,7 +145,6 @@ object WebPDecoder {
         }
     }
 
-    /** 49 点抽样比较两帧是否相同（判定动画回环） */
     private fun samePixels(a: Bitmap, b: Bitmap): Boolean {
         if (a.width != b.width || a.height != b.height) return false
         for (gy in 0 until 7) {

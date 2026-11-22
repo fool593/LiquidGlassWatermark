@@ -17,17 +17,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import com.liquidglass.watermark.darkModeState
 
-/**
- * 主题对齐 ADB 工具箱实拍风格：深蓝黑带微光背景、iOS 蓝主色、细亮边通透玻璃、
- * 绿色开关 / 橙色次要 / 红色危险。
- */
 object LG {
     val Blue = Color(0xFF0A84FF)
     val BlueDeep = Color(0xFF0066D6)
     val Green = Color(0xFF30D158)
     val Orange = Color(0xFFFF9F0A)
     val Red = Color(0xFFFF453A)
-    // 兼容旧命名
+
     val Cyan = Blue
     val CyanDeep = BlueDeep
 
@@ -72,17 +68,6 @@ private val LightGlassColorScheme = lightColorScheme(
     onSurfaceVariant = Color(0xFF526079)
 )
 
-/**
- * v14.87 液态玻璃 UI 背景：彩色渐变（深蓝→紫→青）+ 光晕——玻璃面板悬浮其上（透出色彩）
- *
- * v15.16 任务3 卡顿修复：
- * - 修复前 `liquidBackground()` 每次重组都会新建 2~5 个 Brush（verticalGradient / radialGradient /
- *   3 个径向光晕），Brush 对象不相等 → `Modifier.background(brush)` 的 modifier 元素每帧被判定
- *   为变化 → 触发重新绘制。而 `bump()` 在拖动滑块时每帧调用一次（70 处调用点），
- *   于是全屏背景每帧都在重绘（含 3 个 `radius = size.width * 0.95f` 的全屏径向渐变圆）。
- * - 修复后：所有 Brush 都 `remember` 缓存，只有 dark 模式切换或尺寸变化时才重建。
- *   绘制指令与颜色值完全不变，视觉逐像素一致。
- */
 fun Modifier.liquidBackground(): Modifier {
     val dark = darkModeState
     return this
@@ -113,12 +98,6 @@ private fun liquidGlowCenters(width: Float, height: Float): List<Offset> = listO
     Offset(width * 0.25f, height * 0.94f)
 )
 
-/**
- * 3 个全屏半径径向渐变 Brush 的缓存：键为 (宽, 高, dark)。
- * 尺寸不变时零分配；旋转/分屏导致尺寸变化时重建一次。
- */
-// L5：原实现把 (宽,高,dark) 哈希成一个 Long 作缓存键，理论上存在碰撞（碰撞会复用错误尺寸的
-// Brush → 视觉错位）。改为直接按三个字段精确比较，杜绝碰撞，开销可忽略。
 private var glowBrushW: Float = Float.NaN
 private var glowBrushH: Float = Float.NaN
 private var glowBrushDark: Boolean = false
@@ -183,17 +162,11 @@ private fun rememberLiquidGlowBrush(dark: Boolean): Modifier {
     return liquidGlowOverlay
 }
 
-/**
- * v15.37：界面字族固定为**出厂字体**。
- * 国产 ROM 换主题字后，Compose 的默认字族会被主题字体接管，界面文字被压窄、
- * 各种行高/宽度测量一起走样（用户实测"整个应用看起来变扁变长"）。界面属于工具 UI，
- * 不应跟随主题字体；只有水印文字的「系统字体」选项才使用系统当前字体。
- */
 private val UiFontFamily: FontFamily by lazy { FontFamily(FontSupport.factory(false)) }
 
 @Composable
 fun LiquidGlassTheme(content: @Composable () -> Unit) {
-    // 界面基样式统一挂出厂字族：所有未显式指定 fontFamily 的 Text 都会继承（字号/颜色各自覆盖）
+
     val uiStyle = LocalTextStyle.current.copy(fontFamily = UiFontFamily)
     MaterialTheme(
         colorScheme = if (darkModeState) GlassColorScheme else LightGlassColorScheme,

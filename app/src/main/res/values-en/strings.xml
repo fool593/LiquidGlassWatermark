@@ -17,6 +17,7 @@
     <string name="tab_text">Text</string>
     <string name="tab_pos">Place</string>
     <string name="tab_settings">Settings</string>
+    <string name="tab_appearance">Appearance</string>
 
     <string name="shape_section">Shape</string>
     <string name="shape_capsule">Capsule</string>
@@ -283,4 +284,9 @@
     <string name="dock_refract">Edge refraction shift</string>
     <string name="dock_tint">Glass tint</string>
     <string name="dock_rim">Edge highlight</string>
+    <string name="dock_capsule_section">Liquid glass capsule (refraction / highlight / dispersion / flow)</string>
+    <string name="dock_alpha">Opacity</string>
+    <string name="dock_disperse">Dispersion</string>
+    <string name="dock_flow">Flow speed</string>
+    <string name="dock_capsule_hint">Refraction amount = edge bend strength; height = bend band thickness; dispersion falls back to a colored rim on old devices; flow 0 = static.</string>
 </resources>

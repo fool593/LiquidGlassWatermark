@@ -1,4 +1,4 @@
-package com.liquidglass.watermark.ui
+﻿package com.liquidglass.watermark.ui
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -37,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import kotlinx.coroutines.delay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -47,6 +48,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
@@ -97,30 +100,23 @@ import kotlin.math.roundToInt
 
 @Composable
 private fun tabNames(): List<String> = listOf(
-    stringResource(R.string.tab_shape),
-    // v15.38：Dock 精简到 5 项——「光泽」并进「玻璃」，作为玻璃页内的子页签
-    stringResource(R.string.tab_glass),
+
+    stringResource(R.string.tab_appearance),
     stringResource(R.string.tab_text),
     stringResource(R.string.tab_pos),
     stringResource(R.string.tab_settings)
 )
 
-/** v15.38：Dock 图标显式映射，避免精简项数后图标按序错位（0 形状 / 1 玻璃 / 3 文字 / 4 位置 / 5 设置）。 */
-private val DOCK_ICON_IDS = listOf(0, 1, 3, 4, 5)
+private val DOCK_ICON_IDS = listOf(0, 3, 4, 5)
 
-/** v15.42：面板滚动内容底部留白 = 导出栏(约 38dp) + Dock 胶囊 + 底部间距。
- *  悬浮层已无底板，参数内容一路铺到屏幕底（透过 Dock 玻璃可见）；
- *  滚到底时最后一行能被推到导出栏上方，不会被 Dock 永久压住。 */
-private val PanelNavInset = 120.dp
+private val PanelNavInset = 152.dp
 
-// 深色模式白字 / 浅色模式黑字，跟随应用内 darkModeState（非系统主题）
 @Composable
 private fun tMain(): Color = if (darkModeState) Color(0xFFF5F7FA) else Color(0xFF1A1D24)
 @Composable
 private fun tSub(alpha: Float = 0.55f): Color =
     if (darkModeState) Color.White.copy(alpha = alpha) else Color(0xFF5A6478).copy(alpha = alpha + 0.15f)
 
-// 输入框边框/光标跟随深浅色，避免浅色模式下浅边框看不清
 @Composable
 private fun fieldColors() = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Color(0xFF0091FF),
@@ -130,7 +126,6 @@ private fun fieldColors() = androidx.compose.material3.OutlinedTextFieldDefaults
     unfocusedLabelColor = tSub(0.6f)
 )
 
-/** 液态玻璃输入框：玻璃背景 + 透明边框（替代旧版圆圈/矩形边框，统一视觉） */
 @Composable
 private fun GlassTextField(
     value: String,
@@ -166,9 +161,7 @@ fun EditorScreen(act: MainActivity) {
     val scene = rememberLayerBackdrop()
     var sceneSize by remember { mutableStateOf(IntSize.Zero) }
     PrepareSoftwareGlassBackdrop(scene, sceneSize)
-    // v15.16 任务3：全屏场景层的内容只有「深色模式」一个变量，尺寸不变时是静态的。
-    // 声明为静态后，拖动滑块等每帧重组不再重录整张全屏背景（这是主线程最重的单项之一）；
-    // 深色模式切换时通过 contentRevision 让缓存失效，视觉结果与每帧重录完全一致。
+
     val darkMode = darkModeState
     LaunchedEffect(scene, darkMode) {
         scene.contentStatic = true
@@ -188,50 +181,88 @@ fun EditorScreen(act: MainActivity) {
 @Composable
 private fun EditorContent(act: MainActivity) {
     var tab by remember { mutableIntStateOf(0) }
-    // v15.34：底部悬浮 Dock 是覆盖层，必须按它【实际测量高度】给 Column 留出占位，
-    // 否则常驻在 Column 末尾的导出栏（MP4/HEVC/GIF + 快速/混合/CPU + 动照…）会被 Dock 整条压住。
-    // 用 onSizeChanged 实测（含 navigationBarsPadding 与底部间距），不依赖写死的常量，
-    // 换机型 / 字体缩放 / 导航栏高度变化都自动对齐。
+
     val density = LocalDensity.current
-    // v15.43：给 Dock 单独准备一块「参数面板」backdrop。
+
     //
-    // 原来 Dock 取样的是全屏 scene（EditorScreen 最底层那张背景渐变图层），
-    // 所以 Dock 玻璃后面永远是背景色 —— 参数选项根本不在取样范围里，
-    // 无论把胶囊做成多透明都不可能"透看后面的选项"。
-    // 这里把参数面板整棵子树录进一块独立图层，Dock 改用这块图取样，
-    // 玻璃后面就是真实的参数卡片/按钮/滑杆。
+
     val panelBackdrop = rememberLayerBackdrop()
-    // v15.43：面板内容会滚动，Dock 的取样必须跟着更新。低版本（无 RenderEffect）没有
-    // 硬件模糊，这里每 0.45s 把面板图层抓下来降采样 + FastBlur 写回 softwareImage，
-    // 于是胶囊后面是真模糊的面板内容（能看出有东西、读不出字），而不是清晰重影。
+
     var panelSize by remember { mutableStateOf(IntSize.Zero) }
-    PrepareSoftwareGlassBackdropLive(panelBackdrop, panelSize)
+
+    var panelPressed by remember { mutableStateOf(false) }
+    var panelUpAt by remember { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
+
+    PrepareSoftwareGlassBackdropLive(
+        panelBackdrop,
+        panelSize,
+        revision = tab,
+        isIdle = {
+            !panelPressed &&
+                android.os.SystemClock.uptimeMillis() - panelUpAt > 700L
+        },
+
+        blurAmount = { EditorState.dockBlur.coerceIn(0, 100) / 100f },
+    )
+
+    //
+
+    LaunchedEffect(panelBackdrop) {
+
+        panelBackdrop.recordThrottleMs = 400L
+
+        if (!com.liquidglass.watermark.glass.isRenderEffectSupported()) {
+
+            panelBackdrop.layerScale = 0.75f
+        }
+        while (true) {
+            delay(80)
+            val idle = android.os.SystemClock.uptimeMillis() - panelUpAt
+            if (!panelPressed && idle > 300L && panelBackdrop.liveMode) {
+                panelBackdrop.liveMode = false
+            }
+
+            if (!panelPressed && idle > 700L && panelBackdrop.capturePaused) {
+                panelBackdrop.capturePaused = false
+            }
+        }
+    }
     var dockHeightPx by remember { mutableIntStateOf(-1) }
     val dockSlot: androidx.compose.ui.unit.Dp =
-        // +6dp：给 Dock 自身的 dropShadow（radius 10dp）留出余量，不让阴影压到导出栏下沿
+
         if (dockHeightPx >= 0) with(density) { dockHeightPx.toDp() } + 6.dp
         else DockPillHeight + DockBottomGap + 6.dp
 
-    // v15.16 任务3：不再在 EditorContent 顶层读 act.rev。
     //
-    // 原实现 `act.rev` 写在这里，而 bump() 拖动时每帧调用（EditorScreen 内 70 处），
-    // 于是每一次拖动都让 TopBar / MaterialRow / PreviewArea / ExportBar / BottomNav /
-    // 参数面板**全部重组**——这是 Android 11+ 上 "Slow UI thread" 占比最高的单项。
+
     //
-    // 改为把 rev 的读取下沉到真正需要它的两个叶子：参数面板容器（需在参数变化后
-    // 重读 EditorState.params 渲染新值）与预览区（需重绘）。TopBar/MaterialRow/
-    // ExportBar/BottomNav 与参数无关，现在保持稳定不重组，视觉与交互完全不变。
 
     Box(
         Modifier
             .fillMaxSize()
+
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Final)
+                        val down = event.changes.any { it.pressed }
+                        if (down) {
+                            panelPressed = true
+                            panelBackdrop.capturePaused = true
+                        } else if (panelPressed) {
+                            panelPressed = false
+                            panelUpAt = android.os.SystemClock.uptimeMillis()
+                        }
+                    }
+                }
+            }
     ) {
         Column(Modifier.fillMaxSize()) {
             TopBar(act)
             MaterialRow(act)
             Box(Modifier.weight(1f)) {
                 PreviewArea(Modifier.fillMaxSize(), act)
-                // 保存进度覆盖层：只遮预览区，顶栏按钮/底栏保持可见可点（之前全屏遮罩让保存按钮变暗无字）
+
                 if (act.progressPct >= 0) {
                     val pb = LocalGlassBackdrop.current
                     Box(
@@ -241,7 +272,7 @@ private fun EditorContent(act: MainActivity) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(stringResource(R.string.exporting, act.progressPct), color = tMain(), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             Spacer(Modifier.height(14.dp))
-                            // 液态玻璃进度条：玻璃轨道 + 渐变填充，圆角 pill
+
                             Box(
                                 Modifier
                                     .width(240.dp)
@@ -269,7 +300,7 @@ private fun EditorContent(act: MainActivity) {
                                 )
                             }
                             Spacer(Modifier.height(18.dp))
-                            // 取消导出：液态玻璃按钮，导出进行中始终可点
+
                             LiquidButton(
                                 onClick = { act.requestCancelExport() },
                                 backdrop = pb,
@@ -291,23 +322,45 @@ private fun EditorContent(act: MainActivity) {
                 Modifier
                     .fillMaxWidth()
                     .padding(start = 12.dp, end = 12.dp, top = 4.dp)
-                    // v15.28 UI 重构：参数面板由固定 190dp 加高到 224dp，6 个 tab 内容更舒展。
-                    // v15.35：Dock 压缩后把省下的高度还给画布，面板 268→232dp（内部仍可滚动）。
-                    // v15.41：+ dockSlot —— 面板不再在 Dock 前截断，而是穿过 Dock 一直铺到屏幕底，
-                    // 于是 Dock 玻璃后面是真参数内容（能透过胶囊看见后面的选项），而不是一块空背景板。
+
                     .height(232.dp + dockSlot)
                     .onSizeChanged { panelSize = it }
-                    // v15.43：把面板整棵子树录进 panelBackdrop（见上方注释）。
-                    // 放在 glassSurface() 之前，录的是「玻璃卡 + 里面所有控件」的最终像素。
+
+                    //
+
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            var downPos: androidx.compose.ui.geometry.Offset? = null
+                            var slopHit = false
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                val change = event.changes.firstOrNull() ?: continue
+                                if (change.pressed) {
+                                    val start = downPos
+                                    if (start == null) {
+                                        downPos = change.position
+                                        slopHit = false
+                                    } else if (!slopHit &&
+                                        (change.position - start).getDistance() >
+                                        viewConfiguration.touchSlop
+                                    ) {
+                                        slopHit = true
+                                        panelBackdrop.liveMode = true
+                                    }
+                                } else {
+                                    downPos = null
+                                    slopHit = false
+                                }
+                            }
+                        }
+                    }
+
                     .layerBackdrop(panelBackdrop)
                     .glassSurface()
-                    // v15.42：面板玻璃铺到屏幕底，但内容必须让开系统导航栏。
-                    // 不加这一层时三键导航的黑色栏会盖住面板最后一行（"…（仅圆角形状生效）"被切掉半行）。
-                    // 玻璃背景仍由 glassSurface() 画满整个 Box，只是内容区收缩到导航栏上方。
+
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(start = 10.dp, end = 10.dp, top = 8.dp)
-                    // 导出中：在 Initial 阶段消费全部指针，冻结滑块/开关/参数按钮（触摸不到下层控件）；
-                    // 仅锁参数面板，下方 ExportBar 与底部导航在本 Box 之外，仍可点击切换页面。
+
                     .pointerInput(act.progressPct >= 0) {
                         if (act.progressPct >= 0) awaitPointerEventScope {
                             while (true) {
@@ -316,36 +369,19 @@ private fun EditorContent(act: MainActivity) {
                         }
                     }
             ) {
-                // v15.16 任务3：rev 的读取下沉到面板，拖动滑块时只有参数面板重组。
+
                 //
-                // v15.17 修正：下沉的落点原来是【这里】（面板容器），实际必须落到【每个面板函数内部】。
-                // 面板函数（ShapeTab/GlassTab/…）的参数只有 act —— MainActivity 是 unstable 类，但实例
-                // 从头到尾是同一个，Compose 生成的跳过判断是 Composer.changed(act) → 走 equals → 恒等，
-                // 于是容器重组时面板被整体跳过，函数体根本不执行。结果面板里对 EditorState.params
-                // （普通字段，不是 Compose State）的读取全部失效：
-                //   · 滑块松手后 localVal 回读外部值拿到拖动前的旧值 → 弹回默认数值
-                //   · 字体 / 形状 / 文字色 / 导出模式等按钮的选中 tint 永远不变蓝
-                //   · 导入素材后素材行不刷新 → 「删除图片 / 删除视频」按钮不出现
-                // 现在 6 个面板函数各自在函数体首行读 act.rev，自己的重组作用域记录该依赖，
-                // rev 一变作用域即失效，跳过被绕过。容器这里无需再读（避免整块重组）。
-                // v15.38：Dock 由 6 项精简为 5 项（形状 / 玻璃 / 文字 / 位置 / 设置），
-                // 原「光泽」并入「玻璃」，在玻璃页顶部以子页签承载，功能零丢失。
+
                 when (tab) {
-                    0 -> ShapeTab(act)
-                    1 -> GlassGroupTab(act)
-                    2 -> TextTab(act)
-                    3 -> PosTab(act)
+                    0 -> AppearanceTab(act)
+                    1 -> TextTab(act)
+                    2 -> PosTab(act)
                     else -> SettingsTab(act)
                 }
             }
-            // 导出栏（常驻）与 Dock 一起作为底部悬浮层，位置不变（导出栏仍在 Dock 正上方），
-            // 但不再占用 Column 的流式空间 —— 面板内容可以一直延伸到 Dock 背后。
+
         }
-        // v15.42：底部悬浮层不再铺任何底板玻璃。v15.41 在这里加的那块「通体玻璃」
-        // （fillMaxWidth + 26dp 圆角 + blur14 + 淡染色）实际是一层不透明底板：它盖住了
-        // Dock 与导出栏下方那一整条参数内容，Dock 左右两侧只剩空背景 —— 正是用户要删掉的东西。
-        // 现在整条底部悬浮层只有内容本身（导出栏按钮 / Dock 胶囊），背景完全让给参数面板，
-        // 参数内容一直铺到屏幕底，从 Dock 胶囊与两侧空隙都能看见后面的选项。
+
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -357,33 +393,28 @@ private fun EditorContent(act: MainActivity) {
                 BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it }, backdrop = panelBackdrop)
             }
         }
-        // 动态照片合成面板（覆盖层）
+
         if (act.showMotionPhotoPanel) {
             MotionPhotoPanel(act)
         }
-        // v15.30：GIF 工具面板（覆盖层，独立于动照片）
+
         if (act.showGifPanel) {
             GifPanel(act)
         }
     }
 }
 
-/** 导出栏（v15.28 重构）：按「格式 / 模式 / 动作」三组竖线分隔，按钮高度与间距统一。
- *  液态玻璃按钮视觉不变；横向可滚动保证任何设备宽度都不裁剪。 */
 @Composable
 private fun ExportBar(act: MainActivity) {
     val b = LocalGlassBackdrop.current
     val cur = EditorState.motionExportFormat
-    // v15.17：订阅导出栏自己的信号 + 素材版本号。
-    // 「快速/混合/CPU」的选中色读的是 EditorState.params.exportMode（普通字段），
-    // 「动照」的可用色读的是 mpImageSet/mpVideoSet（普通字段）—— 不订阅 State 时整条导出栏
-    // 会被 Compose 跳过，点了不变蓝。这里刻意不订阅 act.rev，避免拖动滑块时每帧重录整排按钮。
+
     EditorState.exportBarRev
     EditorState.mediaRev
-    // 导出中冻结格式切换/合成/清缓存（清缓存可能删除正在写入的临时文件）；底部导航在本栏之外，不受影响
+
     val locked = act.progressPct >= 0
     Row(
-        // v14.45 UI 重构：导出栏横向可滚动——全部按钮（格式/动照/清缓存）永不裁剪
+
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 2.dp)
@@ -398,18 +429,18 @@ private fun ExportBar(act: MainActivity) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // ── 组 1：导出格式 ──
+
         Text(stringResource(R.string.export_fmt), color = tSub(), fontSize = 12.sp)
-        // v14.72 格式切换即持久化（修复"导出格式没记住"）
+
         FormatChip(act, b, "mp4", "MP4", cur) { EditorState.motionExportFormat = "mp4"; EditorState.persist(act) }
         if (Mp4Exporter.hasHevcEncoder())
             FormatChip(act, b, "hevc", "HEVC", cur) { EditorState.motionExportFormat = "hevc"; EditorState.persist(act) }
         FormatChip(act, b, "gif", "GIF", cur) {
-            // v15.30：点 GIF 立即弹出 GIF 工具面板（参数 + 选视频），不再只是静默切格式
+
             act.openGifPanel()
         }
         GroupDivider()
-        // ── 组 2：导出模式（快速默认纯GPU / 混合 / CPU 纯软） ──
+
         Text(stringResource(R.string.export_mode_label), color = tSub(), fontSize = 12.sp)
         listOf(
             stringResource(R.string.export_mode_fast) to 0,
@@ -426,9 +457,7 @@ private fun ExportBar(act: MainActivity) {
             { Text(label, color = tMain(), fontSize = 11.sp, fontWeight = FontWeight.Medium) }
         }
         GroupDivider()
-        // ── 组 3：动作（动图合成 / 清缓存 / 删除日志） ──
-        // 动态照片合成：主预览已载入运动内容（选动态照片自动配对）时直接合成，
-        // 无运动内容才弹手动面板（选封面+视频）
+
         LiquidButton(
             onClick = {
                 val hasMotion = EditorState.motionMp4 != null &&
@@ -442,7 +471,7 @@ private fun ExportBar(act: MainActivity) {
         ) {
             Text(stringResource(R.string.mp_title), color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
-        // 清理缓存（手动）：点击立即清理，进行中变蓝，完成后提示释放量并恢复透明
+
         var cleaning by remember { mutableStateOf(false) }
         LiquidButton(
             onClick = {
@@ -464,8 +493,7 @@ private fun ExportBar(act: MainActivity) {
                 color = tMain(), fontSize = 12.sp, fontWeight = FontWeight.Medium
             )
         }
-        // 删除日志（用户要求）：一键删除 Download/lgw_debug.log 及 Download/导出日志/ 全部日志，
-        // 防止日志冗余堆积；完成后提示删除数量
+
         var clearingLogs by remember { mutableStateOf(false) }
         LiquidButton(
             onClick = {
@@ -489,7 +517,6 @@ private fun ExportBar(act: MainActivity) {
     }
 }
 
-/** 导出栏组分隔竖线：液态玻璃浅淡描边，1dp 宽 20dp 高 */
 @Composable
 private fun GroupDivider() {
     Box(
@@ -500,7 +527,6 @@ private fun GroupDivider() {
     )
 }
 
-/** 字节数 → 人类可读（"12.5 MB"） */
 private fun fmtMb(bytes: Long): String =
     if (bytes <= 0) "0 B"
     else if (bytes < 1024 * 1024) String.format(java.util.Locale.US, "%.0f KB", bytes / 1024f)
@@ -521,7 +547,6 @@ private fun FormatChip(
     }
 }
 
-/** 动态照片合成面板：两个槽位（封面图片 / 视频片段）+ 合成保存 */
 @Composable
 private fun MotionPhotoPanel(act: MainActivity) {
     val b = LocalGlassBackdrop.current
@@ -540,8 +565,7 @@ private fun MotionPhotoPanel(act: MainActivity) {
             Text(stringResource(R.string.mp_title), color = tMain(), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.mp_subtitle), color = tSub(), fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))
-            // v15.30：动态照片 ≠ GIF。「GIF」是独立工具（自身面板：选视频+参数+时间轴），
-            // 不再塞在动照片面板里；入口按钮改为打开 GIF 工具面板。
+
             LiquidButton(
                 onClick = { act.openGifPanel() },
                 backdrop = b,
@@ -550,7 +574,7 @@ private fun MotionPhotoPanel(act: MainActivity) {
                 Text(stringResource(R.string.gif_entry), color = tMain(), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(8.dp))
-            // v14.38 整段动图导入：选【一个】文件（视频或图片）自动填满封面+视频两槽
+
             LiquidButton(
                 onClick = { act.pickWholeMotionPhoto() },
                 backdrop = b,
@@ -560,7 +584,7 @@ private fun MotionPhotoPanel(act: MainActivity) {
                 Text(stringResource(R.string.mp_pick_whole), color = tMain(), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(10.dp))
-            // 槽位1：封面图片（已选时显示删除）
+
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -589,14 +613,14 @@ private fun MotionPhotoPanel(act: MainActivity) {
                 }
             }
             Spacer(Modifier.height(10.dp))
-            // 槽位3：动照剪辑时间轴（v15.30）
+
             GifTimelineEditor(
                 durationMs = act.mpVideoDurationMs(),
                 onChanged = { act.updateMotionTrim() },
-                mode = 1 // 1=动态照片剪辑模式
+                mode = 1
             )
             Spacer(Modifier.height(10.dp))
-            // 槽位2：视频片段（已选时显示删除）
+
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -650,7 +674,7 @@ private fun MotionPhotoPanel(act: MainActivity) {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            // 合成保存（动照片容器：vivo-style / Google XMP —— 动态照片不是 GIF）
+
             LiquidButton(
                 onClick = { act.composeMotionPhoto() },
                 backdrop = b,
@@ -660,7 +684,7 @@ private fun MotionPhotoPanel(act: MainActivity) {
                 Text(stringResource(R.string.mp_compose), color = tMain(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(10.dp))
-            // 关闭
+
             Text(
                 stringResource(R.string.mp_close),
                 color = tSub(), fontSize = 13.sp,
@@ -675,15 +699,10 @@ private fun MotionPhotoPanel(act: MainActivity) {
     }
 }
 
-/**
- * v15.30 GIF 工具面板：与动态照片完全独立。
- * 点导出栏「GIF」（或动照片面板的「GIF」入口）弹出：选择视频 → 参数（帧率/分辨率）→
- * 剪辑时间轴 → 导出 GIF。动态照片走 MotionPhotoPanel（MP4/容器），不在此列。
- */
 @Composable
 private fun GifPanel(act: MainActivity) {
     val b = LocalGlassBackdrop.current
-    // 订阅素材版本号：导入视频后本面板刷新为「已选视频」状态
+
     EditorState.mediaRev
     EditorState.exportBarRev
     val hasVideoSource = EditorState.motionUri != null ||
@@ -706,7 +725,7 @@ private fun GifPanel(act: MainActivity) {
             Text(stringResource(R.string.gif_tool_subtitle), color = tSub(), fontSize = 12.sp)
             Spacer(Modifier.height(12.dp))
             if (!hasVideoSource) {
-                // 未选视频：大按钮引导
+
                 LiquidButton(
                     onClick = { act.pickVideoToGif() },
                     backdrop = b,
@@ -717,7 +736,7 @@ private fun GifPanel(act: MainActivity) {
                 }
                 Text(stringResource(R.string.gif_pick_hint), color = tSub(), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
             } else {
-                // 已选视频：参数 + 时间轴 + 导出
+
                 Text(stringResource(R.string.gif_params_title), color = tSub(), fontSize = 12.sp)
                 Spacer(Modifier.height(6.dp))
                 Row(
@@ -773,7 +792,7 @@ private fun GifPanel(act: MainActivity) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                 )
                 Spacer(Modifier.height(8.dp))
-                // v15.31：预览选中的片段（剪辑软件核心体验）——点击后画布播放该片段
+
                 LiquidButton(
                     onClick = { act.previewGifTrim() },
                     backdrop = b,
@@ -783,7 +802,7 @@ private fun GifPanel(act: MainActivity) {
                     Text(stringResource(R.string.gif_preview_clip), color = tMain(), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
                 Spacer(Modifier.height(10.dp))
-                // 换视频 / 导出
+
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -806,7 +825,7 @@ private fun GifPanel(act: MainActivity) {
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            // 关闭
+
             Text(
                 stringResource(R.string.mp_close),
                 color = tSub(), fontSize = 13.sp,
@@ -823,7 +842,7 @@ private fun GifPanel(act: MainActivity) {
 
 @Composable
 private fun TopBar(act: MainActivity) {    val b = LocalGlassBackdrop.current
-    // v14.46 简洁三段式顶栏：返回 | 标题 | 保存（素材操作移至下方 MaterialRow 整齐一行）
+
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -853,13 +872,10 @@ private fun TopBar(act: MainActivity) {    val b = LocalGlassBackdrop.current
     }
 }
 
-/** v14.46 素材操作行：选图/删图/视频/删视频 等宽整齐排列（不挤顶栏，条件按钮动态出现） */
 @Composable
 private fun MaterialRow(act: MainActivity) {
     val b = LocalGlassBackdrop.current
-    // v15.17：素材行必须订阅「素材版本号」。原来这里读的全是普通字段（previewBitmap/isDemo/
-    // motionMp4…），导入图片或视频后 Compose 收不到任何可观察变化 → 整行被跳过 →
-    // 「删除图片 / 删除视频」按钮永远不出现（用户反馈"没有删除功能，必须完全退出软件"）。
+
     EditorState.mediaRev
     val hasStillPhoto = EditorState.previewBitmap != null && !EditorState.isDemo &&
         !EditorState.isGif && EditorState.motionMp4 == null &&
@@ -867,10 +883,10 @@ private fun MaterialRow(act: MainActivity) {
     val hasVideoSource = EditorState.isGif || EditorState.motionMp4 != null ||
         EditorState.motionUri != null || (EditorState.motionFrames?.size ?: 0) >= 2
     val items = ArrayList<Triple<String, () -> Unit, Color?>>()
-    // v15.31：添加入口移到画布空态（选照片/视频直达相册），这里只保留已导入素材的管理按钮
+
     if (hasStillPhoto) items.add(Triple(stringResource(R.string.pick_image_delete), { act.deleteImportedImage() }, Color(0xFFE04545)))
     if (hasVideoSource) items.add(Triple(stringResource(R.string.pick_video_delete), { act.deleteImportedVideo() }, Color(0xFFE04545)))
-    // 空态时整行隐藏（画布空态按钮即选择入口）
+
     if (items.isEmpty()) return
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
@@ -891,22 +907,21 @@ private fun MaterialRow(act: MainActivity) {
 
 @Composable
 private fun PreviewArea(modifier: Modifier, act: MainActivity) {
-    // v15.31：订阅素材版本号，空态覆盖层随导入/删除即时出现/消失
+
     EditorState.mediaRev
-    // v15.35：单独订阅画布方向信号（拖动参数滑块时预览区不重组，切换方向时立即生效）
+
     EditorState.canvasOrientRev
     val b = LocalGlassBackdrop.current
     val hasMedia = (EditorState.previewBitmap != null && !EditorState.isDemo) ||
         EditorState.motionUri != null || EditorState.motionMp4 != null
-    // v15.35：画布方向自适应——自动铺满 / 横屏 16:9 / 竖屏 9:16，照片与视频都按画布等比 contain
+
     val canvasAspect = when (params.canvasOrient) {
         EditorState.CANVAS_LANDSCAPE -> 16f / 9f
         EditorState.CANVAS_PORTRAIT -> 9f / 16f
         else -> 0f
     }
     Box(modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-        // v15.35：画布尺寸显式计算（不依赖 aspectRatio 的约束传递，weight 固定高度下也稳定）：
-        // 有比例时按可用区域 contain，无比例（自动）时铺满。
+
         androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -933,9 +948,7 @@ private fun PreviewArea(modifier: Modifier, act: MainActivity) {
                 },
                 modifier = Modifier.fillMaxSize()
             )
-            // v15.31：空态覆盖层 —— 画布本身就是选择入口。
-            // 还没添加任何照片/视频时，中央显示「选择照片或视频」，点击直达系统相册
-            // （Photo Picker：缩略图九宫格，图片+视频一屏选完）。选了之后覆盖层消失，进入预览。
+
             if (!hasMedia) {
                 Box(
                     Modifier.fillMaxSize(),
@@ -961,8 +974,7 @@ private fun PreviewArea(modifier: Modifier, act: MainActivity) {
                             stringResource(R.string.canvas_pick_hint),
                             color = tSub(), fontSize = 12.sp
                         )
-                        // v15.37：一次多选入口——1 张照片 + 1 段视频 直接配对成动态照片，
-                        // 不必再绕去「动态照片」面板分两次选（系统文件多选，任何机型都支持）
+
                         Spacer(Modifier.height(10.dp))
                         Text(
                             "一次选「照片 + 视频」配对动态照片",
@@ -985,19 +997,18 @@ private fun BottomNav(
     tab: Int,
     onSelect: (Int) -> Unit,
     onDockHeight: (Int) -> Unit = {},
-    // v15.43：默认仍是全屏背景，但 EditorContent 会传入「参数面板」backdrop，
-    // 这样 Dock 玻璃后面是真实的面板内容而不是背景渐变。
+
     backdrop: Backdrop = LocalGlassBackdrop.current,
 ) {
     val b = backdrop
-    // v15.43：订阅 Dock 玻璃参数令牌，设置页拖滑块后 Dock 立即重组。
+
     EditorState.dockGlassRev
     val tabs = tabNames()
-    // v15.39：Dock 精简到 5 项后改为「紧凑居中」——不再铺满整条屏宽，
-    // 按 项数 × 62dp + 内边距 算宽度（5 项 ≈ 330dp），像 iOS 那样一条不长的悬浮胶囊，
-    // 超宽屏仍封顶 DockMaxWidth；水平居中由外层 Box 的 contentAlignment 负责。
-    val compactDockWidth = (62.dp * tabs.size + 22.dp).coerceAtMost(DockMaxWidth)
-    // v15.35：Dock 已压缩（52dp 胶囊 + 10dp 底距），底部占位同步变小；有导航栏时用 6dp + inset。
+
+    val dockTabWidth = (LocalConfiguration.current.screenWidthDp * 0.185f)
+        .coerceIn(62f, 84f).dp
+    val compactDockWidth = (dockTabWidth * tabs.size + 26.dp).coerceAtMost(DockMaxWidth)
+
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomPadding = if (bottomInset != 0.dp) 10.dp + bottomInset else DockBottomGap
     Box(
@@ -1008,9 +1019,9 @@ private fun BottomNav(
     ) {
         KsuFloatingBottomBar(
             modifier = Modifier
-                // KSU 源码原样：吞掉底栏空白区域的点击，避免穿透到底层画布
+
                 .pointerInput(Unit) { detectTapGestures { } }
-                // v15.36 起宽度不再 fillMaxWidth；v15.39 改为紧凑定宽 + 居中
+
                 .width(compactDockWidth)
                 .padding(start = DockSideMargin, end = DockSideMargin, bottom = bottomPadding),
             selectedIndex = tab,
@@ -1023,6 +1034,9 @@ private fun BottomNav(
             refractLevel = EditorState.dockRefract,
             tintLevel = EditorState.dockTint,
             rimLevel = EditorState.dockRim,
+            alphaLevel = EditorState.dockAlpha,
+            disperseLevel = EditorState.dockDisperse,
+            flowLevel = EditorState.dockFlow,
         ) { activateTab ->
             tabs.forEachIndexed { index, label ->
                 KsuFloatingBottomBarItem(
@@ -1041,10 +1055,7 @@ private fun BottomNav(
 
 @Composable
 private fun ShapeTab(act: MainActivity) {
-    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
-    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
-    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
-    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
@@ -1065,7 +1076,7 @@ private fun ShapeTab(act: MainActivity) {
                 { Text(name, color = tMain(), fontSize = 11.sp) }
             }
         }
-        // v15.32 自定义裁剪比例：预览与导出同一几何（中心裁剪，仅影响照片展示，不裁剪原图数据）
+
         SectionLabel(stringResource(R.string.crop_section))
         val cropNames = listOf(
             stringResource(R.string.crop_original), stringResource(R.string.crop_16_9),
@@ -1099,7 +1110,7 @@ private fun ShapeTab(act: MainActivity) {
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            // 自定义预览背景：无照片时预览区显示用户选的图（水印/玻璃照常渲染）
+
             LiquidButton(
                 onClick = { act.pickPreviewImage() },
                 backdrop = b,
@@ -1129,7 +1140,7 @@ private fun ShapeTab(act: MainActivity) {
             p.scalePct = it.coerceIn(WatermarkScale.MIN_PERCENT, WatermarkScale.MAX_PERCENT)
             act.bump()
         }
-        // 方案2长度：0-100% 线性映射"自然紧凑→满宽"，整段有效无死区；方案1经典保留倍数（1x=满宽）
+
         if (p.layoutMode == EditorState.LAYOUT_SPLIT) {
             FloatSlider(stringResource(R.string.wm_length_short), p.wmLengthPct * 100f, 0f..100f, "%.0f%%", b) {
                 p.wmLengthPct = (it / 100f); act.bump()
@@ -1140,14 +1151,8 @@ private fun ShapeTab(act: MainActivity) {
     }
 }
 
-/**
- * v15.38：玻璃 / 光泽合并页。
- * 原来 Dock 上「玻璃」「光泽」是两个独立入口，两项都属于「玻璃材质观感」，
- * 合并后共用 Dock 上的一格，页内用子页签切换——玻璃：iOS27 风格 / 流体 / 模糊 / 色调 等；
- * 光泽：高光强度 / 边缘光 / 内阴影 / 投影 / 鲜艳度 / 高光样式。子页签互不覆盖，功能全保留。
- */
 @Composable
-private fun GlassGroupTab(act: MainActivity) {
+private fun AppearanceTab(act: MainActivity) {
     var sub by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -1155,28 +1160,29 @@ private fun GlassGroupTab(act: MainActivity) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BrandChip(stringResource(R.string.tab_glass), sub == 0) { sub = 0 }
-            BrandChip(stringResource(R.string.tab_gloss), sub == 1) { sub = 1 }
+            BrandChip(stringResource(R.string.tab_shape), sub == 0) { sub = 0 }
+            BrandChip(stringResource(R.string.tab_glass), sub == 1) { sub = 1 }
+            BrandChip(stringResource(R.string.tab_gloss), sub == 2) { sub = 2 }
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            if (sub == 0) GlassTab(act) else GlossTab(act)
+            when (sub) {
+                0 -> ShapeTab(act)
+                1 -> GlassTab(act)
+                else -> GlossTab(act)
+            }
         }
     }
 }
 
 @Composable
 private fun GlassTab(act: MainActivity) {
-    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
-    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
-    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
-    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.glass_section))
-        // v15.28 iOS27 风格通道：默认关闭（观感与旧版一致）；开启后玻璃更通透、
-        // 边缘多一条高亮"芯线"、色散更克制、内阴影更轻（引擎内低成本增强，不重写算法）
+
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1193,7 +1199,7 @@ private fun GlassTab(act: MainActivity) {
                 act.bump()
             })
         }
-        // v14.29 流体液态玻璃：胶囊开关（开→重载应用生效）+ 流速滑块（快/慢频率）
+
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1212,8 +1218,7 @@ private fun GlassTab(act: MainActivity) {
                 act.bump()
             }
         }
-        // v14.96 呼吸动效：独立开关 + 强度（扭曲振幅随时间起伏：鼓起→停顿→再鼓起）。
-        // 与流体独立：流体=相位流动，呼吸=振幅起伏；开→预览持续重绘、导出按视频时间呼吸。
+
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1231,8 +1236,7 @@ private fun GlassTab(act: MainActivity) {
                 act.bump()
             }
         }
-        // ---- v14.97 高级光学调节（折叠面板）：厚度/色散/悬浮高度/流光速度 ----
-        // 四个主控直接驱动底层参数（折射强度/色散/外投影/流体速度），与旧滑块同源、双向同步。
+
         val advOpen = remember { mutableStateOf(false) }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -1246,11 +1250,11 @@ private fun GlassTab(act: MainActivity) {
             }
         }
         if (advOpen.value) {
-            // v14.99 边缘透镜（边缘折射率）：边缘 5-10px 放大镜式弯折，内部平直
+
             IntSlider(stringResource(R.string.adv_lens), p.refractA, 0..100, "%.0f", b, gamma = 1.2f) { v ->
                 p.refractA = v; act.bump()
             }
-            // v14.99 边缘高光（菲涅尔）：受光侧棱边亮起、暗角自动隐去（死白描边修复）
+
             IntSlider(stringResource(R.string.adv_edgeglow), p.edgeLight, 0..100, "%.0f", b, gamma = 1.2f) { v ->
                 p.edgeLight = v; act.bump()
             }
@@ -1272,8 +1276,7 @@ private fun GlassTab(act: MainActivity) {
         IntSlider(stringResource(R.string.opacity_clear), p.opacity, 0..100, "%.0f", b) { p.opacity = it; act.bump() }
         IntSlider(stringResource(R.string.refract_a_short), p.refractA, 0..100, "%.0f", b, gamma = 1.5f) { p.refractA = it; act.bump() }
         IntSlider(stringResource(R.string.refract_h_short), p.refractH, 0..100, "%.0f", b, gamma = 1.5f) { p.refractH = it; act.bump() }
-        // v14.01 极致优化：边缘扭曲 + 内部扭曲合并为「统一扭曲」一个滑块——
-        // warp 由低到高连续生长（低档=边缘波浪、中段=边缘+内部涟漪、高档=整体液态），单滑块全程有效
+
         IntSlider(stringResource(R.string.warp_strength), p.warp, 0..100, "%.0f", b, gamma = 1.35f) { w ->
             p.warp = w
             p.deriveWarp()
@@ -1284,19 +1287,17 @@ private fun GlassTab(act: MainActivity) {
         IntSlider(stringResource(R.string.tint_strength_lens), p.tintStrength, 0..100, "%.0f", b, gamma = 1.5f) { p.tintStrength = it; act.bump() }
         FloatSlider(stringResource(R.string.border_width), p.borderWidth, 0f..10f, "%.1fdp", b) { p.borderWidth = it; act.bump() }
         IntSlider(stringResource(R.string.border_alpha), p.borderAlpha, 0..255, "%.0f", b) { p.borderAlpha = it; act.bump() }
-        // ---- v15.16 任务2：画质档位 + 缩小补偿 ----
-        // glassTier：0=high（全量色散 7 抽样 / pow 菲涅尔 / 逐像素剖面）
-        //            1=low（保留法线 UV 折射 + 内部放大扭曲，色散与菲涅尔走廉价近似，不退化 alpha）
+
         IntSlider(stringResource(R.string.glass_tier), p.glassTier, 0..1, "%.0f", b) { v ->
             p.glassTier = v.coerceIn(EditorState.GLASS_TIER_HIGH, EditorState.GLASS_TIER_LOW)
             com.liquidglass.watermark.glass.GlassQuality.tier = p.glassTier
             act.bump()
         }
-        // scaleComp：0=关闭，100=小尺寸下光学带最多放大 3.2×（按渲染短边反比补偿）
+
         IntSlider(stringResource(R.string.scale_comp), p.scaleComp, 0..100, "%.0f", b) { v ->
             p.scaleComp = v; act.bump()
         }
-        // ---- v15.18：此前只能靠预设改的两个光学参数，开放为滑块（纯新增，不影响既有控件） ----
+
         FloatSlider(stringResource(R.string.hl_angle), p.hlAngle, -180f..180f, "%.0f°", b) {
             p.hlAngle = it; act.bump()
         }
@@ -1308,10 +1309,7 @@ private fun GlassTab(act: MainActivity) {
 
 @Composable
 private fun GlossTab(act: MainActivity) {
-    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
-    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
-    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
-    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
@@ -1328,10 +1326,7 @@ private fun GlossTab(act: MainActivity) {
 
 @Composable
 private fun TextTab(act: MainActivity) {
-    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
-    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
-    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
-    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
@@ -1354,7 +1349,7 @@ private fun TextTab(act: MainActivity) {
     )
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.text_section))
-        // ponytail: 每个输入框独立还原按钮（机型/型号/时间各一个），不是统一大按钮
+
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlassTextField(
                 value = p.model,
@@ -1391,7 +1386,7 @@ private fun TextTab(act: MainActivity) {
                 backdrop = b, modifier = Modifier.width(58.dp).height(48.dp))
             { Text(resetStr, color = tMain(), fontSize = 10.sp) }
         }
-        // v15.32 地理位置：关闭 / 相册EXIF / 当前位置 / 自定义，显示在水印日期行下方
+
         SectionLabel(stringResource(R.string.geo_section))
         val geoNames = listOf(
             stringResource(R.string.geo_mode_off),
@@ -1441,7 +1436,7 @@ private fun TextTab(act: MainActivity) {
                 { Text(stringResource(R.string.geo_use_current), color = tMain(), fontSize = 11.sp) }
             }
         }
-        // v15.35：位置写法二选一——真实地名（省/市/区县/街道、村）或经纬度；切换用缓存坐标，不重新定位
+
         if (p.geoMode != EditorState.GEO_OFF && p.geoMode != EditorState.GEO_CUSTOM) {
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1467,7 +1462,7 @@ private fun TextTab(act: MainActivity) {
             { Text(stringResource(R.string.geo_clear), color = tMain(), fontSize = 11.sp) }
             Text(stringResource(R.string.geo_hint), color = tSub(0.4f), fontSize = 11.sp)
         }
-        // ponytail: 文字颜色选择器（白/黑/赤橙黄绿青蓝紫），textColor 已持久化
+
         Spacer(Modifier.height(6.dp))
         Text(stringResource(R.string.text_color), color = tMain(), fontSize = 12.sp)
         Spacer(Modifier.height(4.dp))
@@ -1493,7 +1488,7 @@ private fun TextTab(act: MainActivity) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        // 品牌 Logo：内置品牌位图（徕卡/蔡司/哈苏/华为/小米/vivo）+ 自定义导入，保持原始比例渲染
+
         Text(stringResource(R.string.brand_section), color = tMain(), fontSize = 12.sp)
         Spacer(Modifier.height(4.dp))
         Row(
@@ -1504,9 +1499,7 @@ private fun TextTab(act: MainActivity) {
                 p.logoBrand = EditorState.BRAND_NONE; p.brandScale = 1f; act.bump()
             }
             EditorState.BRAND_NAMES.forEachIndexed { idx, name ->
-                // v14.30：自定义 logo 显示自定义名字；长按可删除
-                // v14.98 修复：选项文字显示「当前激活条目的真实名字」——命名后"自定义"字样立即变成 logo 名称；
-                // 找不到激活条目时回退 customLogoName / 原文字
+
                 val label = if (idx == EditorState.BRAND_CUSTOM) {
                     p.customLogos.firstOrNull { it.path == p.customLogoPath }?.name
                         ?: p.customLogoName.takeIf { it.isNotBlank() }
@@ -1514,7 +1507,7 @@ private fun TextTab(act: MainActivity) {
                 } else name
                 BrandChip(label, p.logoBrand == idx, onClick = {
                     if (idx == EditorState.BRAND_CUSTOM) {
-                        // v14.70 多自定义 logo：有条目→弹列表（切换/删除/导入新）；无→直接导入
+
                         if (p.customLogos.isNotEmpty()) {
                             act.showCustomLogosDialog()
                         } else {
@@ -1522,15 +1515,14 @@ private fun TextTab(act: MainActivity) {
                         }
                     } else {
                         p.logoBrand = idx
-                        // 切换品牌 → 载入该品牌记忆的 logo 大小（各自独立，互不影响）
+
                         p.brandScale = EditorState.brandScales[idx] ?: 1f
                         act.bump()
                     }
                 }, onLongClick = if (idx == EditorState.BRAND_CUSTOM && p.customLogoPath.isNotEmpty())
                     ({ act.deleteCustomLogo() }) else null)
             }
-            // v14.74 自定义 logo 作为预设栏独立条目：每个已保存的自定义 logo 一个方框
-            //（点击切换、长按删除该条目——真正隔离，与其他互不影响）
+
             p.customLogos.forEach { entry ->
                 BrandChip(entry.name,
                     p.logoBrand == EditorState.BRAND_CUSTOM && p.customLogoPath == entry.path,
@@ -1538,17 +1530,14 @@ private fun TextTab(act: MainActivity) {
                     onLongClick = { act.deleteCustomLogoEntry(entry) })
             }
         }
-        // 品牌 Logo 大小：在玻璃条安全盒内缩放（玻璃/文字不随之变大，不溢出、不压时间/竖线）。
-        // 0.3x=明显缩小，2.6x=显著放大；实际尺寸再由安全区间 clamp（不压时间/机型、不溢出玻璃），
-        // 故放大到上限也不会布局错乱。横长字标（Google/OPPO/真我）随高度明显变大。
-        // 仅对当前品牌生效、各自记忆；要让整条水印更大请用"整体缩放"。
+
         FloatSlider(stringResource(R.string.brand_size), p.brandScale, 0.3f..2.6f, "%.2fx", b) {
             p.brandScale = it
             EditorState.brandScales[p.logoBrand] = it
             act.bump()
         }
         Spacer(Modifier.height(6.dp))
-        // logo 位置：前（文字左）/ 后（文字右）/ 居中（纯 logo 水印）
+
         Text(stringResource(R.string.logo_align), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1567,30 +1556,30 @@ private fun TextTab(act: MainActivity) {
         Spacer(Modifier.height(6.dp))
         FloatSlider(stringResource(R.string.title_size_short), p.titleSp, 1f..160f, "%.1fsp", b) { p.titleSp = it; act.bump() }
         FloatSlider(stringResource(R.string.sub_size_short), p.subSp, 1f..120f, "%.1fsp", b) { p.subSp = it; act.bump() }
-        // v15.33 字体集成面板：主/型号/时间/地理位置 各自「大小 + 左右」，再加整体偏移/行距/字间距
+
         SectionLabel(stringResource(R.string.font_panel_section))
-        // 主字体
+
         Text(stringResource(R.string.font_title_line), color = tSub(0.7f), fontSize = 12.sp)
         FloatSlider(stringResource(R.string.font_size), p.fontTitleScale, 0.5f..2.5f, "%.2fx", b) { p.fontTitleScale = it; act.bump() }
         FloatSlider(stringResource(R.string.font_shift), p.fontTitleShift, -60f..60f, "%.0f", b) { p.fontTitleShift = it; act.bump() }
-        // 型号
+
         Text(stringResource(R.string.font_code_line), color = tSub(0.7f), fontSize = 12.sp)
         FloatSlider(stringResource(R.string.font_size), p.fontCodeScale, 0.5f..2.5f, "%.2fx", b) { p.fontCodeScale = it; act.bump() }
         FloatSlider(stringResource(R.string.font_shift), p.fontCodeShift, -60f..60f, "%.0f", b) { p.fontCodeShift = it; act.bump() }
         FloatSlider(stringResource(R.string.font_code_dy), p.fontCodeDy, -40f..40f, "%.0f", b) { p.fontCodeDy = it; act.bump() }
-        // 时间
+
         Text(stringResource(R.string.font_time_line), color = tSub(0.7f), fontSize = 12.sp)
         FloatSlider(stringResource(R.string.font_size), p.fontTimeScale, 0.5f..2.5f, "%.2fx", b) { p.fontTimeScale = it; act.bump() }
         FloatSlider(stringResource(R.string.font_shift), p.fontTimeShift, -60f..60f, "%.0f", b) { p.fontTimeShift = it; act.bump() }
-        // 地理位置
+
         Text(stringResource(R.string.font_geo_line), color = tSub(0.7f), fontSize = 12.sp)
         FloatSlider(stringResource(R.string.font_size), p.fontGeoScale, 0.5f..2.5f, "%.2fx", b) { p.fontGeoScale = it; act.bump() }
         FloatSlider(stringResource(R.string.font_shift), p.fontGeoShift, -60f..60f, "%.0f", b) { p.fontGeoShift = it; act.bump() }
-        // v15.35：型号/时间/位置上下排布——开关把位置行放到时间上方，滑块微调各行上下
+
         ToggleRow(stringResource(R.string.geo_above_time), p.geoAboveTime, b) { p.geoAboveTime = it; act.bump() }
         FloatSlider(stringResource(R.string.font_time_dy), p.fontTimeDy, -40f..40f, "%.0f", b) { p.fontTimeDy = it; act.bump() }
         FloatSlider(stringResource(R.string.font_geo_dy), p.fontGeoDy, -40f..40f, "%.0f", b) { p.fontGeoDy = it; act.bump() }
-        // 整体
+
         FloatSlider(stringResource(R.string.font_block_shift), p.fontBlockShift, -60f..60f, "%.0f", b) { p.fontBlockShift = it; act.bump() }
         FloatSlider(stringResource(R.string.font_line_gap), p.fontLineGap, -8f..24f, "%.0f", b) { p.fontLineGap = it; act.bump() }
         FloatSlider(stringResource(R.string.font_letter_spacing), p.fontLetterSpacing, 0f..0.6f, "%.2f", b) { p.fontLetterSpacing = it; act.bump() }
@@ -1603,7 +1592,6 @@ private fun TextTab(act: MainActivity) {
     }
 }
 
-/** 品牌标识选择 chip：选中态高亮边框；点击回调（自定义入口由调用方决定） */
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun BrandChip(label: String, selected: Boolean, onLongClick: (() -> Unit)? = null, onClick: () -> Unit = {}) {
@@ -1630,10 +1618,7 @@ private fun BrandChip(label: String, selected: Boolean, onLongClick: (() -> Unit
 
 @Composable
 private fun PosTab(act: MainActivity) {
-    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
-    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
-    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
-    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+
     act.rev
     val b = LocalGlassBackdrop.current
     val p = params
@@ -1642,7 +1627,7 @@ private fun PosTab(act: MainActivity) {
         FloatSlider(stringResource(R.string.pos_x), p.relX * 100, 0f..100f, "%.0f%%", b) { p.relX = it / 100f; act.bump() }
         FloatSlider(stringResource(R.string.pos_y), p.relY * 100, 0f..100f, "%.0f%%", b) { p.relY = it / 100f; act.bump() }
         Spacer(Modifier.height(8.dp))
-        // v15.35：画布方向（自动铺满 / 横屏 16:9 / 竖屏 9:16），照片与视频都按画布 contain
+
         Text(stringResource(R.string.canvas_orient), color = tSub(0.7f), fontSize = 13.sp)
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1667,15 +1652,9 @@ private fun PosTab(act: MainActivity) {
 
 @Composable
 private fun SettingsTab(act: MainActivity) {
-    // v15.17：面板必须【自己】读 rev。act 实例永不改变，Compose 的跳过判断只比 equals，
-    // 若 rev 只在父级读取，本面板会被整体跳过（函数体不执行）→ 面板内对 EditorState.params
-    // 的读取全部失效：滑块弹回默认值、按钮选中色不变蓝、导入后删除按钮不出现。
-    // 在本作用域读 rev 后，rev 一变本面板的重组作用域即失效，跳过被绕过。
+
     act.rev
-    // v15.43 关键修复：SettingsTab 也必须订阅 Dock 玻璃参数令牌。
-    // 之前 Dock 滑块 onChange 只调 bumpDockGlass()（递增这个 State），SettingsTab 不读它 →
-    // 本面板重组作用域不失效 → IntSlider 的 value 参数仍是旧值 → 松手/点击后 localVal 被回读成旧值，
-    // 表现就是「拖动或点击后滑块弹回原位、参数没保存」。
+
     EditorState.dockGlassRev
     val b = LocalGlassBackdrop.current
     val p = params
@@ -1691,7 +1670,7 @@ private fun SettingsTab(act: MainActivity) {
     )
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = PanelNavInset)) {
         SectionLabel(stringResource(R.string.settings_section))
-        // 深色/浅色模式：胶囊开关（用户要求放设置页内、胶囊开合，不放顶栏）
+
         Text(stringResource(R.string.dark_mode), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1711,9 +1690,7 @@ private fun SettingsTab(act: MainActivity) {
                 tint = if (!darkModeState) Color(0xFF0091FF) else Color.Unspecified)
             { Text(stringResource(R.string.theme_light_short), color = tMain(), fontSize = 11.sp) }
         }
-        // ── v15.15 字体模式：默认 / 系统 / 衬线 / 等宽（切换后即时生效，无需重启）──
-        // v15.17：原来只有「默认=sans-serif」和「系统=Typeface.DEFAULT」两项，二者在绝大多数设备
-        // 解析到同一字族 → 切换后画面零变化（用户反馈"字体切换切换不了"）。补两种字形差异明显的字族。
+
         Spacer(Modifier.height(8.dp))
         Text(stringResource(R.string.font_mode_section), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
@@ -1736,15 +1713,19 @@ private fun SettingsTab(act: MainActivity) {
         }
         Text(stringResource(R.string.font_mode_hint), color = tSub(0.55f), fontSize = 10.sp)
         Spacer(Modifier.height(6.dp))
-        // ── v15.43 Dock 玻璃：可折叠参数面板 ──
-        // 折叠状态下只占一行，点开才展开 6 个滑块（磨砂 / 模糊 / 折射高度 / 折射位移 / 染色 / 高光），
-        // 避免一页被滑块占满。折叠状态不落盘（纯 UI），参数本身落盘。
+
         var dockGlassOpen by remember { mutableStateOf(false) }
+        fun applyDock(v: Int, set: (Int) -> Unit): Int {
+            set(v)
+            EditorState.bumpDockGlass()
+            if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+            return v
+        }
         Row(
             Modifier.fillMaxWidth().clickable { dockGlassOpen = !dockGlassOpen }.padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(stringResource(R.string.dock_glass_section), color = tSub(0.7f), fontSize = 13.sp)
+            Text(stringResource(R.string.dock_capsule_section), color = tSub(0.7f), fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             Text(
                 stringResource(if (dockGlassOpen) R.string.dock_collapse else R.string.dock_expand),
@@ -1753,37 +1734,37 @@ private fun SettingsTab(act: MainActivity) {
         }
         AnimatedVisibility(visible = dockGlassOpen) {
             Column {
-                IntSlider(stringResource(R.string.dock_frost), EditorState.dockFrost, 0..100, "%.0f%%", b) {
-                    EditorState.dockFrost = it
-                    EditorState.bumpDockGlass()
-                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
-                }
-                IntSlider(stringResource(R.string.dock_blur), EditorState.dockBlur, 0..100, "%.0f%%", b) {
-                    EditorState.dockBlur = it
-                    EditorState.bumpDockGlass()
-                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                Text("折射与形变", color = tSub(0.55f), fontSize = 11.sp)
+                IntSlider(stringResource(R.string.dock_refract), EditorState.dockRefract, 0..100, "%.0f%%", b) {
+                    EditorState.dockRefract = applyDock(it) { v -> EditorState.dockRefract = v }
                 }
                 IntSlider(stringResource(R.string.dock_refract_h), EditorState.dockRefractH, 0..100, "%.0f%%", b) {
-                    EditorState.dockRefractH = it
-                    EditorState.bumpDockGlass()
-                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                    EditorState.dockRefractH = applyDock(it) { v -> EditorState.dockRefractH = v }
                 }
-                IntSlider(stringResource(R.string.dock_refract), EditorState.dockRefract, 0..100, "%.0f%%", b) {
-                    EditorState.dockRefract = it
-                    EditorState.bumpDockGlass()
-                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                IntSlider(stringResource(R.string.dock_disperse), EditorState.dockDisperse, 0..100, "%.0f%%", b) {
+                    EditorState.dockDisperse = applyDock(it) { v -> EditorState.dockDisperse = v }
+                }
+                Text("光与边", color = tSub(0.55f), fontSize = 11.sp)
+                IntSlider(stringResource(R.string.dock_rim), EditorState.dockRim, 0..100, "%.0f%%", b) {
+                    EditorState.dockRim = applyDock(it) { v -> EditorState.dockRim = v }
+                }
+                IntSlider(stringResource(R.string.dock_blur), EditorState.dockBlur, 0..100, "%.0f%%", b) {
+                    EditorState.dockBlur = applyDock(it) { v -> EditorState.dockBlur = v }
+                }
+                IntSlider(stringResource(R.string.dock_frost), EditorState.dockFrost, 0..100, "%.0f%%", b) {
+                    EditorState.dockFrost = applyDock(it) { v -> EditorState.dockFrost = v }
+                }
+                Text("本体与动态", color = tSub(0.55f), fontSize = 11.sp)
+                IntSlider(stringResource(R.string.dock_alpha), EditorState.dockAlpha, 0..100, "%.0f%%", b) {
+                    EditorState.dockAlpha = applyDock(it) { v -> EditorState.dockAlpha = v }
                 }
                 IntSlider(stringResource(R.string.dock_tint), EditorState.dockTint, 0..100, "%.0f%%", b) {
-                    EditorState.dockTint = it
-                    EditorState.bumpDockGlass()
-                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                    EditorState.dockTint = applyDock(it) { v -> EditorState.dockTint = v }
                 }
-                IntSlider(stringResource(R.string.dock_rim), EditorState.dockRim, 0..100, "%.0f%%", b) {
-                    EditorState.dockRim = it
-                    EditorState.bumpDockGlass()
-                    if (!EditorState.sliderInteracting) EditorState.persistDockGlass(ctx)
+                IntSlider(stringResource(R.string.dock_flow), EditorState.dockFlow, 0..100, "%.0f%%", b) {
+                    EditorState.dockFlow = applyDock(it) { v -> EditorState.dockFlow = v }
                 }
-                Text(stringResource(R.string.dock_glass_hint), color = tSub(0.55f), fontSize = 10.sp)
+                Text(stringResource(R.string.dock_capsule_hint), color = tSub(0.55f), fontSize = 10.sp)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -1797,7 +1778,7 @@ private fun SettingsTab(act: MainActivity) {
             act.bump()
         }
         Spacer(Modifier.height(10.dp))
-        // 方案切换：方案1=经典、方案2=新款浅色，两套参数完全独立（各自持久化，切换互不覆盖）
+
         Text(stringResource(R.string.plan_section), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1819,7 +1800,7 @@ private fun SettingsTab(act: MainActivity) {
             { Text(stringResource(R.string.plan_light), color = tMain(), fontSize = 11.sp) }
         }
         Spacer(Modifier.height(4.dp))
-        // 方案独立重置：只清对应方案参数，不影响另一方案
+
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             LiquidButton(onClick = {
@@ -1836,7 +1817,7 @@ private fun SettingsTab(act: MainActivity) {
             { Text(stringResource(R.string.reset_plan2), color = tSub(0.8f), fontSize = 10.sp) }
         }
         Spacer(Modifier.height(10.dp))
-        // v14.49 导出模式三段胶囊（快速/混合/CPU，单选一个）
+
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1899,7 +1880,7 @@ private fun SettingsTab(act: MainActivity) {
             }
         }
         Spacer(Modifier.height(10.dp))
-        // 我的预设：保存当前参数 / 分享给他人 / 从文件导入；本地预设点击应用、长按删除
+
         Text(stringResource(R.string.user_preset_section), color = tSub(0.7f), fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
         var presetTick by remember { mutableStateOf(0) }
@@ -1972,7 +1953,7 @@ private fun SettingsTab(act: MainActivity) {
             )
         }
         Spacer(Modifier.height(16.dp))
-        // 真实版本号：直接从 PackageManager 读取，与 build.gradle 一致，杜绝显示旧版本
+
         val verName = remember {
             runCatching {
                 ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
@@ -1981,7 +1962,7 @@ private fun SettingsTab(act: MainActivity) {
         Text(stringResource(R.string.version_info, verName, android.os.Build.VERSION.RELEASE, android.os.Build.VERSION.SDK_INT),
             color = tSub(0.45f), fontSize = 11.sp)
         Spacer(Modifier.height(8.dp))
-        // 导出日志：直接弹窗显示日志全文，用户截图发给开发者即可，无需翻文件系统
+
         var showLog by remember { mutableStateOf(false) }
         LiquidButton(onClick = { showLog = true },
             backdrop = b, modifier = Modifier.height(38.dp).fillMaxWidth())
@@ -2004,7 +1985,7 @@ private fun SettingsTab(act: MainActivity) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         LiquidButton(onClick = {
-                            // 删除全部日志（私有主日志 + Download 副日志 + Download/导出日志/ 所有副本）
+
                             val n = com.liquidglass.watermark.DebugLog.deleteAllLogs()
                             val app = ctx.applicationContext
                             android.widget.Toast.makeText(
@@ -2022,7 +2003,7 @@ private fun SettingsTab(act: MainActivity) {
                 },
                 dismissButton = {
                     LiquidButton(onClick = {
-                        // 导出完整日志文件到公共 Download/导出日志/，不依赖截图（截屏只能看到尾部 4000 字符）
+
                         val p = com.liquidglass.watermark.DebugLog.exportToDownload()
                         if (p != null) {
                             val app = ctx.applicationContext
@@ -2057,9 +2038,9 @@ private fun IntSlider(
 ) {
     val min = range.first; val max = range.last; val span = max - min
     val pos = ((value - min).toFloat() / span).coerceIn(0f, 1f)
-    // 实际值 → 滑块物理位置（反向 gamma）
+
     val sliderPos = if (gamma == 1f) pos else Math.pow(pos.toDouble(), 1.0 / gamma).toFloat()
-    // v14.50 滑块间距加大（8dp）：防拖动误触相邻滑块
+
     Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = tMain(), fontSize = 12.sp)
@@ -2085,8 +2066,7 @@ private fun IntSlider(
                 com.liquidglass.watermark.DebugLog.log(
                     "TOUCH", "滑块[$title]按下 当前值=$value 范围=$min..$max")
             },
-            // 松手：复位轻量渲染标志，并用最终值同值重触发（bump）→ 完整玻璃渲染
-            // 关键：不能用闭包捕获的旧 value（会把滑块值重置回拖动前，v13.88 的 bug）
+
             onDragEnd = { finalPos ->
                 com.liquidglass.watermark.EditorState.sliderInteracting = false
                 val ap = if (gamma == 1f) finalPos.coerceIn(0f, 1f)
@@ -2108,7 +2088,7 @@ private fun FloatSlider(
     val min = range.start; val max = range.endInclusive; val span = max - min
     val pos = ((value - min) / span).coerceIn(0f, 1f)
     val sliderPos = if (gamma == 1f) pos else Math.pow(pos.toDouble(), 1.0 / gamma).toFloat()
-    // v14.50 滑块间距加大（8dp）：拖动一个滑块不会误触相邻滑块/页面滚动
+
     Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = tMain(), fontSize = 12.sp)
@@ -2134,7 +2114,7 @@ private fun FloatSlider(
                 com.liquidglass.watermark.DebugLog.log(
                     "TOUCH", "滑块[$title]按下 当前值=$value 范围=$min..$max")
             },
-            // 松手：复位轻量渲染标志，并用最终值同值重触发（bump）→ 完整玻璃渲染
+
             onDragEnd = { finalPos ->
                 com.liquidglass.watermark.EditorState.sliderInteracting = false
                 val ap = if (gamma == 1f) finalPos.coerceIn(0f, 1f)

@@ -16,6 +16,7 @@
     <string name="tab_text">टेक्स्ट</string>
     <string name="tab_pos">स्थिति</string>
     <string name="tab_settings">सेटिंग्स</string>
+    <string name="tab_appearance">रूप</string>
 
     <string name="shape_section">आकार</string>
     <string name="shape_capsule">कैप्सूल</string>
@@ -243,4 +244,9 @@
     <string name="dock_refract">Edge refraction shift</string>
     <string name="dock_tint">Glass tint</string>
     <string name="dock_rim">Edge highlight</string>
+    <string name="dock_capsule_section">Liquid glass capsule (refraction / highlight / dispersion / flow)</string>
+    <string name="dock_alpha">Opacity</string>
+    <string name="dock_disperse">Dispersion</string>
+    <string name="dock_flow">Flow speed</string>
+    <string name="dock_capsule_hint">Refraction amount = edge bend strength; height = bend band thickness; dispersion falls back to a colored rim on old devices; flow 0 = static.</string>
 </resources>

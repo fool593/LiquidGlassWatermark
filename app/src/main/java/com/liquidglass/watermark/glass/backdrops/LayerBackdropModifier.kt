@@ -1,7 +1,8 @@
-package com.liquidglass.watermark.glass.backdrops
+﻿package com.liquidglass.watermark.glass.backdrops
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
@@ -56,22 +57,10 @@ private class LayerBackdropNode(
     var backdrop: LayerBackdrop
 ) : DrawModifierNode, GlobalPositionAwareModifierNode, Modifier.Node() {
 
-    /**
-     * v15.16 任务3 卡顿修复：内容恒定的场景捕获层（如 `liquidBackground()` 全屏背景）
-     * 不必每帧重录。
-     *
-     * 修复前：`recordLayer(backdrop.graphicsLayer, ...)` 在 `draw()` 里**每帧无条件执行**，
-     * 哪怕这一层的内容（静态渐变 + 3 个径向光晕）自上一帧起没有任何变化。
-     * 全屏尺寸的一次 `GraphicsLayer.record` 要重新光栅化整块背景，是主线程上最重的
-     * 单项开销之一；拖动滑块时 `bump()` 每帧触发重组 → 每帧重录。
-     *
-     * 只在 `backdrop.contentStatic == true` 时启用缓存（默认 false，行为与修复前完全一致）：
-     * 目前只有 `EditorScreen` 的全屏场景层声明为静态。**内容会随动画变化的层
-     * （如 LiquidToggle 轨道的颜色插值）保持每帧重录，视觉效果零变化。**
-     */
     private var recordedSize: IntSize = IntSize.Zero
     private var recordedBackdrop: LayerBackdrop? = null
     private var recordedRevision: Int = Int.MIN_VALUE
+    private var lastRecordAt = 0L
 
     override fun ContentDrawScope.draw() {
         drawContent()
@@ -97,7 +86,33 @@ private class LayerBackdropNode(
             return
         }
 
-        recordLayer(backdrop.graphicsLayer, node = this@LayerBackdropNode) { backdrop.onDraw(this@draw) }
+        val throttle = backdrop.recordThrottleMs
+        if (throttle > 0L && !backdrop.liveMode) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastRecordAt < throttle) return
+            lastRecordAt = now
+        }
+
+        val s = if (backdrop.liveMode) 1f else backdrop.layerScale
+        val recordSize = if (s < 1f) {
+            IntSize(
+                (size.width * s).toInt().coerceAtLeast(1),
+                (size.height * s).toInt().coerceAtLeast(1),
+            )
+        } else {
+            IntSize(size.width.toInt(), size.height.toInt())
+        }
+        recordLayer(backdrop.graphicsLayer, node = this@LayerBackdropNode, size = recordSize) {
+            if (s < 1f) {
+                withTransform({
+                    scale(s, s, pivot = androidx.compose.ui.geometry.Offset.Zero)
+                }) {
+                    backdrop.onDraw(this@draw)
+                }
+            } else {
+                backdrop.onDraw(this@draw)
+            }
+        }
         GlassPerf.onSceneRecord()
     }
 
@@ -105,16 +120,19 @@ private class LayerBackdropNode(
         recordedSize = IntSize.Zero
         recordedBackdrop = null
         recordedRevision = Int.MIN_VALUE
+        lastRecordAt = 0L
     }
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
             backdrop.layerCoordinates = coordinates
+            backdrop.ownLayerAttached = true
         }
     }
 
     override fun onDetach() {
         backdrop.layerCoordinates = null
+        backdrop.ownLayerAttached = false
         resetRecordedState()
     }
 }

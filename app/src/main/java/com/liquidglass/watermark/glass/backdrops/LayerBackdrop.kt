@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
@@ -55,19 +56,27 @@ class LayerBackdrop internal constructor(
 
     internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
 
+    internal var ownLayerAttached: Boolean = false
+
+    var veilStrength: Float by mutableStateOf(1f)
+
+    var capturePaused: Boolean by mutableStateOf(false)
+
+    var recordThrottleMs: Long = 0L
+
+    var layerScale: Float = 1f
+
     /** Optional preblurred capture of this exact scene, shared by all its consumers. */
     var softwareImage: ImageBitmap? by mutableStateOf(null)
 
-    /**
-     * v15.16 任务3：当这一层的绘制内容在尺寸不变时保持恒定时，置为 true 可跳过每帧重录。
-     *
-     * 默认 false → 行为与修复前完全一致（每帧 `recordLayer`）。
-     * 只对内容确实静态的层开启（目前仅 `EditorScreen` 的全屏 `liquidBackground()` 场景层）。
-     * 内容变化时必须调用 [invalidateStaticContent] 让缓存失效。
-     */
+    var snapshotFade: Float by mutableStateOf(1f)
+
+    var liveMode: Boolean by mutableStateOf(false)
+
+    var forceSoftwareSnapshot: Boolean by mutableStateOf(false)
+
     var contentStatic: Boolean = false
 
-    /** 静态内容版本号：内容（如深色模式切换）变化时自增，使 `LayerBackdropNode` 重新录制。 */
     var contentRevision: Int by mutableStateOf(0)
         private set
 
@@ -77,15 +86,6 @@ class LayerBackdrop internal constructor(
 
     private var inverseLayerScope: InverseLayerScope? = null
 
-    /**
-     * v15.16 任务3 卡顿修复：软件折射用的 Path 与边缘渐变按尺寸/形状缓存复用。
-     *
-     * 修复前：每个玻璃控件每帧都要 `Path().apply { addOutline(outline) }` 新建一个 Path，
-     * 再 `Brush.linearGradient(listOf(...))` 新建两个 Color + 一个 List + 一个 Brush。
-     * 参数面板单页 10+ 滑块/开关时，这是每帧几十次对象分配 → GC 压力与主线程分配抖动。
-     * Path 内容只由 (尺寸, 形状, 布局方向, 密度) 决定，渐变只由尺寸决定 → 可安全复用，
-     * 绘制结果逐像素一致。
-     */
     private var cachedPath: Path? = null
     private var cachedBandBrush: Brush? = null
     private var cachedBandSize: Long = Long.MIN_VALUE
@@ -152,12 +152,75 @@ class LayerBackdrop internal constructor(
         val layerCoordinates = layerCoordinates ?: return
         if (!coordinates.isAttached || !layerCoordinates.isAttached) return
 
+        var usedLiveLayer = false
+
+        val scaledLayer = (softwareBlurEnabled || forceSoftwareSnapshot) &&
+            !liveMode &&
+            layerScale < 1f &&
+            !com.liquidglass.watermark.glass.isRenderEffectSupported()
+
+        val nodeOffset =
+            try {
+                layerCoordinates.localPositionOf(coordinates)
+            } catch (_: Exception) {
+                // TODO: outer transformations lead to wrong position calculation
+                coordinates.positionInWindow() - layerCoordinates.positionInWindow()
+            }
+
+        var veilMix = 1f
         val drawScene: DrawScope.() -> Unit = {
-            val image = softwareImage.takeIf { softwareBlurEnabled }
-            if (image != null) {
-                drawImage(image, dstSize = layerCoordinates.size)
+
+            val image = softwareImage.takeIf {
+                (softwareBlurEnabled || forceSoftwareSnapshot) && !liveMode &&
+                    !com.liquidglass.watermark.glass.isRenderEffectSupported()
+            }
+
+            val fade = if (image != null) snapshotFade.coerceIn(0f, 1f) else 0f
+            veilMix = if (image != null) 1f - fade else 1f
+            if (image != null && fade >= 0.999f) {
+                drawImage(
+                    image = image,
+                    dstSize = layerCoordinates.size,
+
+                    filterQuality = FilterQuality.High,
+                )
             } else {
-                drawLayer(graphicsLayer)
+
+                val waitForSnapshot = (softwareBlurEnabled || forceSoftwareSnapshot) && !liveMode &&
+                    softwareImage == null &&
+                    !com.liquidglass.watermark.glass.isRenderEffectSupported()
+                if (!waitForSnapshot) {
+                    drawLayer(graphicsLayer)
+                    usedLiveLayer = true
+                }
+                if (image != null && fade > 0.01f) {
+                    drawImage(
+                        image = image,
+                        dstSize = layerCoordinates.size,
+                        alpha = fade,
+                        filterQuality = FilterQuality.High,
+                    )
+                }
+            }
+        }
+
+        val drawVeil: (Float) -> Unit = { mix ->
+
+            val veilK = veilStrength * mix
+            if (veilK > 0.01f) {
+                val dark = com.liquidglass.watermark.darkModeState
+                val top = (if (dark) 0.18f else 0.16f) * veilK
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFE9EBF1).copy(alpha = top),
+                            Color(0xFFF3F4F8).copy(alpha = top * 0.55f),
+                        ),
+                        startY = 0f,
+                        endY = size.height,
+                    ),
+                    size = size
+                )
             }
         }
 
@@ -167,14 +230,8 @@ class LayerBackdrop internal constructor(
                 if (layerBlock != null) {
                     with(obtainInverseLayerScope()) { inverseTransform(density, layerBlock) }
                 }
-                val offset =
-                    try {
-                        layerCoordinates.localPositionOf(coordinates)
-                    } catch (_: Exception) {
-                        // TODO: outer transformations lead to wrong position calculation
-                        coordinates.positionInWindow() - layerCoordinates.positionInWindow()
-                    }
-                translate(-offset.x, -offset.y)
+                val s = if (scaledLayer) layerScale else 1f
+                translate(-nodeOffset.x * s, -nodeOffset.y * s)
             }) {
                 drawScene()
             }
@@ -182,35 +239,136 @@ class LayerBackdrop internal constructor(
 
         if (lens == null) {
             sceneTransform()
+            if (usedLiveLayer) drawVeil(veilMix)
             return
         }
 
         // ── Software refraction (low tier / no AGSL) ───────────────────────────────
-        // The AGSL lens displaces the background along the SDF normal. Without AGSL we
-        // reproduce the dominant term of that optics: a normal-driven radial magnification
-        // of the recorded backdrop, clipped to the glass shape. The interior therefore still
-        // bends the scene (a real geometric refraction, not an alpha tint), and the border
-        // band keeps a compressed, brighter rim so the edge thickness stays readable.
+
+        //
+
+        //
+
         val shortSide = min(size.width, size.height)
         val magnification = lens.magnification(shortSide)
+
+        val band = maxOf(lens.band(shortSide), lens.amountPx * 0.55f)
+            .coerceIn(1f, shortSide * 0.4f)
         val path = obtainLensPath(size, density, layoutDirection, lens.shape)
+        val cornerRadius = lensCornerRadius(lens.shape, size, density, layoutDirection, shortSide)
+
+        val levels = if (usedLiveLayer) 2 else 3
         clipPath(path) {
-            withTransform({
-                if (magnification > 0.0005f) {
-                    scale(1f + magnification, 1f + magnification, center)
+            for (i in 0 until levels) {
+                val f = if (levels > 1) i / (levels - 1f) else 0f
+                val inset = band * f
+
+                val s = 1f + magnification * 1.5f * (1f - f)
+                val layerPath = obtainInsetPath(i, size, inset, cornerRadius)
+                clipPath(layerPath) {
+                    withTransform({
+                        if (s > 1.0005f) scale(s, s, center)
+                    }) {
+                        sceneTransform()
+                    }
                 }
-            }) {
-                sceneTransform()
             }
+
+            if (usedLiveLayer) drawVeil(veilMix)
             // Bevel band: the edge compresses the background into a thin bright rim.
-            val band = lens.band(shortSide)
             if (band > 0.5f) {
                 drawPath(
                     path = path,
                     brush = obtainBandBrush(size),
-                    style = Stroke(width = band)
+                    style = Stroke(width = (band * 0.6f).coerceAtLeast(1f))
                 )
             }
+
+            val disp = lens.dispersion
+            if (disp > 0.02f) {
+                val off = (0.6f + band * 0.6f) * disp
+                val w = (1f + 1.6f * disp).coerceAtLeast(1f)
+                drawPath(
+                    path = path,
+                    color = Color(0xFF6FE2FF).copy(alpha = 0.16f * disp),
+                    style = Stroke(width = w),
+                )
+                withTransform({ scale(1f + off / maxOf(size.width, 1f) * 2f, 1f + off / maxOf(size.height, 1f) * 2f, center) }) {
+                    drawPath(
+                        path = path,
+                        color = Color(0xFFFF7CC8).copy(alpha = 0.13f * disp),
+                        style = Stroke(width = w),
+                    )
+                }
+            }
+        }
+    }
+
+    private val insetPaths = arrayOfNulls<Path>(8)
+
+    private fun obtainInsetPath(
+        index: Int,
+        size: Size,
+        inset: Float,
+        radius: Float
+    ): Path {
+        val path = insetPaths.getOrNull(index) ?: Path().also { insetPaths[index] = it }
+        path.reset()
+        val r = (radius - inset).coerceAtLeast(0f)
+        path.addRoundRect(
+            androidx.compose.ui.geometry.RoundRect(
+                left = inset,
+                top = inset,
+                right = size.width - inset,
+                bottom = size.height - inset,
+                topLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                topRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                bottomRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                bottomLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+            )
+        )
+        return path
+    }
+
+    private var lensOutlinePath: Path? = null
+    private var lensOutlineSize: Long = Long.MIN_VALUE
+
+    @Suppress("unused")
+    private fun lensOutlineCache(size: Size, radius: Float): Path {
+        val key = size.width.toRawBits().toLong() * 31 + size.height.toRawBits().toLong() * 7 + radius.toRawBits().toLong()
+        val cached = lensOutlinePath
+        if (cached != null && lensOutlineSize == key) return cached
+        val path = cached ?: Path().also { lensOutlinePath = it }
+        path.reset()
+        path.addRoundRect(
+            androidx.compose.ui.geometry.RoundRect(
+                left = 0f,
+                top = 0f,
+                right = size.width,
+                bottom = size.height,
+                topLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                topRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                bottomRightCornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                bottomLeftCornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+            )
+        )
+        lensOutlineSize = key
+        return path
+    }
+
+    private fun lensCornerRadius(
+        shape: Shape,
+        size: Size,
+        density: Density,
+        layoutDirection: LayoutDirection,
+        shortSide: Float
+    ): Float {
+        val cornerShape = shape as? androidx.compose.foundation.shape.CornerBasedShape
+            ?: return shortSide / 2f
+        return try {
+            cornerShape.topStart.toPx(size, density).coerceIn(0f, shortSide / 2f)
+        } catch (_: Throwable) {
+            shortSide / 2f
         }
     }
 

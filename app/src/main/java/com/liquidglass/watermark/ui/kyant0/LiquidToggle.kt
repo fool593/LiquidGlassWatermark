@@ -164,7 +164,7 @@ fun LiquidToggle(
                     shape = { RoundedCornerShape(50) },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
-                        // 静止为白色圆钮（无需模糊）；长按变透明玻璃：模糊+折射增强
+
                         blur((2f.dp.toPx() * (1f - progress) + 8f.dp.toPx() * progress))
                         lens(
                             refractionHeight = 7f.dp.toPx() * progress + 9f.dp.toPx() * progress,
@@ -179,7 +179,7 @@ fun LiquidToggle(
                         Highlight.Ambient.copy(
                             width = Highlight.Ambient.width / 1.5f,
                             blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            // 长按白高光
+
                             alpha = progress
                         )
                     },
@@ -205,7 +205,7 @@ fun LiquidToggle(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        // 静止纯白圆钮；长按变通透玻璃（白叠加骤降，玻璃折射透出）
+
                         drawRect(Color.White.copy(alpha = lerp(0.88f, 0.10f, progress)))
                     }
                 )

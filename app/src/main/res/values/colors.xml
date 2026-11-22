@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- v15.23 清理死资源：删除 bg_panel / bg_panel2 / stroke / accent_soft / white /
-         warmwhite / black / glow_blue / glow_gold / glow_pink / glow_green / glow_purple
-         （全项目零引用、无 getIdentifier 动态查找）。以下 4 个为实际在用。 -->
+    
     <color name="bg">#0A0A12</color>
     <color name="text_main">#F2F4F8</color>
     <color name="text_sub">#9AA1B2</color>

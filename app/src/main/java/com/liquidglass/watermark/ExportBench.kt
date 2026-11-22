@@ -10,32 +10,14 @@ import android.net.Uri
 import java.io.File
 import java.nio.ByteBuffer
 
-/**
- * v15.16 导出管线基准测试（仅诊断/回归用，不参与业务逻辑）。
- *
- * 目的：在任意视频时长下量化导出耗时、每帧成本、CPU/内存/I/O，
- * 用来实证"超过 15 秒导出变慢"是否存在台阶，以及修复前后对比。
- *
- * 三条路径（与真实用户路径一致）：
- *  - gpu    = GpuMp4Exporter（硬解→CPU 水印→硬编，cpuWatermark=true）——用户实际默认路径
- *  - gpuraw = GpuMp4Exporter + cpuWatermark=false（纯 GPU shader 近似）
- *  - cpu    = Mp4Exporter 逐帧软件渲染
- *
- * 入口（MainActivity.runAutoTest）：
- *   adb shell am start -n com.liquidglass.watermark/.MainActivity --es ljgAutoTest "bench:5,14,15,16,30,60,300"
- *
- * 产物：getExternalFilesDir(null)/bench/bench_<ts>.csv + 每档样片 bench_sample_<n>s.mp4
- */
 object ExportBench {
 
-    /** 单档测量的采样点：进度 → 墙钟毫秒（用于定位台阶位置） */
     private data class Probe(val pct: Int, val elapsedMs: Long, val heapMb: Int)
 
     private data class Sample(val path: String, val ms: Long, val frames: Int,
                               val cpuMs: Long, val readKb: Long, val writeKb: Long,
                               val peakHeapMb: Int, val probes: List<Probe>)
 
-    // ── 进程级计数器（/proc/self）──────────────────────────────────────────
     private fun cpuMs(): Long = runCatching {
         val f = File("/proc/self/stat")
         if (!f.isFile) return 0L
@@ -76,7 +58,6 @@ object ExportBench {
         } finally { runCatching { ex.release() } }
     }.getOrDefault(0)
 
-    // ── 样片生成：MediaCodec 编码 N 秒动态图案（帧间必须有差异）──
     fun makeSample(ctx: Context, seconds: Int, out: File, w: Int = 640, h: Int = 360, fps: Int = 30): Boolean {
         if (out.isFile && out.length() > 1024) return true
         var codec: MediaCodec? = null
@@ -97,9 +78,7 @@ object ExportBench {
             var track = -1
             var started = false
             val total = seconds * fps
-            // L1 修复：编码器输入可能要求行对齐（KEY_STRIDE / KEY_SLICE_HEIGHT），
-            // 直接用 w 作 stride 会让 UV 平面按错行偏移写入，样片出现一行错位。
-            // 优先采用输入格式暴露的 stride/sliceHeight，未暴露时回退 w/h（与旧行为一致）。
+
             val inFmt = runCatching { codec.inputFormat }.getOrNull()
             val strideY = runCatching { inFmt?.getInteger(MediaFormat.KEY_STRIDE) }.getOrNull()?.takeIf { it > 0 } ?: w
             val sliceH = runCatching { inFmt?.getInteger(MediaFormat.KEY_SLICE_HEIGHT) }.getOrNull()?.takeIf { it > 0 } ?: h
@@ -175,7 +154,6 @@ object ExportBench {
         }
     }
 
-    // ── 单档测量：统一计时/CPU/IO 包装 ─────────────────────────────────────
     private inline fun timed(label: String, body: (probes: MutableList<Probe>) -> Int?): Sample? {
         val probes = ArrayList<Probe>()
         val t0 = System.currentTimeMillis()
@@ -200,7 +178,6 @@ object ExportBench {
             heapMb(), probes)
     }
 
-    /** GPU 路径（用户默认导出路径）：硬解 → CPU 水印 → 硬编 */
     private fun measureGpu(ctx: Context, renderer: WatermarkEditorView, sample: File,
                            cpuWatermark: Boolean, label: String): Sample? {
         val out = File(ctx.cacheDir, "bench_gpu_${System.currentTimeMillis()}.mp4")
@@ -217,17 +194,15 @@ object ExportBench {
                 includeAudio = false
             )
             if (r == null) { DebugLog.log("BENCH", "$label GPU 返回 null（见 GPU 日志）"); null }
-            // C4 修复：先数帧再删文件。原顺序是先 delete() 再 countFrames()，必然得 0，
-            // countFrames 全程白做。此处与 measureCpu 对齐。
+
             else { val n = countFrames(out.absolutePath); runCatching { out.delete() }; n.takeIf { it > 0 } ?: r.frames }
         }?.let { s ->
-            // GPU 路径的 probes 是绝对时间戳，转成相对起点
+
             val t0 = s.probes.firstOrNull()?.elapsedMs ?: 0L
             s.copy(probes = s.probes.map { Probe(it.pct, it.elapsedMs - t0 + 0, it.heapMb) })
         }
     }
 
-    /** 纯 CPU 路径：Mp4Exporter 逐帧软件渲染 */
     private fun measureCpu(ctx: Context, renderer: WatermarkEditorView, sample: File,
                            label: String): Sample? = timed(label) { probes ->
         val out = Mp4Exporter.export(
@@ -247,16 +222,6 @@ object ExportBench {
         s.copy(probes = s.probes.map { Probe(it.pct, it.elapsedMs - t0, it.heapMb) })
     }
 
-    /**
-     * 跑一组时长 × 三条导出路径。
-     * @return CSV 文件
-     */
-    /**
-     * 跑一组 时长 × 帧率 × 三条导出路径。
-     * v15.28：新增 fps 维度（默认 [30]），样片按指定帧率生成，CSV 增列
-     * fps / speedup（实时倍率=exportMs 相对视频时长，衡量"导出不能慢"的达标依据）。
-     * @return CSV 文件
-     */
     fun run(ctx: Context, renderer: WatermarkEditorView?, durationsSec: List<Int>,
             fpsList: List<Int> = listOf(30)): File? {
         if (renderer == null) {
@@ -284,7 +249,7 @@ object ExportBench {
                         csv.appendText("export,$sec,$fps,$label,FAILED,0,0,0,0,0,0,0,\n"); continue
                     }
                     val perFrame = if (s.frames > 0) "%.2f".format(s.ms.toDouble() / s.frames) else "0"
-                    // v15.28：实时倍率 = 视频时长 / 导出耗时（>1 表示比实时快，达标线见导出性能报告）
+
                     val speedup = if (sec > 0 && s.ms > 0) "%.2f".format(sec * 1000.0 / s.ms) else "0"
                     val probeStr = s.probes.joinToString(" ") { "${it.pct}:${it.elapsedMs}" }.replace(",", ";")
                     csv.appendText("export,$sec,$fps,$label,${s.ms},${s.frames},$perFrame,$speedup," +
@@ -293,7 +258,7 @@ object ExportBench {
                         "RESULT sec=${sec}s fps=$fps path=$label exportMs=${s.ms} frames=${s.frames} " +
                             "msPerFrame=$perFrame speedup=${speedup}x " +
                             "cpuMs=${s.cpuMs} readKB=${s.readKb} writeKB=${s.writeKb} heapMB=${s.peakHeapMb}")
-                    // 台阶定位：按 10 个百分点分桶
+
                     val pts = s.probes.map { it.pct to it.elapsedMs }.distinctBy { it.first }
                     val sb = StringBuilder()
                     for (i in 1 until pts.size) {

@@ -38,8 +38,7 @@ internal fun Modifier.glassSurface(
         effects = {
             vibrancy()
             blur(if (prominent) 14.dp.toPx() else 6.dp.toPx())
-            // v15.16 任务2：量程上调（原 3/5dp），配合 lens() 内置反比尺度补偿，
-            // 小视口/低分辨率下也不会退化成一圈细边。
+
             lens(
                 refractionHeight = 6.dp.toPx(),
                 refractionAmount = 11.dp.toPx(),

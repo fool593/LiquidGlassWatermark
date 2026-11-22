@@ -92,9 +92,7 @@ fun BackdropEffectScope.lens(
         }
         effect(effect)
     } catch (_: Throwable) {
-        // AGSL/RuntimeShader 在当前设备/模拟器不可用（如 SwiftShader 无 GPU 加速）：
-        // 不再静默跳过折射——改为发布软件折射描述，保留模糊的同时仍由法线驱动的 UV 放大
-        // 还原边缘弯折（low 档路径）。仅当软件路径也失败时才会退化为纯着色。
+
         lensUnsupported = true
         softwareLens = SoftwareLens(
             heightPx = height,
@@ -104,7 +102,6 @@ fun BackdropEffectScope.lens(
     }
 }
 
-/** 当前设备不支持 AGSL 时置 true，避免每帧重复构造/抛异常（一次性探测） */
 private var lensUnsupported = false
 
 private val BackdropEffectScope.cornerRadii: FloatArray?

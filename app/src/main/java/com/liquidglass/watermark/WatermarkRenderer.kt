@@ -20,17 +20,6 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.abs
 
-/**
- * 液态玻璃水印渲染器（v3，玻璃算法对齐开源 Kyant0/AndroidLiquidGlass 2.0.0）。
- * 预览与导出走完全相同的代码路径，仅通过 unit（导出倍率）区分，保证所见即所得。
- * 玻璃本体（模糊/边缘折射/色散/反光/内阴影/染色）全部由 [LiquidGlassEngine] 在源像素空间
- * 一次性合成，API26-34 同一路径；本类只负责几何测量、形状轮廓、外投影、棱光与文字排版。
- * 所有几何运算均做安全兜底，任何图片比例 / 参数组合都不会崩溃。
- *
- * 线程安全（v11.7）：Paint/RectF/Path 非线程安全，导出线程逐帧全分辨率渲染时若与 UI 线程
- * 预览共用同一批对象会互相污染；改为每调用独立 [Ctx]，并移除对象级 @Synchronized，
- * 导出期间 UI 预览不再被长锁阻塞。
- */
 object WatermarkRenderer {
     /** Material/text dimensions live in a 393-wide photo coordinate system, not screen dp.
      * The caller still supplies device density for the existing renderer API; this unit cancels
@@ -39,18 +28,6 @@ object WatermarkRenderer {
     fun unitForPhotoWidth(photoWidthPx: Float, deviceDensity: Float): Float =
         unitForPhoto(photoWidthPx, photoWidthPx, deviceDensity)
 
-    /**
-     * v15.31 水印尺寸自适应（修复"竖屏水印小 / 横屏水印大"）：
-     *
-     * 旧实现只按【宽度】归一化（unit = width/393/density），于是同为 1080p 的画面：
-     *  - 竖屏 1080×1920 → unit≈2.75
-     *  - 横屏 1920×1080 → unit≈4.89（水印被放大 78%）
-     * 横竖屏观感完全不一致。
-     *
-     * 改为按【短边】归一化：短边是画面"物理尺度"的稳定代表，与朝向无关
-     * （1080×1920 与 1920×1080 短边都是 1080 → unit 完全相同）。
-     * 竖屏表现与旧版逐像素一致（短边=宽），仅横屏被收敛到正确尺寸。
-     */
     fun unitForPhoto(photoWidthPx: Float, photoHeightPx: Float, deviceDensity: Float): Float {
         val w = photoWidthPx.takeIf { it.isFinite() && it > 0f }
         val h = photoHeightPx.takeIf { it.isFinite() && it > 0f }
@@ -64,28 +41,21 @@ object WatermarkRenderer {
         return shortSide / 393f / density
     }
 
-    /** 最近一次渲染的水印条屏幕矩形（只读回传），供 View 命中判定：只有按在水印上才拖动 */
     private val lastRectLocal = ThreadLocal<RectF>()
     val lastWatermarkRect: RectF
         get() = lastRectLocal.get() ?: RectF().also(lastRectLocal::set)
 
-    /** 品牌 logo 位图缓存（assets + 自定义文件），键=asset路径/文件路径；null 值=加载失败 */
     private val brandBitmapCache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
 
-    /**
-     * 单次渲染的独立绘制状态（线程级复用）：
-     * 预览（UI 线程）与导出（后台线程）各持一份，互不干扰；同一线程逐帧导出时
-     * 不再每帧 new 一组 Paints/RectF/Path（逐帧 2000 帧 ≈ 2 万次对象分配的 GC 抖动来源）。
-     */
     private val ctxLocal = ThreadLocal<Ctx>()
-    /** v15.15：记录该线程 Ctx 创建时的字体模式；模式切换后重建 Ctx 使 typeface 即时生效 */
+
     private val ctxFontMode = ThreadLocal<Int>()
-    /** v15.15：当前线程 Ctx 实际生效的字体模式（供诊断日志如实反映） */
+
     private fun ctxActiveFontMode(): Int = ctxFontMode.get() ?: EditorState.params.fontMode
     private fun ctx(): Ctx {
         val mode = EditorState.params.fontMode
         val c = ctxLocal.get()
-        // 字体模式未变 → 复用（保持旧行为，零额外开销）
+
         if (c != null && ctxFontMode.get() == mode) return c
         val n = Ctx()
         ctxLocal.set(n)
@@ -93,8 +63,6 @@ object WatermarkRenderer {
         return n
     }
 
-    /** 按路径加载品牌 logo 位图（assets 或自定义文件），失败返回 null（不崩溃，回落矢量标识）。
-     *  v14.40 埋点：每一环失败写日志（decode/EXIF/形状），日志直接定位"自定义 logo 不显示"卡点。 */
     private fun loadBrandBitmap(p: EditorState.Params, asset: String?): Bitmap? {
         val path = when {
             asset != null -> asset
@@ -138,8 +106,7 @@ object WatermarkRenderer {
             DebugLog.log("LOGO", "自定义logo解码结果为空（文件在，解码失败）")
             return null
         }
-        // v14.30：相册自定义 logo 常带 EXIF 方向（如竖拍照片 EXIF 6/8），decodeFile 不应用 →
-        // logo 横躺/倒置，观感就是"录不进去"。读出 Orientation 转正（翻转类少见，仅处理旋转）。
+
         var final_bmp = bmp
         if (bmp != null && asset == null) {
             val ori = runCatching {
@@ -164,8 +131,7 @@ object WatermarkRenderer {
                 }
             }
         }
-        // v14.70 修复"自定义 logo 污染其他 logo 大小比例"：形状/裁剪参数只作用于【自定义】logo，
-        // 预设品牌（asset）永远只做内容包围盒裁剪（shape=0），绝不被用户给自定义选的方形/圆形裁剪影响
+
         val isCustomLogo = asset == null && p.customLogoPath.isNotEmpty()
         val shape = if (isCustomLogo) p.logoShape.coerceIn(0, 3) else 0
         val crop = if (isCustomLogo) p.logoCrop else true
@@ -173,7 +139,7 @@ object WatermarkRenderer {
         runCatching {
             if (final_bmp != null) {
                 if (!crop && shape == 0) {
-                    // 不裁剪：原图整幅（含透明边）
+
                 } else if (shape == 1 || shape == 3) {
                     val s = minOf(final_bmp.width, final_bmp.height)
                     val x = (final_bmp.width - s) / 2; val y = (final_bmp.height - s) / 2
@@ -199,18 +165,12 @@ object WatermarkRenderer {
                 }
             }
         }
-        if (shaped == null) shaped = final_bmp   // 兜底：任何异常都保证有图
+        if (shaped == null) shaped = final_bmp
         val trimmed = shaped
         if (trimmed != null) brandBitmapCache[cacheKey] = trimmed
         return trimmed
     }
 
-    /**
-     * 去掉 logo 四周透明边距，返回按【内容真实包围盒】裁剪的 bitmap。
-     * 根因：所有品牌 png 都是 1024×1024 正方形画布，但小米/华为等图标内容只占中央一小块
-     * （小米非透明像素仅 ~7%），旧逻辑按整个正方形算比例与绘制 → 视觉上 logo 缩成玻璃里一个小点。
-     * 徕卡/蔡司等内容已占满画布（55%+），裁剪后包围盒≈原尺寸，视觉几乎不变（保持已认可效果）。
-     */
     private fun trimTransparent(bmp: Bitmap): Bitmap {
         val w = bmp.width; val h = bmp.height
         if (w <= 2 || h <= 2) return bmp
@@ -234,7 +194,6 @@ object WatermarkRenderer {
         return try { Bitmap.createBitmap(bmp, l, t, nw, nh) } catch (_: Throwable) { bmp }
     }
 
-    /** v14.44 自定义 logo 自检：加载并返回 (OK 尺寸 / 具体失败原因)，导入后即时反馈（不再静默失败） */
     fun debugSelfTestLogo(): String {
         val p = EditorState.params
         if (p.customLogoPath.isEmpty()) return "未设置自定义logo路径"
@@ -247,7 +206,6 @@ object WatermarkRenderer {
         else "解码/形状失败（见 LOGO 日志）"
     }
 
-    /** 清空品牌位图缓存（自定义 logo 替换后调用）。v14.14：逐项回收，避免静态缓存残留 native 内存 */
     fun clearBrandCache() {
         brandBitmapCache.values.forEach { runCatching { it?.let { b -> if (!b.isRecycled) b.recycle() } } }
         brandBitmapCache.clear()
@@ -289,38 +247,20 @@ object WatermarkRenderer {
         val path = Path()
     }
 
-    // ── v15.15 字体模式解析（含回退，绝不抛异常导致渲染中断）──
-    /**
-     * v15.37：默认字体 = **出厂字库**（FontSupport.factory，直接读 /system/fonts 原生字库）。
-     * 旧实现用 Typeface.SANS_SERIF，在国产 ROM 上会被主题字体接管 → 与「系统字体」完全同字，
-     * 导致两个选项切换无变化。现在两者分离：默认=出厂、系统=当前生效（主题）字体。
-     */
     private val DEFAULT_TYPEFACE_BOLD: Typeface get() = FontSupport.factory(true)
     private val DEFAULT_TYPEFACE_NORMAL: Typeface get() = FontSupport.factory(false)
-    /** v15.17 衬线/等宽字族缓存（键 = mode*2 + bold），避免每帧 create 新 Typeface */
+
     private val serifMonoTypefaces = java.util.concurrent.ConcurrentHashMap<Int, Typeface>()
 
-    /** 系统字体族缓存（只解析一次；失败置 null 表示不可用） */
     @Volatile private var systemTypefaceBold: Typeface? = null
     @Volatile private var systemTypefaceNormal: Typeface? = null
     @Volatile private var systemTypefaceResolved = false
 
-    /** 上一次解析出的字体名，供诊断日志打印（切换前后对比用） */
     @Volatile var lastResolvedTypefaceName: String = "未解析"
         private set
 
-    /**
-     * v15.15 字体模式解析。
-     * - FONT_MODE_DEFAULT：应用内置 sans-serif（默认，与旧版一致）
-     * - FONT_MODE_SYSTEM：读取设备系统字体族（Android 等价于桌面端的 NSFont/fontconfig 查询）
-     *   平台差异说明：Android 无 SystemParametersInfo/注册表/NSFont/fontconfig，
-     *   系统字体通过 Typeface.DEFAULT（系统默认字族，厂商定制字体生效）获取。
-     * 系统字体不可用 → 自动回退默认字体，绝不中断渲染。
-     */
     fun resolveTypeface(mode: Int, bold: Boolean): Typeface {
-        // v15.17：衬线 / 等宽是 Android 恒定存在的字族，与 sans-serif 字形差异明显，
-        // 让「字体切换」真的能看出变化（此前 默认=sans-serif、系统=Typeface.DEFAULT 在绝大多数
-        // 设备上解析到同一字族，切换后画面完全没变 → 用户反馈"字体切换切换不了"）。
+
         if (mode == FONT_MODE_SERIF || mode == FONT_MODE_MONO) {
             val family = if (mode == FONT_MODE_SERIF) Typeface.SERIF else Typeface.MONOSPACE
             val style = if (bold) Typeface.BOLD else Typeface.NORMAL
@@ -336,7 +276,7 @@ object WatermarkRenderer {
             lastResolvedTypefaceName = "默认字体(出厂)" + if (bold) "-bold" else "-regular"
             return if (bold) DEFAULT_TYPEFACE_BOLD else DEFAULT_TYPEFACE_NORMAL
         }
-        // 系统字体：只解析一次（Typeface.DEFAULT = 当前生效字体；被主题替换后即为第三方字体）
+
         if (!systemTypefaceResolved) {
             synchronized(this) {
                 if (!systemTypefaceResolved) {
@@ -355,7 +295,7 @@ object WatermarkRenderer {
             else "系统字体(=出厂)" + if (bold) "(粗)" else "(常规)"
             st
         } else {
-            // 回退：系统字体不可用 → 默认字体
+
             lastResolvedTypefaceName = "sans-serif(系统字体不可用，已回退)"
             if (bold) DEFAULT_TYPEFACE_BOLD else DEFAULT_TYPEFACE_NORMAL
         }
@@ -365,11 +305,6 @@ object WatermarkRenderer {
                      val padH: Float, val padV: Float, val sUnit: Float, val gap: Float,
                      val extend: Float = 1f)
 
-    /**
-     * 玻璃合成缓存：玻璃位图只依赖背景子块 + 玻璃参数 + 几何，与文字无关。
-     * 走秒（只变时间文字）时可直接复用，拖动/改参数才重算。任何异常都回退 null（不崩）。
-     * （对外保留 BlurCache 类名与 reset()，供 WatermarkEditorView 持有。）
-     */
     class BlurCache {
         private var key = ""
         private var bmp: Bitmap? = null
@@ -406,8 +341,7 @@ object WatermarkRenderer {
                 val floor = 1f - .62f * p.breathStrength.coerceIn(0, 100) / 100f
                 floor + (1f - floor) * swell * swell
             } else 1f
-            // v15.16：缩小补偿——按渲染后形状短边（设备像素）计算光学放大倍率，
-            // 使水印被缩小渲染（小视口/小缩放/低分辨率）时仍保留可见的折射环与边缘厚度。
+
             val renderedShortSide = shortSide * ((sx + sy) * .5f)
             val effectScale = LiquidGlassEngine.scaleCompensation(
                 renderedShortSide, p.scaleComp.coerceIn(0, 100) / 100f)
@@ -429,15 +363,12 @@ object WatermarkRenderer {
             }
             // Map source -> displayed photo -> local patch, retaining the exact transform at edges.
             // CLAMP extends edge pixels into padding without stretching a clipped crop over the bar.
-            // v15.32 自定义裁剪：源采样矩形按 cropRatio 中心裁剪，与预览 fit() 保持同一几何，
-            // 保证玻璃采样落在"裁剪后的画面"上而非被拉伸的全图。
-            // cropApplied=true 时说明调用方（导出）已把位图裁成目标比例，这里就用全图。
+
             var sourceRect = RectF(0f, 0f, photo.width.toFloat(), photo.height.toFloat())
             if (!cropApplied) {
                 val cropAspect = EditorState.cropAspect(EditorState.params.cropRatio)
                 if (cropAspect > 0f) {
-                    // 渲染时的 photo 已按 photoRotation 旋转过（photoPreRotated），
-                    // 此时源图就是显示方向，直接用显示比例裁剪。
+
                     sourceRect = CropMath.centerCropRect(photo.width, photo.height, cropAspect)
                 }
             }
@@ -460,12 +391,7 @@ object WatermarkRenderer {
                 postTranslate(-patch.left, -patch.top)
                 postScale(sx, sy)
             }
-            // v15.31 边缘折射/扭曲修复（用户要求：水印能拖到最底部且不出现扭曲异常）：
-            // 旧实现用 TileMode.CLAMP——水印贴边时，patch 越界区域的每个像素都被填成
-            // "照片最后一行/一列"的同一颜色，形成大面积水平/垂直条纹。玻璃的折射与扭曲
-            // 去采样这片假像素，于是边缘出现明显的拖影/撕裂/扭曲突变。
-            // 改用 TileMode.MIRROR：越界区域镜像反射真实像素，采样连续、无条纹，
-            // 水印贴底/贴边时折射观感与画面中央一致。
+
             samplingPaint.shader = android.graphics.BitmapShader(photo,
                 Shader.TileMode.MIRROR, Shader.TileMode.MIRROR)
                 .apply { setLocalMatrix(matrix) }
@@ -487,8 +413,8 @@ object WatermarkRenderer {
                 rotation, bmp, phase, p.refractionModel, breath, p.edgeLight / 100f,
                 ellipse = p.shape == EditorState.SHAPE_ELLIPSE,
                 effectScale = effectScale, tier = tier,
-                ios27 = p.ios27Style,   // v15.28 iOS27 风格通道
-                fluidActive = p.fluidEnabled)   // v15.29：流体才允许边缘正弦波（去静态波浪）
+                ios27 = p.ios27Style,
+                fluidActive = p.fluidEnabled)
             if (output != null) {
                 if (output !== bmp) bmp?.takeUnless { it.isRecycled }?.recycle()
                 bmp = output
@@ -514,7 +440,6 @@ object WatermarkRenderer {
     private fun modulateOpacity(alpha: Int, scale: Float): Int =
         (alpha * scale).toInt().coerceIn(0, 255)
 
-    /** 与 buildGlassPath 一致的圆角半径（画布像素） */
     private fun glassRadius(p: EditorState.Params, w: Float, h: Float): Float {
         val halfH = h / 2f
         return when (p.shape) {
@@ -525,15 +450,9 @@ object WatermarkRenderer {
         }.coerceIn(0f, min(w, h) / 2f)
     }
 
-    /** 左侧标识是否显示：品牌位图启用，或 logoStyle 非 NONE（品牌位图独立于矢量 logoStyle） */
     private fun hasLogo(p: EditorState.Params): Boolean =
         p.logoStyle != EditorState.LOGO_NONE || p.logoBrand != EditorState.BRAND_NONE
 
-    /**
-     * 品牌位图宽高比（横长字标 Google/OPPO/真我 等 >1，方形相机标 ≈1）。
-     * 用于按真实比例预留水平槽位——旧逻辑统一按方形槽 contain，横长字标被槽宽压死高度、
-     * 调到最大仍极小。无位图（矢量圆点/相机标）返回 1。clamp 0.5..6 防异常素材。
-     */
     private fun logoAspect(p: EditorState.Params): Float {
         if (p.logoBrand == EditorState.BRAND_NONE && p.customLogoPath.isEmpty()) return 1f
         val asset = if (p.logoBrand in EditorState.BRAND_ASSETS.indices)
@@ -543,8 +462,6 @@ object WatermarkRenderer {
         return (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.5f, 6f)
     }
 
-
-    /** 拆分时间文本为「年-月-日」与「时:分:秒」两段（无空格则整行归日期段） */
     private fun splitDateText(s: String): Pair<String, String> {
         val t = s.trim()
         if (t.isEmpty()) return "" to ""
@@ -553,20 +470,9 @@ object WatermarkRenderer {
         return t to ""
     }
 
-    /**
-     * v15.37：上下位移换算——滑块 ±40 映射为 ±1 行高。
-     * 旧实现 `值 × density × sUnit` 在高分屏上满行程 3~4 行，中段几乎不动、拉到极限才突然跳出条外；
-     * 现在把满行程锚定为正好一行行高：拉到 ±40 时该行正好落到相邻行的位置（视觉互换），
-     * 中段线性可感知。溢出防护由 [fitTop] 与含 abs(dy) 的块高共同保证。
-     */
     private fun dyPxOf(value: Float, lineH: Float): Float =
         (value.coerceIn(-40f, 40f) / 40f) * lineH.coerceAtLeast(1f)
 
-    /**
-     * v15.37：把整块文字（高 [blockH]）夹在玻璃条内，返回块顶 y。
-     * 旧实现直接 `centerY - blockH/2`：一旦行高/偏移与条高不严格一致（布局分支之间字号基准不同），
-     * 末行就会被顶出玻璃条（真机截图里日期跑到条外）。这里统一做硬夹取，条内一定放得下。
-     */
     private fun fitTop(top: Float, blockH: Float, rect: RectF, padV: Float): Float {
         val lo = rect.top + padV
         val hi = rect.bottom - padV - blockH
@@ -574,13 +480,6 @@ object WatermarkRenderer {
         return top.coerceIn(lo, hi)
     }
 
-    /**
-     * v15.39：把当前参数里的字体模式**逐帧**落到这组 Paint 上。
-     * 旧实现只在 Ctx 创建时设一次 typeface，靠「模式变了就重建 Ctx」兜底；
-     * 只要有一处参数来源与 EditorState.params 不同步（导出线程快照、方案切换、预览重绘提前）
-     * 就会拿到旧字体的 Paint，表现正是用户报的「字体切换时灵时不灵」。
-     * 这里直接比对引用，不用重建对象、每帧零分配。
-     */
     private fun applyTypeface(c: Ctx, p: EditorState.Params) {
         val tfTitle = resolveTypeface(p.fontMode, true)
         val tfSub = resolveTypeface(p.fontMode, false)
@@ -591,13 +490,13 @@ object WatermarkRenderer {
     private fun measure(c: Ctx, p: EditorState.Params, density: Float, sUnit: Float,
                         compact: Float = 1f, extend: Float = 1f): Ui {
         applyTypeface(c, p)
-        // 默认 1f 时与旧版完全一致。字号基准仍取自 titleSp/subSp，几何随动。
+
         val titleSize = p.titleSp * density * sUnit * p.fontTitleScale
-        val subSize = p.subSp * density * sUnit * p.fontCodeScale          // 型号行
-        val timeSize = p.subSp * density * sUnit * p.fontTimeScale         // 时间行
-        val geoSize = p.subSp * density * sUnit * p.fontGeoScale           // 地理位置行
-        val lineGapPx = p.fontLineGap * density * sUnit                   // 行间距增量
-        val blockShiftPx = p.fontBlockShift * density * sUnit             // 文字块整体左右
+        val subSize = p.subSp * density * sUnit * p.fontCodeScale
+        val timeSize = p.subSp * density * sUnit * p.fontTimeScale
+        val geoSize = p.subSp * density * sUnit * p.fontGeoScale
+        val lineGapPx = p.fontLineGap * density * sUnit
+        val blockShiftPx = p.fontBlockShift * density * sUnit
         val titleShiftPx = p.fontTitleShift * density * sUnit
         val codeShiftPx = p.fontCodeShift * density * sUnit
         val timeShiftPx = p.fontTimeShift * density * sUnit
@@ -607,8 +506,7 @@ object WatermarkRenderer {
         // an independent multiplier applied when the logo is drawn inside its safe box.
         val logoUnit = sUnit
         val pixelUnit = density * logoUnit
-        // compact<1 时压缩留白与间隔（长水印优先紧凑排版，字号尽量不缩小）
-        // padH 随 extend：纯文字水印（无 logo）靠左右留白撑宽，长度滑块对任何布局都生效
+
         var padH = (p.padHDp * density * sUnit * (0.5f + 0.5f * compact) * extend).coerceIn(0f, 2000f * pixelUnit)
         val padV = (p.padVDp * density * sUnit * (0.5f + 0.5f * compact)).coerceIn(0f, 2000f * pixelUnit)
         c.titlePaint.textSize = titleSize
@@ -616,30 +514,27 @@ object WatermarkRenderer {
         c.titlePaint.letterSpacing = letterSp
         c.subPaint.letterSpacing = letterSp
         c.titlePaint.color = p.textColor
-        c.subPaint.color = p.textColor   // 与 drawContent 一致全不透明（旧 214 alpha 会让副文字发灰）
+        c.subPaint.color = p.textColor
         val nameW = if (p.model.isNotEmpty()) c.titlePaint.measureText(p.model) else 0f
         val codeW = if (p.modelCode.isNotEmpty()) c.subPaint.measureText(p.modelCode) else 0f
         val timeW = if (p.dateText.isNotEmpty()) {
             c.subPaint.textSize = timeSize
             c.subPaint.measureText(p.dateText).also { c.subPaint.textSize = subSize }
         } else 0f
-        // v15.32 地理位置：作为日期下方附加行，计入测量（宽度/块高/子行数）
+
         val geoW = if (p.geoText.isNotEmpty()) {
             c.subPaint.textSize = geoSize
             c.subPaint.measureText(p.geoText).also { c.subPaint.textSize = subSize }
         } else 0f
-        // 长度=固定宽度：extend 等比放大 logo/分隔线/左右留白来适配目标宽度（字号不变形、不变小）。
-        // gap（元素间隔）不随 extend 放大——否则拉长时元素之间出现空洞（用户历次反馈的"中间大片空白"根因）
+
         val gap = (5f * density * sUnit) * compact
         val titleH = titleSize * 1.22f
         val subH = subSize * 1.25f
-        // v15.35：每行高度按各自字号算（此前时间/地理位置行一律按 subSize 计高，
-        // 字号放大后行高不够 → 玻璃条装不下、文字压到条外）。dy 也计入块高。
+
         val codeLineH = subH
         val timeLineH = timeSize * 1.25f
         val geoLineH = geoSize * 1.25f
-        // v15.37：上下滑块改为「按行高换算」（±40 = ±1 行高），此前 ×density×sUnit 在高分屏上
-        // 一格拉出上百像素，远超行高 → 用户必须拉到极限才看得出换行，中间行程表现为乱跳。
+
         val dyTimePx = abs(dyPxOf(p.fontTimeDy, timeLineH))
         val dyGeoPx = abs(dyPxOf(p.fontGeoDy, geoLineH))
         val dyCodePx = abs(dyPxOf(p.fontCodeDy, codeLineH))
@@ -651,14 +546,13 @@ object WatermarkRenderer {
             (if (geoW > 0f) lineGapUnit + geoLineH + dyGeoPx else 0f)
         val textW = max(nameW, max(codeW, max(timeW, geoW)))
         val blockShiftAbs = abs(blockShiftPx)
-        // 品牌位图真实宽高比：横长字标按宽矩形预留槽位（方形标≈1，视觉不变）
+
         val asp = if (hasLogo(p)) logoAspect(p) else 1f
         val contentW: Float
         val contentH: Float
         when (p.layoutMode) {
             EditorState.LAYOUT_SINGLE -> {
-                // logo 占位几何用 brandScale=1 基准：玻璃条宽高不随 logo 大小滑块变化；
-                // 实际 logo 绘制时才乘 brandScale（在条内独立缩放，见 drawContent）。
+
                 val logoSingle = p.titleSp * density * logoUnit * 1.5f
                 val logoW = if (hasLogo(p)) logoSingle * asp + gap * 2f else 0f
                 contentW = logoW + nameW
@@ -670,9 +564,7 @@ object WatermarkRenderer {
                 contentH = textBlockH
             }
             EditorState.LAYOUT_SPLIT -> {
-                // 方案2（110% 还原参考红米徕卡水印）：机型大字最左 → logo → 短竖线 → 时间两行最右
-                // 独立字号基准（机型×0.38、时间=subSize×0.30）。拉长走"两端分布"：
-                // 机型固定最左、logo/竖线/时间整体最右，中间用弹性间距 flexGap 撑开（字号/logo 恒定）。
+
                 padH = p.padHDp * density * sUnit * 0.3f
                 val t2 = titleSize * 0.38f
                 val s2 = subSize * 0.30f
@@ -680,34 +572,30 @@ object WatermarkRenderer {
                 val splitNameW = if (p.model.isNotEmpty()) c.titlePaint.measureText(p.model) else 0f
                 c.titlePaint.textSize = titleSize
                 c.subPaint.textSize = s2
-                // v15.18：方案2 也显示第二行型号，宽度/高度计入几何，避免被裁掉
+
                 val splitCodeW = if (p.modelCode.isNotBlank()) c.subPaint.measureText(p.modelCode) else 0f
                 val (splitD, splitT) = splitDateText(p.dateText)
-                // v15.33：时间行字号按 fontTimeScale 倍率（独立于型号）
+
                 val s2t = timeSize * 0.30f
                 c.subPaint.textSize = s2t
                 val splitD_W = if (splitD.isNotEmpty()) c.subPaint.measureText(splitD) else 0f
                 val splitT_W = if (splitT.isNotEmpty()) c.subPaint.measureText(splitT) else 0f
                 c.subPaint.textSize = subSize
                 val timeBlockW = max(max(splitD_W, splitT_W), geoW)
-                // 右组内部紧凑间距（不随 extend，保持 logo→竖线→时间 紧凑）
+
                 val splitGap = gap * 0.5f
                 val logoSize = p.titleSp * density * logoUnit * 0.38f * 1.2f
                 val vw = max(1.5f * pixelUnit, 2.2f * density * sUnit)
                 var rightW = timeBlockW
-                // logo 水平槽位 = 高度基准 × 位图宽高比（横长字标给足宽，方形标不变）。
-                // 槽位封顶：横长蔡司/徕卡标 asp 可到 5+，槽位过宽会把竖线/时间挤出条外
-                // （用户反馈"logo 跑最右、分隔符和时间没了"）——槽宽上限 = 高度基准 × 2.6，
-                // logo 绘制时超宽自动回缩，竖线/时间永远留在条内。
+
                 if (hasLogo(p)) {
                     val logoSlot = min(logoSize * asp, logoSize * 2.6f)
                     rightW += logoSlot + splitGap * 2f + vw + splitGap * 2f
                 }
-                // 中间弹性间距：extend=1 时=splitGap*2（自然紧凑，与历史视觉一致），拉长线性增大
+
                 val flexGap = splitGap * 2f * extend.coerceAtLeast(0.2f)
                 val leftW = max(splitNameW, splitCodeW)
-                // v15.37：左组（机型+型号）与右组（时间2行+位置行）的行高/上下偏移与绘制端完全一致，
-                // 否则玻璃条会比实际文字矮、分隔竖线冲出去（用户实测"调大位置字号后竖线溢出水印"）。
+
                 val s2tH = s2t * 1.25f
                 val dyTpx = dyPxOf(p.fontTimeDy, s2tH)
                 val dyGpx = dyPxOf(p.fontGeoDy, geoSize * 1.25f)
@@ -721,21 +609,20 @@ object WatermarkRenderer {
                     if (hasLogo(p)) logoSize else 0f) * 1.35f
             }
             else -> {
-                // logo 只随品牌大小与分辨率（不随整体缩放/长度放大）；分隔线宽度随长度放大但封顶
-                // logo 占位几何用 brandScale=1 基准（玻璃条不随 logo 大小滑块变化）
+
                 val logoClassic = p.titleSp * density * logoUnit * 1.65f
                 val logoW = if (hasLogo(p)) logoClassic * asp + gap * 2f else 0f
                 if (p.logoAlign == 2 && hasLogo(p)) {
-                    // 居中纯 logo：玻璃几何同样固定（brandScale=1 基准），滑块只缩放 logo、不撑大玻璃
+
                     contentW = logoW
                     contentH = max(logoClassic, textBlockH)
                 } else if (p.logoAlign == 1 && hasLogo(p)) {
-                    // 后置：文字左 + 分隔线 + logo 右；分隔线宽随 extend 线性增长（不封顶，否则长度滑块拉不到满宽）
+
                     val divW = max(pixelUnit, 1.4f * density * sUnit * extend) + gap * 2f
                     contentW = textW + divW + logoW
                     contentH = max(logoClassic, textBlockH)
                 } else {
-                    // 前置（默认，第一布局）：机型最左 + logo + 竖线 + 时间竖排（年最上）
+
                     val (dPart, tPart) = splitDateText(p.dateText)
                     val dW = if (dPart.isNotEmpty()) c.subPaint.measureText(dPart) else 0f
                     val tW2 = if (tPart.isNotEmpty()) c.subPaint.measureText(tPart) else 0f
@@ -744,7 +631,7 @@ object WatermarkRenderer {
                     val divW = if (logoW > 0f) max(pixelUnit, 1.4f * density * sUnit * extend) + gap * 2f else 0f
                     contentW = leftW + gap * 2f + logoW + divW + timeBlockW
                     val leftH = titleH + if (codeW > 0f) lineGapUnit + codeLineH + dyCodePx else 0f
-                    // v15.35：时间块按各自行高（时间行/位置行）+ 上下偏移累加，字号放大后条高随之增长
+
                     val timeH = (if (timeW > 0f) timeLineH * 2f + dyTimePx else 0f) +
                         (if (geoW > 0f) lineGapUnit + geoLineH + dyGeoPx else 0f)
                     contentH = max(max(leftH, timeH), if (logoW > 0f) logoClassic else 0f) * 1.35f
@@ -754,11 +641,6 @@ object WatermarkRenderer {
         return Ui(contentW + padH * 2, contentH + padV * 2, titleSize, subSize, padH, padV, sUnit, gap, extend)
     }
 
-    /**
-     * @param photoPreRotated 照片是否已由调用方旋转/对齐好（GIF/动图/视频帧导出路径，
-     *        帧或画布已按目标方向就绪）。true 时跳过 renderInner 的照片旋转与 photoDst 改写，
-     *        否则已旋转的帧会被二次旋转（180° 错位/比例怪异——历史方向 bug 根因）。
-     */
     fun render(canvas: Canvas, photo: Bitmap, photoDst: RectF,
                p: EditorState.Params, density: Float, unit: Float,
                cache: BlurCache?, maxBlurEdge: Int, photoPreRotated: Boolean = false,
@@ -766,7 +648,7 @@ object WatermarkRenderer {
                lite: Boolean = false,
                skipBackground: Boolean = false, photoScaleX: Float = -1f, photoScaleY: Float = -1f,
                skipShadow: Boolean = false,
-               // v15.32：外部已按 cropRatio 裁剪好源图时传 true，渲染层不再二次裁剪
+
                cropApplied: Boolean = false) {
         val c = ctx()
         try {
@@ -776,7 +658,7 @@ object WatermarkRenderer {
             photoPreRotated, maskOnly, skipGlassBody, lite, skipBackground, photoScaleX, photoScaleY,
             skipShadow, cropApplied)
         } catch (t: Throwable) {
-            // 渲染兜底：至少把原图画出，绝不因水印异常导致闪退（重算 photoDst 防污染矩形）
+
             runCatching { canvas.drawBitmap(photo, null, photoDst, c.bmpPaint) }
         }
     }
@@ -795,17 +677,16 @@ object WatermarkRenderer {
         if (photoDst.width() <= 2f || photoDst.height() <= 2f) return
         if (photo.isRecycled) return
         c.bmpPaint.alpha = 255
-        // —— 显示开关消费（showDevice/showTime/liveSeconds 此前 Toggle 存在但渲染层未读=死控件）：
-        //    临时改写 p.model/p.dateText，measure+drawContent 无需改动；finally 恢复，不污染共享状态 ——
+
         val origModel = p.model
         val origCode = p.modelCode
         val origDate = p.dateText
         try {
-            // v15.18：showDevice 同时隐藏机型名称与型号代号
+
             if (!p.showDevice) { p.model = ""; p.modelCode = "" }
             if (!p.showTime) p.dateText = ""
             else p.dateText = c.displayDate(p.dateText, EditorState.liveSeconds)
-        // —— 渲染诊断日志（节流）：记录实际绘制的水印内容，定位"机型文字消失/错乱"根因 ——
+
         if (!EditorState.isExporting) {
             DebugLog.throttleLog(
                 "RENDER",
@@ -814,16 +695,14 @@ object WatermarkRenderer {
                 "showDev=${p.showDevice} showTime=${p.showTime} live=${EditorState.liveSeconds} " +
                 "dst=${photoDst.width().toInt()}x${photoDst.height().toInt()}", 400L)
         }
-        // —— 照片旋转：0/90/180/270，旋转后重算显示区域，水印基于旋转后的区域定位 ——
-        //    maskOnly 时跳过背景绘制：canvas 与 photo 是同一张复用位图（renderMaskOnly 自绘），
-        //    Android 自绘未定义行为会导致 mask 花屏/错乱；mask 只需要形状+阴影，无需背景
+
         val rot = ((EditorState.photoRotation % 360) + 360) % 360
         if (maskOnly) {
-            // 只算 photoDst（水印定位基于它），不画背景
+
         } else if (skipBackground) {
-            // GPU patch 模式：视频背景已由 GPU 直绘到编码器表面，这里仅渲染水印层
+
         } else if (photoPreRotated) {
-            // 帧已按目标方向就绪（调用方完成旋转），仅直绘，禁止二次旋转
+
             canvas.drawBitmap(photo, null, photoDst, c.bmpPaint)
         } else if (rot == 0) {
             canvas.drawBitmap(photo, null, photoDst, c.bmpPaint)
@@ -835,11 +714,9 @@ object WatermarkRenderer {
             val availW = photoDst.width(); val availH = photoDst.height()
             val s = minOf(availW / rw.toFloat(), availH / rh.toFloat())
             val dw = rw * s; val dh = rh * s
-            // 旋转后的显示区域（水印基于此区域定位）。
-            // L3 契约说明：这里会【原地改写】调用方传入的 photoDst（改为旋转后的显示区域），
-            // 调用方不要复用该 RectF 作为"原始未旋转区域"；如需保留原值请自行传入副本。
+
             photoDst.set(cx - dw / 2f, cy - dh / 2f, cx + dw / 2f, cy + dh / 2f)
-            // 旋转坐标系下原始照片的绘制矩形（宽高对应原始比例）
+
             val srcDrawW = if (rot % 180 != 0) dh else dw
             val srcDrawH = if (rot % 180 != 0) dw else dh
             val srcDrawRect = RectF(cx - srcDrawW / 2f, cy - srcDrawH / 2f,
@@ -850,10 +727,6 @@ object WatermarkRenderer {
             canvas.restore()
         }
 
-        // —— 两维独立：
-        //    缩放（scalePct）= 水印整体几何、字号、logo、线宽与轻微透明度变化；
-        //    长度（wmLengthPct）= 条宽目标（1x=预览框宽），拉长/缩短只调整分隔线宽度（封顶）与
-        //    左右留白（extend），字号与 logo 恒定 → 不空洞、不变小、logo 始终留在玻璃条内 ——
         val scaleFactor = WatermarkScale.factor(p.scalePct)
         val contentAlphaScale = WatermarkScale.opacityMultiplier(scaleFactor)
         val sUnit = unit * scaleFactor
@@ -864,20 +737,18 @@ object WatermarkRenderer {
         if (ui.w <= 0f) return
         var extend = 1f
         if (p.layoutMode == EditorState.LAYOUT_SPLIT) {
-            // 方案2长度：滑块 t∈[0,1] 线性映射"自然紧凑 → 满宽(99%)"，整段行程都有效、无死区。
-            //  t=0 自然紧凑（机型左/右组右，中间仅基础间距）；t=1 恰好满宽。
-            //  拉长只增大中间 flexGap：机型贴最左、logo/竖线/时间整体贴最右且内部贴紧，字号/logo 恒定。
+
             val naturalW = ui.w
             val maxW = photoDst.width() * 0.99f * scaleFactor
             val t = p.wmLengthPct.coerceIn(0f, 1f)
             val targetSplitW = naturalW + (maxW - naturalW) * t
             if (t > 0.001f && naturalW > 0f) {
-                val baseFlex = 5f * density * sUnit // = gap = splitGap*2（extend=1 时中间距）
+                val baseFlex = 5f * density * sUnit
                 extend = (1f + (targetSplitW - naturalW) / baseFlex).coerceAtLeast(0.2f)
                 ui = measure(c, p, density, sUnit, extend = extend)
             }
         } else if (ui.w < targetW) {
-            // 拉长：extend 迭代到目标宽（一次近似+一次精修，字号/logo 不变；上限放宽到 60 让长度拉得满）
+
             extend = (targetW / ui.w).coerceIn(1f, 30f)
             ui = measure(c, p, density, sUnit, extend = extend)
             if (ui.w < targetW && ui.w > 0f) {
@@ -885,13 +756,11 @@ object WatermarkRenderer {
                 ui = measure(c, p, density, sUnit, extend = extend)
             }
         } else if (ui.w > targetW && p.wmLengthPct < 0.999f) {
-            // 仅显式缩短才压缩 extend；wmLengthPct≥1（默认/拉长）时 scalePct 放大后的宽条保留
+
             extend = (targetW / ui.w).coerceIn(0.2f, 1f)
             ui = measure(c, p, density, sUnit, extend = extend)
         }
-        // 水印尺寸封顶画布：scalePct 无限调大时最多占满画面。
-        // 方案2 主动拉长到满宽（t=1 → 恰 99% 屏宽）不回缩；仅当字号本身过大、连最紧凑布局都超屏
-        // （右组时间会被推出画面，录屏可见残字）才等比缩小防护。其余布局宽高都按 96% 封顶。
+
         val overH = ui.h > photoDst.height() * 0.96f
         val overW = ui.w > photoDst.width() * 0.99f
         val needScale = if (p.layoutMode == EditorState.LAYOUT_SPLIT) overH || overW
@@ -905,46 +774,32 @@ object WatermarkRenderer {
 
         var cx = photoDst.left + p.relX.coerceIn(0f, 1f) * photoDst.width()
         var cy = photoDst.top + p.relY.coerceIn(0f, 1f) * photoDst.height()
-        // 旋转后屏幕轴对齐包围盒（AABB）：玻璃背景按此轴对齐采样，方向永远与照片一致、
-        // 覆盖旋转后玻璃条扫过的全部区域（旧实现采样矩形不随旋转变 + 缓存 key 无 rotation，
-        //  旋转后玻璃透出错误方向的旧背景、像静态图，必须拖动位置改 key 才刷新 = 用户反馈的根因）
+
         val wmRot = (((p.rotation % 360) + 360) % 360).toFloat()
         val rotRad = Math.toRadians(wmRot.toDouble())
         val cosA = Math.abs(Math.cos(rotRad)).toFloat()
         val sinA = Math.abs(Math.sin(rotRad)).toFloat()
         val aw = ui.w * cosA + ui.h * sinA
         val ah = ui.w * sinA + ui.h * cosA
-        // 关键：按旋转后 AABB 把水印中心约束在照片/预览框内。拖动点 relX/relY 只标记期望中心，
-        // 水印自身有半宽半高，不约束时中心贴边会让整条水印溢出框外（用户反馈"能拖到预览框下方"）。
-        // 约束后拖到边缘自动贴边、始终完整可见；水印比画面还大时退化为居中。
-        // 注意：这里【只】保证水印本体完整可见，不加任何额外安全边距——
-        // 用户明确要求水印能紧贴画布最底部/最边缘。边缘折射/扭曲异常由采样层（buildGlassSource）
-        // 的 CLAMP 边缘处理解决，而不是靠限制拖动范围。
+
         if (aw <= photoDst.width()) cx = cx.coerceIn(photoDst.left + aw / 2f, photoDst.right - aw / 2f)
         else cx = photoDst.centerX()
         if (ah <= photoDst.height()) cy = cy.coerceIn(photoDst.top + ah / 2f, photoDst.bottom - ah / 2f)
         else cy = photoDst.centerY()
-        // 局部玻璃矩形（未旋转，中心 cx,cy）：形状/文字布局基准
+
         val drawRect = RectF(cx - ui.w / 2f, cy - ui.h / 2f, cx + ui.w / 2f, cy + ui.h / 2f)
         c.wmRect.set(drawRect)
-        // 回传最近一次水印条屏幕矩形，供 View 做"只有按在水印上才拖动"的命中判定
+
         lastWatermarkRect.set(drawRect)
         val sampleRect = RectF(cx - aw / 2f, cy - ah / 2f, cx + aw / 2f, cy + ah / 2f)
-        // 形状 path 在局部坐标构建后烘焙旋转到屏幕坐标（玻璃位图轴对齐绘制，clip/描边用烘焙 path）
+
         buildGlassPath(c.path, p, drawRect, ui.h / 2f)
         if (wmRot != 0f) c.path.transform(Matrix().apply { setRotate(wmRot, cx, cy) })
 
-        // 1. 柔和外投影（ponytail: 透明度随 opacity 衰减，opacity=0 时完全不可见，之前阴影不受 opacity 控制）
-        // v14.03：GPU 导出前景/蒙版纹理不画黑色外投影——否则会把纯黑阴影写进透明纹理，
-        // 着色器叠加后水印条外围一圈发黑（"导出水印周围冒出来的东西"）。
-        // v14.09：恢复【蒙版纹理】的外投影（fg 前景纹理仍跳过）：蒙版只画形状+阴影，
-        // 着色器改为"形状 alpha 叠玻璃本体 + 阴影区单独压暗视频"（去掉阴影区掺玻璃体的
-        // 旧逻辑）→ 导出的软阴影与预览一致，且不再有旧版"外围发黑"。
         if (p.shadow > 0 && p.opacity > 0 && !skipGlassBody && !skipShadow) {
             c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
             c.fillPaint.style = Paint.Style.FILL; c.fillPaint.color = Color.BLACK
-            // v15.1 投影加强：alpha 系数 0.66→0.78、模糊 0.07+0.20→0.08+0.22——压住"贴纸效应"，
-            // 让大水印也明显"浮"在画面上（用户：边缘连一丝阴影都没有）
+
             val strength = p.shadow.coerceIn(0, 100) / 100f
             val shadowAlpha = alpha(p.shadow,
                 .48f * p.opacity.coerceIn(0, 100) / 100f * contentAlphaScale)
@@ -966,14 +821,8 @@ object WatermarkRenderer {
             canvas.restore()
         }
 
-        // ── GPU 蒙版模式：只输出"玻璃条形状 + 阴影"的蒙版。alpha=形状强度（形状内 255，阴影区渐变），
-        //    RGB=玻璃条局部 Y（上黑下白，供着色器做反光/内阴影渐变）。着色器用 mask.a 精确识别玻璃
-        //    区域 → 用视频模糊做毛玻璃背景，前景元素由另一张纹理叠加。这彻底解决透明底上"玻璃本体
-        //    alpha≈0 → 着色器认不出玻璃条 → 导出只有阴影"的问题。
         if (maskOnly) {
-            // RGB=局部 Y 渐变（反光/内阴影用）；alpha 由白填充承担（255）
-            // 关键：渐变起点用深灰而非纯黑——部分 GPU 上 mask alpha 读回为 0 时，
-            // 着色器用 max(r,g,b) 兜底识别玻璃区；纯黑顶边会让"上半玻璃区"识别失败 → 顶端无水印
+
             c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
             c.fillPaint.style = Paint.Style.FILL
             c.fillPaint.shader = LinearGradient(0f, sampleRect.top, 0f, sampleRect.bottom,
@@ -983,13 +832,6 @@ object WatermarkRenderer {
             return
         }
 
-        // 2. 玻璃本体：开源算法引擎一次性合成（模糊+边缘折射+色散+反光+内阴影+染色）
-        //    玻璃位图按屏幕轴对齐 AABB 采样（方向与照片一致），再用烘焙旋转的形状裁剪
-        //    GPU 路径（skipGlassBody=true）：玻璃模糊背景由片段着色器对视频帧做高斯模糊，
-        //    这里跳过引擎合成——引擎对透明底模糊会产出"带 alpha 的黑色残影"，叠加后玻璃条变黑底。
-        //    拖动中（lite=true）：不跳过引擎，只是把渲染分辨率减半（调用方传小 maxBlurEdge），
-        //    玻璃模糊/折射/对比度全部保留实时预览，速度约 ×4 防主线程阻塞黑屏；
-        //    松手后恢复全分辨率完整渲染。
         if (!skipGlassBody) {
             val ownCache = if (cache == null) BlurCache() else null
             val gc = cache ?: ownCache!!
@@ -1002,11 +844,11 @@ object WatermarkRenderer {
             val cost = System.currentTimeMillis() - t0
             if (cost > 120L) DebugLog.throttleLog("RENDER", "玻璃合成耗时=${cost}ms lite=$lite edge=$maxBlurEdge", 1000L)
             if (glassBmp != null && !glassBmp.isRecycled) {
-                // 引擎已按旋转形状精确写 alpha（形状外透明），直接轴对齐绘制 AABB 即可，无需再 clip
+
                 c.glassPaint.alpha = alpha(p.opacity, contentAlphaScale)
                 canvas.drawBitmap(glassBmp, null, gc.patch, c.glassPaint)
             } else {
-                // 引擎兜底：极淡白膜，保证形状可见但不崩
+
                 c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
                 c.fillPaint.style = Paint.Style.FILL
                 c.fillPaint.color = Color.argb(modulateOpacity(28, contentAlphaScale), 255, 255, 255)
@@ -1015,7 +857,6 @@ object WatermarkRenderer {
             ownCache?.reset()
         }
 
-        // ponytail: 独立边框层（由 borderWidth / borderAlpha 控制，之前这两个滑块完全失效）
         if (p.borderWidth > 0.01f && p.borderAlpha > 0) {
             c.strokePaint.reset(); c.strokePaint.isAntiAlias = true
             c.strokePaint.style = Paint.Style.STROKE
@@ -1026,10 +867,6 @@ object WatermarkRenderer {
             canvas.drawPath(c.path, c.strokePaint)
         }
 
-        // 3. 液态玻璃边界：v14.91 移除 Canvas 白色描边（旧 3a 外发光+3b 细棱边=用户指出的
-        // "死白框/扁平描边"）——菲涅尔高光完全由引擎逐像素计算（方向渐变+环境色+微蓝），
-        // UI 层不再画任何 stroke，质感全部来自光学模拟
-        // 3. 文字与标识：随水印旋转（局部坐标 drawRect）
         canvas.save()
         if (wmRot != 0f) canvas.rotate(wmRot, cx, cy)
         drawContent(c, canvas, p, ui, density, skipGlassBody)
@@ -1041,7 +878,6 @@ object WatermarkRenderer {
         }
     }
 
-    /** 按形状把玻璃轮廓写入 target（椭圆/直角/胶囊/连续圆角），多处复用保证轮廓一致 */
     private fun buildGlassPath(target: Path, p: EditorState.Params, r: RectF, halfH: Float) {
         target.reset()
         when (p.shape) {
@@ -1061,7 +897,7 @@ object WatermarkRenderer {
             }
         }
     }
-    /** iOS 连续圆角（squircle）近似：每角一条三次贝塞尔，起终切线分别垂直/水平，比普通圆弧更润 */
+
     private fun smoothRoundRect(out: Path, r: RectF, rr: Float) {
         val k = 0.46f
         val L = r.left; val T = r.top; val R = r.right; val B = r.bottom
@@ -1079,10 +915,7 @@ object WatermarkRenderer {
     private fun drawContent(c: Ctx, canvas: Canvas, p: EditorState.Params, ui: Ui, density: Float,
                             skipShadow: Boolean = false) {
         applyTypeface(c, p)
-        // —— 文字绘制诊断（独立 tag TEXT，节流）：实锤"字体看不见"是值空、颜色异常、还是被覆盖 ——
-        // v15.15 追加 fontMode / 实际解析出的 typeface 名，供字体模式切换前后对比验证
-        // v15.16 修复：导出期间不再写（每 ~1s 一次 appendText + SimpleDateFormat + 轮转检查，
-        // 在长视频导出中累积成主线程/后台线程的文件 I/O 抖动；预览诊断能力不变）。
+
         val activeMode = ctxActiveFontMode()
         if (!EditorState.isExporting) DebugLog.throttleLog(
             "TEXT",
@@ -1103,16 +936,12 @@ object WatermarkRenderer {
         // Subtitle opacity follows the same subtle scale compensation as the title and logo.
         c.subPaint.color = modulateColorAlpha(Color.argb(255, Color.red(tc), Color.green(tc), Color.blue(tc)),
             contentAlphaScale)
-        // 文字投影增强：保证玻璃之上依然清晰可读（不遮挡字迹）
-        // 阴影用双层绘制（先深色偏移层再主文字层），偏移随字号等比放大但封顶 ≤2.6px
+
         val tsh = min(ui.titleSize * 0.09f, 4.5f * pixelUnit)
-        // ponytail: fontContrast 开关消费——开启时文字阴影用纯黑（浅色背景下文字不被玻璃吃掉）。
-        // 文字可读性保底：无论开关，阴影基础始终用更实的深色（0xD8 半透明黑），白字在浅色
-        // 通透玻璃上也不会消失（"字体看不见"根因之一：默认白字+浅玻璃+弱阴影=白字被吃掉）
+
         val shadowColor = if (p.fontContrast) 0xFF000000.toInt() else 0xD8000000.toInt()
         val shDy = min(tsh * 0.7f, 2.6f * pixelUnit)
-        // v14.03：GPU 导出前景纹理（skipShadow=true）不画黑色硬影层——否则纯黑偏移层写进透明
-        // 前景纹理后，着色器叠加成"文字黑色重影"，导出水印文字显黑（"导出是黑色"根因之一）。
+
         fun text2(paint: Paint, text: String, x: Float, y: Float) {
             val base = paint.color
             if (!skipShadow && p.fontShadow) {
@@ -1123,7 +952,6 @@ object WatermarkRenderer {
             canvas.drawText(text, x, y, paint)
         }
 
-        // v15.33 字体集成：各行动态字号与左右偏移（单位 px，与文字块同缩放）
         val timeSize = ui.subSize / p.fontCodeScale.coerceAtLeast(0.5f) * p.fontTimeScale
         val geoSize = ui.subSize / p.fontCodeScale.coerceAtLeast(0.5f) * p.fontGeoScale
         val blockShiftPx = p.fontBlockShift * density * ui.sUnit
@@ -1134,35 +962,32 @@ object WatermarkRenderer {
         val lineGapPx = p.fontLineGap * density * ui.sUnit
         val x0 = c.wmRect.left + ui.padH + blockShiftPx
         val centerY = c.wmRect.centerY()
-        // 玻璃条内容区高度：logo 垂直方向的硬上限（再大就溢出玻璃上下边）
+
         val innerH = (ui.h - ui.padV * 2f).coerceAtLeast(1f)
-        // logo 绘制边长=基准槽位(brandScale=1，决定玻璃几何)×brandScale，垂直 clamp 在玻璃内高：
-        // 玻璃/文字几何恒定不随滑块撑大；可缩到极小、最大填满玻璃条高度（不溢出、不与上下元素重叠）。
+
         fun logoDrawSize(base: Float) = (base * p.brandScale).coerceIn(0.5f, innerH)
-        // 品牌位图真实宽高比（横长字标按宽矩形给槽，方形标≈1 视觉不变）
+
         val asp = if (hasLogo(p)) logoAspect(p) else 1f
-        val gap = ui.gap  // 与测量一致：紧凑模式下同步缩小，logo/文字间距随动
+        val gap = ui.gap
         val titleFM = c.titlePaint.fontMetrics
         val subFM = c.subPaint.fontMetrics
 
-        // v15.35：文字左右偏移不再允许把字拖出玻璃——每行按自身宽度在水印内边距内 clamp。
         val innerLeft = c.wmRect.left + ui.padH
         val innerRight = c.wmRect.right - ui.padH
-        /** 在 [innerLeft, innerRight] 内绘制单行文本；超宽则先缩字号再回缩起点，绝不出条 */
+
         fun drawClamped(paint: Paint, text: String, desiredX: Float, baselineY: Float) {
             if (text.isEmpty()) return
             val w = paint.measureText(text)
             val innerW = (innerRight - innerLeft).coerceAtLeast(1f)
             val usePaint = if (w > innerW && w > 0f) {
-                // v15.35：极端窄画布（如 9:16 竖屏 + 长机型名）下，按行等比缩字号，
-                // 保证整行完整落在玻璃条内，不被画布边缘裁掉。
+
                 Paint(paint).also { it.textSize = paint.textSize * (innerW / w) * 0.98f }
             } else paint
             val tw = usePaint.measureText(text)
             val x = desiredX.coerceIn(innerLeft, (innerRight - tw).coerceAtLeast(innerLeft))
             text2(usePaint, text, x, baselineY)
         }
-        // 三行竖排：名称(粗) / 型号 / 时间，整块在水印内垂直居中（v15.35 行高按各自字号 + 上下偏移）
+
         fun drawStack(x: Float) {
             val codeOn = p.modelCode.isNotEmpty()
             val timeOn = p.dateText.isNotEmpty()
@@ -1175,7 +1000,7 @@ object WatermarkRenderer {
             val dyT = dyPxOf(p.fontTimeDy, timeH)
             val dyG = dyPxOf(p.fontGeoDy, geoH)
             val dyC = dyPxOf(p.fontCodeDy, codeH)
-            // 与 measure 完全一致的块高：dy 留出绝对余量，保证放大/上下移动都不越界
+
             val blockH = titleH +
                 (if (codeOn) gapU + codeH + abs(dyC) else 0f) +
                 (if (timeOn) gapU + timeH + abs(dyT) else 0f) +
@@ -1191,7 +1016,7 @@ object WatermarkRenderer {
                 drawClamped(c.subPaint, p.modelCode, x + codeShiftPx, y + dyC + gapU - fm.ascent)
                 y += gapU + codeH + abs(dyC)
             }
-            // 时间/位置上下次序：默认时间在上、位置在下；开关打开则位置在上
+
             fun timeLine() {
                 c.subPaint.textSize = timeSize
                 val fm = c.subPaint.fontMetrics
@@ -1218,12 +1043,11 @@ object WatermarkRenderer {
 
         when (p.layoutMode) {
             EditorState.LAYOUT_SINGLE -> {
-                // 单行：只显示手机名称（可带 logo）；logo 恒定尺寸（随缩放不随长度），始终留在条内
+
                 var x = x0
                 val logoBase = p.titleSp * density * logoUnit * 1.5f
                 if (hasLogo(p)) {
-                    // 左对齐安全区间：方形标占 [x,x+logoBase]（与旧版位置一致），横长字标向右延伸，
-                    // 右缘留 2gap 隔离机型名；放大只增高、宽度 clamp 在区间内，绝不压机型。
+
                     val slotW = logoBase * asp + gap * 2f
                     drawLogo(c, canvas, p, x, x + slotW, centerY,
                         logoDrawSize(logoBase), align = -1)
@@ -1234,9 +1058,7 @@ object WatermarkRenderer {
             }
             EditorState.LAYOUT_STACK -> drawStack(x0)
             EditorState.LAYOUT_SPLIT -> {
-                // 方案2（110% 还原参考红米徕卡水印）：机型大字最左，logo/竖线/时间整体最右。
-                // 右组内部用紧凑 splitGap（不随长度）；两组之间用 flexGap（随 ui.extend 增大）
-                // → 拉长时机型贴最左、其余贴最右，中间空白，字号/logo 恒定。
+
                 val splitGap = gap * 0.5f
                 val flexGap = splitGap * 2f * ui.extend.coerceAtLeast(0.2f)
                 val t2 = ui.titleSize * 0.38f
@@ -1250,7 +1072,7 @@ object WatermarkRenderer {
                 val subFM2 = c.subPaint.fontMetrics
                 val (splitD, splitT) = splitDateText(p.dateText)
                 val geoLine = p.geoText.isNotEmpty()
-                // v15.33：时间行字号独立（s2t），竖线与块高随时间字号联动
+
                 val s2t = timeSize * 0.30f
                 val timeLineH = s2t * 1.25f
                 val geoLineH = geoSize * 1.25f
@@ -1258,14 +1080,12 @@ object WatermarkRenderer {
                 val dyT = dyPxOf(p.fontTimeDy, timeLineH)
                 val dyG = dyPxOf(p.fontGeoDy, geoLineH)
                 val dyC = dyPxOf(p.fontCodeDy, s2 * 1.25f)
-                // v15.37：块高与 measure 一致（时间2行各计一次 |dy|，位置行计 gap+行高+|dy|）
+
                 val timeBlockH = timeLineH * 2f + abs(dyT) * 2f +
                         if (geoLine) rowGap + geoLineH + abs(dyG) else 0f
                 c.subPaint.textSize = ui.subSize
                 var x = x0
-                // v15.18：左组 = 机型大字 + 型号小字，整块垂直居中。
-                //    此前 SPLIT 分支从不绘制 modelCode，默认方案2 因此「只显示名称」。
-                //    v15.37：型号行纳入「型号上下」偏移（此前 SPLIT 完全没用 fontCodeDy → 滑块无效）
+
                 val codeLineH = s2 * 1.25f
                 val leftBlockH = t2 + if (hasCode) codeLineH + abs(dyC) else 0f
                 val leftTop = fitTop(centerY - leftBlockH / 2f, leftBlockH, c.wmRect, ui.padV)
@@ -1284,15 +1104,14 @@ object WatermarkRenderer {
                 }
                 x += max(nameW, codeW) + flexGap
                 if (hasLogo(p)) {
-                    // 2. logo 属右组、右对齐竖线（放大只向左扩张吃中间 flexGap，绝不压竖线/时间/机型）
-                    // 槽位与 measure 一致封顶（×2.6 上限），横长蔡司标不会把竖线/时间挤出条外
+
                     val logoBase = p.titleSp * density * logoUnit * 0.38f * 1.2f
                     val slotW = min(logoBase * asp, logoBase * 2.6f) + splitGap * 2f
                     drawLogo(c, canvas, p,
                         x - flexGap + splitGap, x + min(logoBase * asp, logoBase * 2.6f) + splitGap,
                         centerY, logoDrawSize(logoBase), align = 1)
                     x += slotW
-                    // 3. 短竖线（竖直分隔线，logo 与时间之间，加粗提亮保证可见）
+
                     val tc2 = p.textColor
                     c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
                     c.fillPaint.color = Color.argb(modulateOpacity(170, contentAlphaScale),
@@ -1304,10 +1123,7 @@ object WatermarkRenderer {
                     canvas.drawRoundRect(c.tmpRect, vw, vw, c.fillPaint)
                     x += vw + splitGap * 2f
                 }
-                // 4. 时间两行最右（上行日期、下行时分秒，整块垂直居中，参考图风格）
-                // v15.33：时间行字号 = timeSize * 0.30f（独立于型号，跟随 fontTimeScale）
-                // v15.37：支持「位置行放到时间上方」开关（此前 SPLIT 分支永远把位置画在最后
-                //         → 开关无效），并让每行上下偏移真实推进块高。
+
                 var ty = fitTop(centerY - timeBlockH / 2f, timeBlockH, c.wmRect, ui.padV)
                 fun timeRow(text: String) {
                     if (text.isEmpty()) return
@@ -1332,12 +1148,11 @@ object WatermarkRenderer {
                 c.subPaint.textSize = ui.subSize
             }
             else -> {
-                // 经典：logo + 竖分隔线 + 三行文字；logoAlign=0 前(左) / 1 后(右) / 2 居中(纯 logo)
-                // 槽位基准 logoBase（brandScale=1，与 measure 几何一致）；logoSize 为实际绘制尺寸（条内 clamp）
+
                 val logoBase = p.titleSp * density * logoUnit * 1.65f
                 val logoSize = logoDrawSize(logoBase)
                 val lineW = max(pixelUnit, 1.4f * density * ui.sUnit * min(ui.extend, 4f))
-                // 三行块高用于分隔线高度
+
                 val subLines = (if (p.modelCode.isNotEmpty()) 1 else 0) +
                         (if (p.dateText.isNotEmpty()) 1 else 0)
                 val blockH = ui.titleSize * 1.22f +
@@ -1346,8 +1161,7 @@ object WatermarkRenderer {
                 c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
                 c.fillPaint.color = Color.argb(modulateOpacity(100, contentAlphaScale),
                     Color.red(tc), Color.green(tc), Color.blue(tc))
-                // v15.37：分隔竖线最大半高——永远留在玻璃条内（此前字号/位置字号放大后
-                // blockH 估算比实际条高更大，竖线冲出条外上下沿，用户实测可见）
+
                 val sepMaxHalf = (c.wmRect.height() / 2f - ui.padV - pixelUnit * 2f).coerceAtLeast(pixelUnit)
                 fun drawDiv(x: Float) {
                     val h = min(blockH * 0.42f, sepMaxHalf)
@@ -1356,11 +1170,11 @@ object WatermarkRenderer {
                 }
                 when {
                     p.logoAlign == 2 && hasLogo(p) -> {
-                        // 居中：纯 logo 水印，在整条玻璃内容区水平垂直居中，可自由放大
+
                         drawLogo(c, canvas, p, x0, c.wmRect.right - ui.padH, centerY, logoSize, align = 0)
                     }
                     p.logoAlign == 1 && hasLogo(p) -> {
-                        // 后置：文字左 + 分隔线 + logo 右
+
                         val textW = max(
                             if (p.model.isNotEmpty()) c.titlePaint.measureText(p.model) else 0f,
                             max(if (p.modelCode.isNotEmpty()) c.subPaint.measureText(p.modelCode) else 0f,
@@ -1371,25 +1185,25 @@ object WatermarkRenderer {
                         x += textW + gap * 2f
                         drawDiv(x)
                         x += lineW + gap * 2f
-                        // logo 为最右元素：右对齐玻璃右内边，放大向左扩张（区间左界=竖线之后），不溢出右边、不压竖线
+
                         drawLogo(c, canvas, p, x, c.wmRect.right - ui.padH, centerY, logoSize, align = 1)
                     }
                     else -> {
-                        // 前置（默认，第一布局）：机型最左 + logo + 竖线 + 时间竖排（年最上）
+
                         val (dPart, tPart) = splitDateText(p.dateText)
                         val geoLine = p.geoText.isNotEmpty()
                         val dyT = dyPxOf(p.fontTimeDy, timeSize * 1.25f)
                         val dyG = dyPxOf(p.fontGeoDy, geoSize * 1.25f)
                         val dyC = dyPxOf(p.fontCodeDy, ui.subSize * 1.25f)
                         val gapU = ui.subSize * 0.30f + lineGapPx
-                        // v15.35：时间块高度按时间行/位置行各自字号 + 上下偏移计算，字号放大条也长高
+
                         val timeH = (if (dPart.isNotEmpty() || tPart.isNotEmpty()) timeSize * 1.25f * 2f + abs(dyT) else 0f) +
                                 (if (geoLine) gapU + geoSize * 1.25f + abs(dyG) else 0f)
                         val leftH = ui.titleSize * 1.22f +
                                 (if (p.modelCode.isNotEmpty()) gapU + ui.subSize * 1.25f + abs(dyC) else 0f)
                         val blockH2 = max(leftH, timeH)
                         var x = x0
-                        // 机型块（最左）：机型名 + 型号小字，整块垂直居中
+
                         var ly = fitTop(centerY - leftH / 2f, leftH, c.wmRect, ui.padV)
                         if (p.model.isNotEmpty()) {
                             drawClamped(c.titlePaint, p.model, x + titleShiftPx, ly - titleFM.ascent)
@@ -1402,25 +1216,24 @@ object WatermarkRenderer {
                         x += max(
                             if (p.model.isNotEmpty()) c.titlePaint.measureText(p.model) else 0f,
                             if (p.modelCode.isNotEmpty()) c.subPaint.measureText(p.modelCode) else 0f) + gap * 2f
-                        // logo（竖线旁边，紧贴竖线左侧）：左对齐安全区间，方形标位置与旧版一致，
-                        // 横长字标向右延伸但右缘留 2gap，放大只增高、宽度 clamp，绝不越过竖线压时间
+
                         if (hasLogo(p)) {
                             val slotW = logoBase * asp + gap * 2f
                             drawLogo(c, canvas, p, x, x + slotW, centerY, logoSize, align = -1)
                             x += slotW
                         }
-                        // 竖线
+
                         c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
                         c.fillPaint.color = Color.argb(modulateOpacity(100, contentAlphaScale),
                             Color.red(tc), Color.green(tc), Color.blue(tc))
-                        // v15.37：竖线高度取「块高」与「玻璃内高」的较小值 + 2px 安全余量，永不溢出条外
+
                         val sepMaxHalf2 = (c.wmRect.height() / 2f - ui.padV - pixelUnit * 2f)
                             .coerceAtLeast(pixelUnit)
                         val sepHalf = min(blockH2 * 0.42f, sepMaxHalf2)
                         c.tmpRect.set(x, centerY - sepHalf, x + lineW, centerY + sepHalf)
                         canvas.drawRoundRect(c.tmpRect, lineW, lineW, c.fillPaint)
                         x += lineW + gap * 2f
-                        // 时间块（最右）：年-月-日 上 / 时:分:秒 下；位置行默认在下，可开关放上面
+
                         var ty = fitTop(centerY - timeH / 2f, timeH, c.wmRect, ui.padV)
                         fun drawTimePart(text: String) {
                             if (text.isEmpty()) return
@@ -1450,23 +1263,11 @@ object WatermarkRenderer {
         }
         c.titlePaint.clearShadowLayer()
         c.subPaint.clearShadowLayer()
-        // v15.33：恢复字间距为 0，防止线程复用的 TextPaint 带残留 letterSpacing 影响后续绘制
+
         c.titlePaint.letterSpacing = 0f
         c.subPaint.letterSpacing = 0f
     }
 
-    /**
-     * @param size  logo 最大高度（已含 brandScale 并 clamp 到玻璃内高）
-     * @param boxW   logo 水平安全宽（默认=size 正方形盒）；横长字标传入"到相邻文字/竖线的可用宽"，
-     *               位图按宽高比 contain 进 boxW×size，放大也不会盖住旁边的时间/机型/竖线。
-     */
-    /**
-     * 在水平安全区间 [leftBound, rightBound] 内、以 cy 垂直居中绘制 logo，返回实际占用宽。
-     * 高度优先：目标高 = size（已含 brandScale 并 clamp 到玻璃内高），宽按位图真实比例延伸；
-     * 仅当宽度超出安全区间时才按宽回缩——横长字标（Google/OPPO/真我）高度能真正顶满、肉眼清晰，
-     * 方形徕卡/蔡司视觉与旧版一致。align：-1 左对齐 / 0 居中 / 1 右对齐（放大只向空闲侧扩张，
-     * 边界由调用方按相邻文字/竖线/玻璃边缘给出，故永不压时间、机型，永不越界）。
-     */
     private fun drawLogo(c: Ctx, canvas: Canvas, p: EditorState.Params,
                          leftBound: Float, rightBound: Float, cy: Float, size: Float,
                          align: Int = 0): Float {
@@ -1476,17 +1277,14 @@ object WatermarkRenderer {
         val R = rightBound.coerceAtLeast(L + 1f)
         val availW = (R - L).coerceAtLeast(1f)
         val h0 = size.coerceAtLeast(1f)
-        // 品牌位图优先：高度优先等比缩放，超宽才回缩
+
         val brandAsset = if (p.logoBrand in EditorState.BRAND_ASSETS.indices)
             EditorState.BRAND_ASSETS[p.logoBrand] else null
         val brandBmp = if (p.logoBrand != EditorState.BRAND_NONE) loadBrandBitmap(p, brandAsset) else null
         if (brandBmp != null) {
             val bmpW = brandBmp.width.toFloat().coerceAtLeast(1f)
             val bmpH = brandBmp.height.toFloat().coerceAtLeast(1f)
-            // 纯等比：高度=size（已含 brandScale 并 clamp 到玻璃内高 innerH=玻璃顶端），宽按真实比例。
-            // 横长字母标（小米/华为/一加/OPPO/真我/Google/三星）右对齐 align=1 时右缘贴右界（与时间/下划线右缘齐平），
-            // 放大只让左缘向左扩展、不压右边；垂直居中于 cy，与时间/下划线对齐不歪。
-            // 宽度一旦超过本槽位可用宽（会压到左侧机型/时间），按可用宽等比顶满（高度随之回缩，绝不越界）。
+
             var h = h0
             var w = bmpW * (h / bmpH)
             if (w > availW) { w = availW; h = bmpH * (w / bmpW) }
@@ -1502,7 +1300,7 @@ object WatermarkRenderer {
             c.bmpPaint.alpha = oldAlpha
             return w
         }
-        // 矢量标识（圆点/相机标，近似方形）：在区间中心按 h0 绘制
+
         val cx = (L + R) / 2f
         c.fillPaint.reset(); c.fillPaint.isAntiAlias = true
         c.strokePaint.reset(); c.strokePaint.isAntiAlias = true
@@ -1523,7 +1321,7 @@ object WatermarkRenderer {
                 canvas.drawCircle(cx, cy, r * 0.30f, c.fillPaint)
             }
             else -> {
-                // 圆点标识用中性白（无色玻璃，不带青）
+
                 c.fillPaint.color = Color.argb(modulateOpacity(224, contentAlphaScale),
                     Color.red(col), Color.green(col), Color.blue(col))
                 canvas.drawCircle(cx, cy, h0 * 0.34f, c.fillPaint)

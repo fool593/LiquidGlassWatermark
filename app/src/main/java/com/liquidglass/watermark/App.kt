@@ -8,11 +8,6 @@ import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
 
-/**
- * Record uncaught failures, then delegate to Android's normal crash handling.
- * Restarting a broken UI in the exception handler caused an endless launch/crash loop.
- * 崩溃堆栈写入内部存储 app_crash/last.txt，下次启动 Toast 显示尾部，便于远程定位。
- */
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -40,19 +35,17 @@ class App : Application() {
     }
 
     companion object {
-        /** 全局 Application Context（品牌 logo 从 assets 加载等场景使用） */
+
         @JvmStatic
         lateinit var appContext: Context
             private set
 
-        /** 启动时调用：若上次崩溃过，Toast 显示堆栈尾部 */
         fun showCrashLog(ctx: Context) {
             runCatching {
                 val f = File(ctx.getDir("crash", Context.MODE_PRIVATE), "last.txt")
                 if (f.exists() && f.length() > 0) {
                     val tail = f.readText().trim().lines().takeLast(14).joinToString("\n")
-                    // v15.43：提示一次就删。之前这个文件从不清理，只要历史上崩过一次，
-                    // 之后每次冷启动都会重复弹这条 Toast（用户反馈的"启动频繁弹崩溃日志"）。
+
                     runCatching { f.delete() }
                     Toast.makeText(
                         ctx,

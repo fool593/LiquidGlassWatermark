@@ -42,11 +42,6 @@ class InteractiveHighlight(
 
     val offset: Offset get() = positionAnimation.value - startPosition
 
-    /**
-     * 工程 minSdk 26，而 `android.graphics.RuntimeShader` 仅 API 33+ 存在。
-     * 上游 KernelSU 管理器在低版本上不会走液态玻璃分支；这里补一层版本守卫，
-     * 避免 API<33 设备加载本类时因缺失 RuntimeShader 直接崩溃（高光退化为无操作）。
-     */
     @Language("AGSL")
     private val shader: RuntimeShader? =
         if (android.os.Build.VERSION.SDK_INT >= 33) RuntimeShader(

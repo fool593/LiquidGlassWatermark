@@ -36,7 +36,9 @@ object GlassQuality {
 class SoftwareLens(
     val heightPx: Float,
     val amountPx: Float,
-    val shape: Shape
+    val shape: Shape,
+
+    val dispersion: Float = 0f,
 ) {
     /** Interior magnification ratio derived from the displacement, clamped to stay sane. */
     fun magnification(shortSide: Float): Float {

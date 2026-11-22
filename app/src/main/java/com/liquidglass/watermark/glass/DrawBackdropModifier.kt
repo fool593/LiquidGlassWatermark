@@ -44,6 +44,19 @@ private val DefaultHighlight = { Highlight.Default }
 private val DefaultShadow = { Shadow.Default }
 private val DefaultOnDrawBackdrop: DrawScope.(DrawScope.() -> Unit) -> Unit = { it() }
 
+private fun com.liquidglass.watermark.glass.BackdropEffectScope.conservativeLens():
+    com.liquidglass.watermark.glass.SoftwareLens {
+    val s = size
+    val shortSide = if (s.width.isFinite() && s.height.isFinite()) s.minDimension else 0f
+    val safe = if (shortSide > 1f) shortSide else 48f
+    return com.liquidglass.watermark.glass.SoftwareLens(
+        heightPx = safe * 0.22f,
+        amountPx = safe * 0.12f,
+        shape = shape,
+        dispersion = 0.25f,
+    )
+}
+
 fun Modifier.drawPlainBackdrop(
     backdrop: Backdrop,
     shape: () -> Shape,
@@ -261,7 +274,6 @@ private class DrawBackdropNode(
 
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
 
-    /** padding>0 时裁剪外溢 backdrop 像素用的复用 Path。 */
     private var clipPath: Path? = null
 
     private var padding by mutableFloatStateOf(0f)
@@ -307,10 +319,6 @@ private class DrawBackdropNode(
                 if (padding != 0f) IntOffset(-padding.toInt(), -padding.toInt())
                 else IntOffset.Zero
 
-            // v15.34：padding>0 的玻璃（模糊/折射外溢区）必须按 shape 裁剪后再合成。
-            // 修复前 backdrop 图层以 -padding 偏移整块贴出，外溢的 blur/折射像素直接画到控件
-            // 边界之外 —— 液态玻璃 Dock 上表现为一个横跨数格、超出胶囊上下沿的"放大圆斑"。
-            // 裁剪只作用于外溢像素，shape 内部（含边缘折射）完全不变；padding==0 时无额外开销。
             if (padding > 0f) {
                 val canvas = drawContext.canvas
                 val outline = shapeProvider.shape.createOutline(size, layoutDirection, this)
@@ -366,7 +374,11 @@ private class DrawBackdropNode(
                     layoutCoordinates = null
                 }
             }
-            exportedBackdrop?.layerCoordinates = coordinates
+
+            val exported = exportedBackdrop
+            if (exported != null && !exported.ownLayerAttached) {
+                exported.layerCoordinates = coordinates
+            }
         }
     }
 
@@ -382,30 +394,17 @@ private class DrawBackdropNode(
         observeReads { updateEffects() }
     }
 
-    /**
-     * v15.16 任务3 卡顿修复：本节点自身是否已确认无法应用硬件 RenderEffect。
-     *
-     * 修复前：`catch` 里直接把全局 `softwareBlurEnabled = true` —— 只要有 **任意一个**
-     * 玻璃控件在某一帧抛一次异常（驱动不支持某个 shader / 尺寸瞬时非法 / 图层尚未就绪），
-     * 整个 App 的所有玻璃控件就会被永久切换到软件模糊路径（480px 降采样 + FastBlur +
-     * 整屏重绘）。这是一个"一个节点失败 → 全应用降级"的放大效应：低版本设备往往在
-     * 启动早期就抛过一次，于是全程跑软件路径；高版本设备 RenderEffect 真的生效后，
-     * 反而每帧要走完整的 RenderEffect 链。二者叠加就是"版本行为不一致 + 高版本更卡"。
-     *
-     * 修复后：异常只影响抛异常的那个节点（该节点后续不再尝试硬件路径），
-     * 其它节点继续使用硬件 RenderEffect。视觉上不会变弱（硬件路径本就更精细）。
-     */
     private var effectUnsupported = false
 
     private fun updateEffects() {
         if (com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled) {
-            // v15.43：软件模糊路径同样要跑一遍 effects，否则 ksuLens 注册的 softwareLens
-            // 会被丢掉，胶囊只剩"软件模糊过的平面"、没有折射。
+
             if (effectScope.size.hasFiniteArea()) {
                 try {
                     effectScope.apply(effects)
                 } catch (_: Throwable) {
-                    effectScope.softwareLens = null
+
+                    effectScope.softwareLens = effectScope.conservativeLens()
                 }
             }
             graphicsLayer?.renderEffect = null
@@ -413,14 +412,11 @@ private class DrawBackdropNode(
             return
         }
         if (!isRenderEffectSupported()) {
-            // v15.43：没有 RenderEffect（Android 11 及以下，或软件 GPU）时不再直接 return。
+
             //
-            // 之前这里一 return，effects{} 整个没执行 —— 而 ksuLens()/lens() 在 AGSL 不可用时
-            // 正是在 effects{} 里注册 softwareLens（软件折射：按形状裁剪 + 径向放大 + 边缘斜面）。
-            // 于是低版本上 softwareLens 恒为 null，胶囊只剩一块平的半透明色，一点折射都没有。
+
             //
-            // 软件折射完全不依赖 RenderEffect（它在 LayerBackdrop 里用 scale/clipPath 画出来），
-            // 所以这里照常跑一遍 effects 拿到 softwareLens，只是不挂 renderEffect、不留采样 padding。
+
             if (!effectScope.size.hasFiniteArea()) return
             try {
                 effectScope.apply(effects)
@@ -429,7 +425,8 @@ private class DrawBackdropNode(
             } catch (_: Throwable) {
                 graphicsLayer?.renderEffect = null
                 padding = 0f
-                effectScope.softwareLens = null
+
+                effectScope.softwareLens = effectScope.conservativeLens()
                 effectUnsupported = true
             }
             return
@@ -448,7 +445,7 @@ private class DrawBackdropNode(
             graphicsLayer?.renderEffect = effectScope.renderEffect
             padding = effectScope.padding
         } catch (_: Throwable) {
-            // 当前节点无法应用硬件 RenderEffect/RuntimeShader：只降级本节点，不影响其它玻璃控件。
+
             graphicsLayer?.renderEffect = null
             padding = 0f
             effectUnsupported = true

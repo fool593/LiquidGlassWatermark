@@ -55,7 +55,7 @@ fun LiquidSlider(
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
     onDragStart: () -> Unit = {},
-    // 松手回调：参数为最终值（外部已同步的最新值，用于触发同值重渲染且不重置滑块）
+
     onDragEnd: (Float) -> Unit = {}
 ) {
     val isLightTheme = !com.liquidglass.watermark.darkModeState
@@ -66,7 +66,7 @@ fun LiquidSlider(
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val thumbWidthPx = with(density) { 40.dp.toPx() }
-    // 两侧留边距：轨道缩短居中（数值映射不变），避免滑块贴边难触碰
+
     val padPx = with(density) { 20.dp.toPx() }
     val scope = rememberCoroutineScope()
 
@@ -76,9 +76,7 @@ fun LiquidSlider(
 
     // local drag value: thumb follows finger instantly, no wait for external recomposition
     var localVal by remember { mutableFloatStateOf(value()) }
-    // v15.17：拖动期间禁止外部值回写 localVal。
-    // 之前 LaunchedEffect(value()) 在拖动中每帧都会被外部重组触发，把手指位置覆盖成外部（尚未
-    // 提交/量化）的值，松手时又 localVal = valueState() 再回读一次 → 视觉上"滑块一拖就弹回原值"。
+
     var dragging by remember { androidx.compose.runtime.mutableStateOf(false) }
     // sync from external when not dragging (preset/reset/programmatic change)
     LaunchedEffect(value()) { if (!dragging) localVal = value() }
@@ -108,8 +106,7 @@ fun LiquidSlider(
             .height(40.dp)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
-                    // try/finally 兜底：无论松手、协程取消还是重组移除此滑块，
-                    // 都保证执行 onDragEnd（复位轻量渲染标志），绝不把滑块拖成"卡死轻量渲染"
+
                     var active = false
                     try {
                         while (true) {
@@ -122,7 +119,7 @@ fun LiquidSlider(
                             val lo = valueRange.start
                             val hi = valueRange.endInclusive
                             val range = hi - lo
-                            // 触摸映射到缩短后的轨道（padPx..size.width-padPx），数值范围不变
+
                             val tlo = padPx
                             val thi = (size.width - padPx).coerceAtLeast(tlo + 1f)
                             fun pxToVal(px: Float): Float = if (isLtr) {
@@ -142,7 +139,7 @@ fun LiquidSlider(
                                 onChangeState(cur)
                             }
                             // after release, resync local to external (in case of rounding)
-                            // v15.17：先清 dragging 再回读，保证读到的是本次拖动已提交的外部值
+
                             dragging = false
                             localVal = valueState()
                             release()
@@ -150,7 +147,7 @@ fun LiquidSlider(
                             active = false
                         }
                     } finally {
-                        // 协程被取消/异常时也复位（同值回调幂等，重复触发无害）
+
                         dragging = false
                         if (active) runCatching { onDragEnd(valueState()) }
                     }
@@ -158,19 +155,18 @@ fun LiquidSlider(
             },
         contentAlignment = Alignment.CenterStart
     ) {
-        // 两侧留边距：轨道缩短居中（数值映射不变），避免滑块贴边难触碰
+
         val padDp = with(density) { padPx.toDp() }
         val trackWidth = (constraints.maxWidth - padPx * 2f).coerceAtLeast(1f)
         val range = valueRange.endInclusive - valueRange.start
         // thumb position driven by localVal (instant during drag), falls back to external
         val displayVal = localVal
         val progress = ((displayVal - valueRange.start) / range).fastCoerceIn(0f, 1f)
-        // thumb 中心 = padPx + trackWidth*progress；offset = 左边缘 = 中心 - 半宽
+
         val thumbOffsetPx = (padPx + trackWidth * progress - thumbWidthPx / 2f)
             .fastCoerceIn(padPx - thumbWidthPx / 2f, padPx + trackWidth - thumbWidthPx / 2f)
         val thumbOffsetDp = with(density) { thumbOffsetPx.toDp() }
 
-        // 轨道（先 padding 再 fillMaxWidth → 背景真正缩短居中，不再贴边全宽）
         Box(
             Modifier
                 .padding(horizontal = padDp)
@@ -181,7 +177,7 @@ fun LiquidSlider(
                 .background(trackColor),
             contentAlignment = Alignment.CenterStart
         ) {
-            // 激活进度条：在缩短后的轨道内从左按 progress 填充
+
             Box(
                 Modifier
                     .fillMaxWidth(progress)
@@ -205,10 +201,9 @@ fun LiquidSlider(
                     shape = { RoundedCornerShape(50) },
                     effects = {
                         val p = pressAnim.value
-                        // 静止为白色圆钮（无需模糊）；长按变透明玻璃：模糊+折射增强（折射克制，防文字重影）
+
                         blur((2f.dp.toPx() * (1f - p) + 8f.dp.toPx() * p))
-                        // 滑块圆钮不做 RGB 色散：长按放大后会透镜折射其下方的标签文字，产生彩色重影
-                        // （用户反复反馈的"滑块字体重影"）。仅保留极轻折射表达玻璃感。
+
                         lens(
                             refractionHeight = 4f.dp.toPx() * p,
                             refractionAmount = 7f.dp.toPx() * p,
@@ -222,7 +217,7 @@ fun LiquidSlider(
                         Highlight.Ambient.copy(
                             width = Highlight.Ambient.width / 1.5f,
                             blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            // 长按白高光
+
                             alpha = p
                         )
                     },
@@ -237,7 +232,7 @@ fun LiquidSlider(
                     },
                     onDrawSurface = {
                         val p = pressAnim.value
-                        // 静止纯白圆钮；长按变通透玻璃（白叠加骤降，玻璃折射透出）
+
                         drawRect(Color.White.copy(alpha = lerp(0.88f, 0.10f, p)))
                     }
                 )

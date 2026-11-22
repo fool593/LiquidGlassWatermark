@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.runtime.snapshotFlow
+import android.os.SystemClock
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -35,15 +36,17 @@ class DampedDragAnimation(
 ) {
 
     private val valueAnimationSpec =
-        spring(1f, 1000f, visibilityThreshold)
+        spring(dampingRatio = 0.80f, stiffness = 420f, visibilityThreshold = visibilityThreshold)
+    private val settleAnimationSpec =
+        spring(dampingRatio = 0.60f, stiffness = 300f, visibilityThreshold = visibilityThreshold * 2f)
     private val velocityAnimationSpec =
         spring(0.5f, 300f, visibilityThreshold * 10f)
     private val pressProgressAnimationSpec =
-        spring(1f, 1000f, 0.001f)
+        spring(dampingRatio = 0.52f, stiffness = 300f, visibilityThreshold = 0.001f)
     private val scaleXAnimationSpec =
-        spring(0.6f, 250f, 0.001f)
+        spring(dampingRatio = 0.55f, stiffness = 300f, visibilityThreshold = 0.001f)
     private val scaleYAnimationSpec =
-        spring(0.7f, 250f, 0.001f)
+        spring(dampingRatio = 0.65f, stiffness = 300f, visibilityThreshold = 0.001f)
 
     private val valueAnimation =
         Animatable(initialValue, visibilityThreshold)
@@ -72,16 +75,24 @@ class DampedDragAnimation(
     val velocity: Float get() = velocityAnimation.value
 
     val modifier: Modifier = Modifier.pointerInput(Unit) {
+        var released = false
         inspectDragGestures(
             onDragStart = { down ->
                 onDragStarted(down.position)
-                press()
+
+                released = false
+                animationScope.launch {
+                    kotlinx.coroutines.delay(240L)
+                    if (!released) press()
+                }
             },
             onDragEnd = {
+                released = true
                 onDragStopped()
                 release()
             },
             onDragCancel = {
+                released = true
                 onDragCancelled()
                 release()
             }
@@ -102,8 +113,10 @@ class DampedDragAnimation(
         velocityTracker.resetTracking()
         pressJob = animationScope.launch {
             launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-            launch { scaleXAnimation.animateTo(pressedScale, scaleXAnimationSpec) }
-            launch { scaleYAnimation.animateTo(pressedScale, scaleYAnimationSpec) }
+
+            launch { scaleXAnimation.animateTo(pressedScale * 1.04f, scaleXAnimationSpec) }
+
+            launch { scaleYAnimation.animateTo(1.02f, scaleYAnimationSpec) }
         }
     }
 
@@ -111,9 +124,18 @@ class DampedDragAnimation(
         releaseJob?.cancel()
         releaseJob = animationScope.launch {
             awaitFrame()
-            if (value != targetValue) {
-                val threshold = (valueRange.endInclusive - valueRange.start) * 0.025f
-                snapshotFlow { valueAnimation.value }.first { abs(it - valueAnimation.targetValue) < threshold }
+
+            //   snapshotFlow { valueAnimation.value }.first { |it - targetValue| < threshold }
+
+            runCatching {
+                kotlinx.coroutines.withTimeoutOrNull(160L) {
+                    if (value != targetValue) {
+                        val threshold = (valueRange.endInclusive - valueRange.start) * 0.025f
+                        snapshotFlow { valueAnimation.value }.first {
+                            abs(it - valueAnimation.targetValue) < threshold
+                        }
+                    }
+                }
             }
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
@@ -125,6 +147,34 @@ class DampedDragAnimation(
         val targetValue = value.coerceIn(valueRange)
         animationScope.launch(start = CoroutineStart.UNDISPATCHED) {
             valueAnimation.animateTo(targetValue, valueAnimationSpec) { updateVelocity() }
+        }
+    }
+
+    fun dragToValue(value: Float) {
+        val targetValue = value.coerceIn(valueRange)
+        animationScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            valueAnimation.snapTo(targetValue)
+            updateVelocity()
+        }
+    }
+
+    fun settleToValue(value: Float, flingFactor: Float = 0f) {
+        animationScope.launch {
+            mutatorMutex.mutate {
+                val v = velocity
+                val inertia = if (flingFactor != 0f && v.isFinite()) v * flingFactor else 0f
+                val targetValue = (value + inertia).coerceIn(valueRange)
+
+                if (abs(inertia) > 0.08f) {
+                    valueAnimation.animateTo(targetValue, valueAnimationSpec)
+                }
+                launch {
+                    valueAnimation.animateTo(value.coerceIn(valueRange), settleAnimationSpec)
+                }
+                if (v != 0f) {
+                    launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
+                }
+            }
         }
     }
 
@@ -154,3 +204,4 @@ class DampedDragAnimation(
         }
     }
 }
+

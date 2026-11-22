@@ -37,30 +37,12 @@ object GpuMp4Exporter {
     private const val EGL_RECORDABLE_ANDROID = 0x3142
     private const val EGL_OPENGL_ES2_BIT = 4
 
-
-    /** 本次导出 mask 蒙版的非透明像素包围盒（水印区域，用于导出后抽帧验证水印是否真实写入输出） */
     @Volatile private var maskBBox: IntArray? = null
 
-    /** 导出结果 */
     data class Result(val file: File, val durationMs: Long, val frames: Int)
 
-    /**
-     * 水印确实未写入输出时抛出，区别于验证器自身内部异常（抽帧/越界等）。
-     * 调用方据此删除坏输出并回退逐帧路径；内部异常则保留输出，绝不误删正常渲染的视频。
-     */
     private class WatermarkMissingException(msg: String) : RuntimeException(msg)
 
-    /**
-     * @param watermarkRenderer 水印渲染器（在透明 Bitmap 上画水印，上传为 GL 纹理叠加）
-     * @param codec MIME：AVC/HEVC
-     * @param onProgress 进度回调 0-100
-     */
-    /**
-     * v15.11 编码器能力探测与选择（兼容性分支）：
-     * - API29+ 用 isHardwareAccelerated 权威判定；API28 及以下按编码器名启发式（google/c2.android=软编）
-     * - 优先硬件编码器（Surface 输入 + 支持目标 MIME），失败逐级回退到系统默认实例
-     * - 任何情况下都返回可用的 MediaCodec，绝不因探测失败而无法导出
-     */
     private fun createBestEncoder(mime: String): MediaCodec {
         val needSurface = true
         val hwNames = runCatching {
@@ -109,15 +91,13 @@ object GpuMp4Exporter {
         watermarkRenderer: WatermarkEditorView,
         onProgress: (Int) -> Unit,
         isCancelled: () -> Boolean = { false },
-        // v14.27 混合加速：true=GPU 硬解取帧 + CPU 引擎逐帧水印（水印=预览，导出比纯 CPU 快：
-        // 解码走 GPU 表面，省去 CPU/retriever 逐帧解码瓶颈）；false=旧 GPU shader 近似合成
+
         cpuWatermark: Boolean = true,
-        // v14.08 音频直通开关：普通视频导出=true（源有音频必须保留）；动态照片视频=false
-        // （Google/vivo 动照片标准视频轨不含音频，避免破坏生态识别）
+
         includeAudio: Boolean = true,
-        // v15.10 动态照片 5 秒截断：>0 时源帧 PTS 达到该毫秒数即停止编码（输出=前 maxDurationMs）
+
         maxDurationMs: Long = 0L,
-        // v15.30 剪辑起点（相对源 PTS 起点的微秒偏移）：>0 时解码器 seek 到该点，起点前帧不渲染
+
         startPtsUs: Long = 0L
     ): Result? {
         var extractor: MediaExtractor? = null
@@ -129,14 +109,14 @@ object GpuMp4Exporter {
         var textureRender: TextureRender? = null
         var watermarkTex = 0
         var maskTex = 0
-        var distTex = 0   // v14.67/68：到边缘距离场纹理（export 局部，drawFrame 传参）
-        var distFallbackTex = 0   // dist 缺失时的纯黑兜底（export 局部）
-        var audioExt: MediaExtractor? = null  // v14.08 音频直通：函数级声明，finally 统一释放
-        // 输出临时文件：声明在 try 外，catch/finally（取消/异常）统一清理，不留残片
+        var distTex = 0
+        var distFallbackTex = 0
+        var audioExt: MediaExtractor? = null
+
         var tmpOut: File? = null
         var committed = false
         try {
-            // ── 1. 读源视频轨道 ──
+
             extractor = MediaExtractor()
             extractor.setDataSource(srcFile.absolutePath)
             var trackIndex = -1
@@ -153,8 +133,7 @@ object GpuMp4Exporter {
             val mime = trackFormat.getString(MediaFormat.KEY_MIME) ?: return null
             val sourceBitrate = runCatching { trackFormat.getInteger(MediaFormat.KEY_BIT_RATE) }
                 .getOrDefault(0)
-            // 时长：优先轨道格式；部分 MP4 的 duration 只在元数据里（track format 读不到=0），
-            // 此时用 MediaMetadataRetriever 回退，否则进度条会永远卡在起点（用户多次反馈）
+
             var durUs = runCatching { trackFormat.getLong(MediaFormat.KEY_DURATION) }.getOrDefault(0L)
             if (durUs <= 0) {
                 durUs = runCatching {
@@ -171,7 +150,7 @@ object GpuMp4Exporter {
             // Source PTS remain authoritative for variable-rate footage.
             val timeline = VideoTimeline(fps)
             extractor.selectTrack(trackIndex)
-            // v15.30 剪辑起点：seek 到片段起点前一个关键帧，起点前样本在喂帧循环里丢弃
+
             val startPtsUsEff = startPtsUs.coerceAtLeast(0L)
             if (startPtsUsEff > 0L) {
                 extractor.seekTo((startPtsUsEff - 100_000L).coerceAtLeast(0L),
@@ -179,10 +158,6 @@ object GpuMp4Exporter {
                 DebugLog.log("GPU", "剪辑起点 seek=${startPtsUsEff / 1000}ms")
             }
 
-            // ── 1b. 音频轨道（v14.08：音频直通——视频经液态玻璃处理后不得丢弃原音频）──
-            //     MediaExtractor 同一时刻只能 select 一个轨道，音频用独立 extractor 读取；
-            //     直通 = 源压缩音频 sample 原样写入 MediaMuxer（MP4 容器支持 AAC/MP3 等），
-            //     不改编码、不重采样，PTS 原样保持，音画天然同步。
             var audioTrackIndex = -1
             var audioFormat: MediaFormat? = null
             var audioMuxTrack = -1
@@ -210,7 +185,6 @@ object GpuMp4Exporter {
                 DebugLog.log("AUDIO", "本次导出不需要音频（动态照片路径）")
             }
 
-            // ── 2. 创建编码器 + InputSurface ──
             val realCodec = if (codec == MediaFormat.MIMETYPE_VIDEO_HEVC &&
                 runCatching {
                     android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
@@ -219,7 +193,7 @@ object GpuMp4Exporter {
             ) codec else MediaFormat.MIMETYPE_VIDEO_AVC
 
             encoder = createBestEncoder(realCodec)
-            // v15.11 能力探测日志：API 级别 / 编码器名 / 是否硬件加速 / 是否支持 Surface 输入 / 码率
+
             runCatching {
                 val ci = android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS).codecInfos.firstOrNull {
                     it.isEncoder && realCodec in it.supportedTypes
@@ -239,11 +213,7 @@ object GpuMp4Exporter {
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             efmt.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             efmt.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            // v14.01 码率修正：旧公式 w*h*fps（1080p60 ≈ 124Mbps）远超可见画质需求——
-            // 文件巨大、编码器/封装压力大、导出明显变慢。改高画质标准系数
-            // （AVC ≈ 0.20 bpp@30fps / HEVC ≈ 0.12），封顶 60M，肉眼无损且体积/速度大幅改善
-            // v15.14 提速：高分辨率(≥1080p)或高帧率(≥50fps)时系数 ×0.75——
-            // 帧间时间冗余更大，同画质所需码率低于 30fps 基准；软编场景编码量降 ~25% 导出更快
+
             val bitrate = bitrateFor(encW, encH, fps, realCodec, sourceBitrate)
                 .coerceIn(3_000_000, 60_000_000)
             efmt.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -262,20 +232,11 @@ object GpuMp4Exporter {
             inputSurface.makeCurrent()
             encoder.start()
 
-            // ── 3. 创建解码器输出 Surface（SurfaceTexture + GL OES 纹理）──
             outputSurface = OutputSurface(encW, encH)
             textureRender = TextureRender(enableLegacyShader = !cpuWatermark)
-            // v14.21：GPU 路径像素旋转（rotation 参数此前是死代码——既不转像素也不写元数据，
-            // 动态照片强制 90°/源 rotation=90/270 的视频导出后横屏/错向）。旋转 Pass1 拷贝
-            // 的采样 texcoord，使视频内容按 encW×encH 正确取向；蒙版/前景纹理本就是按
-            // encW×encH 渲染的，天然对齐。
+
             runCatching { textureRender.setRotation(rotation) }
 
-            // ── 4. v15.13 精简：混合路径（cpuWatermark=true，唯一调用方 Mp4Exporter 恒传 true）
-            //    用 CPU 引擎逐帧渲染，完全不用 mask/fg 纹理——删除废弃的 shader 纹理创建分支 ──
-
-            // ── 5. 配置解码器：自动匹配引擎——默认实例（系统按机型自动选最优硬解）失败时，
-            //    开源/厂商解码器候选链兜底（video/avc 源只试支持 video/avc 的 decoder）──
             // Our copy pass applies source and user rotation exactly once.
             trackFormat.setInteger(MediaFormat.KEY_ROTATION, 0)
             decoder = CodecSelector.createConfiguredDecoder(
@@ -294,7 +255,6 @@ object GpuMp4Exporter {
             var muxTrack = -1
             var muxStarted = false
 
-            // ── 7. 解码→渲染→编码 循环 ──
             val bufferInfo = MediaCodec.BufferInfo()
             var inputEos = false
             var outputEos = false
@@ -302,20 +262,15 @@ object GpuMp4Exporter {
             var framesEncoded = 0
             var lastPtsUs = 0L
             var lastProgress = -1
-            // v14.82 长视频截断修复：10 分钟硬截止会掐断长视频（视频轨半截+音频全量=播放到一半画面停）。
-            // 截止随源时长缩放（≥10min，长视频按 源时长×8 的实时预算），长视频能完整跑完
+
             val deadline = System.currentTimeMillis() +
                 maxOf(10 * 60_000L, if (durUs > 0) durUs / 1000L * 8L else 0L)
             val startTime = System.currentTimeMillis()
-            // 首帧守卫：5 秒内未渲染出第一帧 → 该 GPU/解码器组合不兼容，立即放弃回退
+
             val firstFrameDeadline = startTime + 5000
-            // v15.22 清理死代码：GPU 混合路径统一走【全帧】renderWatermarkOnly。
-            // 原 v15.12「patch 区域提速」分支因液态玻璃在透明底折射不可见、恒产生 wmDiff=0.0 被
-            // 水印校验拦截（v15.20 已停用 wmRegion=null），该分支及其辅助函数（exportWmRegion /
-            // renderWatermarkPatch）已不可达，本轮直接删除，行为等价、代码更干净。
-            // maskBBox 供尾部水印验证器使用：整帧校验，水印确实存在 → 验证通过 → GPU 直出。
+
             maskBBox = intArrayOf(0, 0, encW, encH)
-            // v15.11 分阶段耗时统计（性能剖析）：区分 解码等待/读回/CPU渲染/上传/绘制/编码交换
+
             var tDecodeWait = 0L; var tCapture = 0L; var tCpuRender = 0L
             var tUpload = 0L; var tDraw = 0L; var tSwap = 0L; var tLoopStart = 0L
 
@@ -323,23 +278,19 @@ object GpuMp4Exporter {
                 if (framesEncoded == 0 && System.currentTimeMillis() > firstFrameDeadline) {
                     throw RuntimeException("首帧 5 秒未渲染（GPU=${inputSurface?.gpuInfo?.take(60)}），放弃 GPU 路径")
                 }
-                // 动态走秒：混合路径（cpuWatermark=true）逐帧 CPU 渲染已自动带入新时间，
-                // 无需纹理重建——v15.13 删除废弃的走秒纹理重建分支
-                // 取消检查：用户点取消后立即中止 GPU 导出循环
+
                 if (isCancelled()) {
                     DebugLog.log("GPU", "用户取消导出（已编码 $framesEncoded 帧）")
-                    // 取消不留残片：删除未完成的 .tmp，避免相册扫描器看到半成品文件
+
                     runCatching { tmpOut?.delete() }
                     return null
                 }
-                // 喂解码器输入
+
                 if (!inputEos) {
                     val inIdx = decoder.dequeueInputBuffer(10000)
                     if (inIdx >= 0) {
                         val ib = decoder.getInputBuffer(inIdx)
-                        // v15.28：输入缓冲暂不可用时空样本（0 长度 + PTS=0）会让部分解码器
-                        // 误判为损坏/停滞。不 queue 直接 continue——该索引留待下一轮重新
-                        // dequeue 填充，不会泄漏缓冲（MediaCodec 对未入队输入缓冲循环复用）。
+
                         if (ib == null) continue
                         ib.clear()
                         val sampleSize = extractor.readSampleData(ib, 0)
@@ -354,48 +305,41 @@ object GpuMp4Exporter {
                     }
                 }
 
-                // 取解码器输出 → 渲染到编码器 InputSurface
-                // 注意：Surface 输出模式下 bufferInfo.size 通常为 0（帧数据直接到 Surface，不经 ByteBuffer），
-                // 绝不能用 size>0 判断是否为帧；只需排除 CODEC_CONFIG 和 EOS。
                 val outIdx = decoder.dequeueOutputBuffer(bufferInfo, 10000)
                 when {
                     outIdx >= 0 -> {
                         val eos = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
                         val isConfig = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
                         if (eos && bufferInfo.size == 0) {
-                            // EOS：不渲染，通知编码器结束
+
                             decoder.releaseOutputBuffer(outIdx, false)
                             runCatching { encoder.signalEndOfInputStream() }
                             outputEos = true
                             DebugLog.log("GPU", "解码 EOS 已编码=$framesEncoded 末帧PTS=${lastPtsUs / 1000}ms")
                         } else if (isConfig) {
-                            // 编解码配置数据：不渲染到 Surface
+
                             decoder.releaseOutputBuffer(outIdx, false)
                         } else {
-                            // v15.30 剪辑起点：seek 提前到关键帧的过冲帧（PTS < 起点）不渲染、不编码
+
                             if (startPtsUsEff > 0 && bufferInfo.presentationTimeUs < startPtsUsEff) {
                                 decoder.releaseOutputBuffer(outIdx, false)
                             } else if (maxDurationMs > 0 &&
                                 (bufferInfo.presentationTimeUs - startPtsUsEff) >= maxDurationMs * 1000L) {
-                                // v15.10 动态照片 5 秒截断：源帧 PTS 达到【片段内】上限 → 提前收尾
+
                                 decoder.releaseOutputBuffer(outIdx, false)
                                 runCatching { encoder.signalEndOfInputStream() }
                                 outputEos = true
                                 DebugLog.log("GPU", "时长截断 max=${maxDurationMs}ms 于 PTS=${bufferInfo.presentationTimeUs / 1000}ms 起点=${startPtsUsEff / 1000}ms")
                             } else {
-                            // 真正的视频帧：渲染到 SurfaceTexture
+
                             decoder.releaseOutputBuffer(outIdx, true)
-                            // 等待 SurfaceTexture 新帧（同步 updateTexImage + timestamp 验证）
-                            // 【阶段一诊断·临时插桩·可回滚】解码等待计时开始
-                            // 回滚：删除本行 + 下方 "解码等待计时结束" 那一行即可
+
                             val diagDec0 = System.nanoTime()
                             outputSurface.awaitNewImage()
-                            // 【阶段一诊断·临时插桩·可回滚】解码等待计时结束
+
                             tDecodeWait += System.nanoTime() - diagDec0
                             if (!outputSurface.lastAwaitOk) {
-                                // v14.28 修复"导出快进"：旧逻辑 awaitNewImage 软失败时 continue 静默
-                                // 丢帧 → 帧丢失使 PTS 跳变 → 播放像快进（v14.27 混合慢路径下高发）。
-                                // 改为重试一次；仍失败则放弃 GPU 回退逐帧路径（不丢帧、速度正确）。
+
                                 outputSurface.awaitNewImage()
                                 if (!outputSurface.lastAwaitOk) {
                                     DebugLog.log("GPU", "帧获取失败×2，放弃 GPU 路径回退逐帧（防快进）")
@@ -403,19 +347,17 @@ object GpuMp4Exporter {
                                     return null
                                 }
                             }
-                            // 确保编码器 EGL 上下文当前
+
                             inputSurface.makeCurrent()
                             textureRender.setTextureTransform(outputSurface.texMatrix)
                             val outPtsUs = timeline.next(bufferInfo.presentationTimeUs - startPtsUsEff)
                             EditorState.exportTimeSec = outPtsUs / 1_000_000f
-                            // GL 绘制：视频帧 + 玻璃蒙版 + 水印前景叠加 → 编码器 InputSurface
-                            // v14.13：barH = 水印条高度（bbox 高），供 shader 按条尺寸缩放扭曲位移
+
                             val bb = maskBBox
                             val barH = if (bb != null && bb.size >= 4 && bb[3] > bb[1])
                                 (bb[3] - bb[1]).toFloat() else encH * 0.10f
                             if (cpuWatermark) {
-                                // GPU 硬解取帧 → CPU 全帧水印渲染（=预览/GIF 同引擎）→ 上传 → 硬编。
-                                // 保留分段计时，供尾部性能日志（读回/CPU渲染/上传/绘制）继续可用。
+
                                 val t0 = System.nanoTime()
                                 val raw = textureRender.captureVideo2d(outputSurface.textureId, encW, encH)
                                 val t1 = System.nanoTime()
@@ -430,8 +372,7 @@ object GpuMp4Exporter {
                                     val t4 = System.nanoTime()
                                     tCapture += t1 - t0; tCpuRender += t2 - t1
                                     tUpload += t3 - t2; tDraw += t4 - t3
-                                    // raw 是 TextureRender 跨帧复用的读回缓冲（不回收），
-                                    // wm 是 wmOut 复用缓冲（不回收）——消除每帧位图分配/回收的 GC 抖动
+
                                 } else {
                                     throw IllegalStateException("视频帧读回失败，回退同引擎逐帧路径")
                                 }
@@ -448,29 +389,22 @@ object GpuMp4Exporter {
                             lastPtsUs = outPtsUs
                             framesEncoded++
                             if (eos) { encoder.signalEndOfInputStream(); outputEos = true }
-                            // v15.24：旧「首帧黑屏检测」依赖 videoBootBlack，而它唯一的写入点
-                            // checkBootBlack() 只在已无调用方的 drawFrame() 内触发 → 恒 false，
-                            // 该分支从未真正起过作用。整条死链已删除（行为不变），
-                            // 不再保留一段看似生效、实则不存在的保护逻辑。
-                            // 进度：按 PTS / 总时长
+
                             if (durUs > 0) {
                                 val pct = (12 + 78 * bufferInfo.presentationTimeUs / durUs).toInt().coerceIn(12, 90)
                                 if (pct != lastProgress) { onProgress(pct); lastProgress = pct }
                             }
-                            } // v15.10 截断分支 else 闭合（正常帧渲染分支）
+                            }
                         }
                     }
                     outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        // 解码器输出格式变化：忽略（解码器格式在 configure 时已知）。
-                        // muxer 必须在【编码器】输出格式变化时启动，不能在此处用 encoder.outputFormat 误启动。
+
                     }
                     outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                        // 解码器无输出，继续 drain 编码器
+
                     }
                 }
 
-                // 取编码器输出 → 写 muxer（无条件 drain：即使 muxer 未启动也要处理编码器
-                // INFO_OUTPUT_FORMAT_CHANGED，否则编码器输出 buffer 堆积 → 编码器阻塞 → 解码器阻塞 → 死锁）
                 val mmux = muxer
                 if (mmux != null) {
                     var encDone = false
@@ -491,10 +425,10 @@ object GpuMp4Exporter {
                                 }
                             }
                             encIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                                // 编码器输出格式就绪：此时才能 addTrack 并启动 muxer
+
                                 if (!muxStarted) {
                                     muxTrack = mmux.addTrack(encoder.outputFormat)
-                                    // v14.08：音频轨一并注册（必须在 muxer.start() 之前 addTrack）
+
                                     if (audioExt != null && audioFormat != null) {
                                         audioMuxTrack = runCatching { mmux.addTrack(audioFormat) }.getOrElse {
                                             DebugLog.log("AUDIO", "音频直通 addTrack 失败（容器不支持 ${audioFormat?.getString(MediaFormat.KEY_MIME)}：${it.message}），视频单独封装")
@@ -511,18 +445,16 @@ object GpuMp4Exporter {
                     }
                 }
 
-                // v14.08：音频直通写 muxer——按当前视频帧 PTS 对齐（不超前 >200ms 缓冲），
-                // 只在 mux 启动后写入，PTS 原样透传保持音画同步；复用 audioBuf 零分配
                 val aex = audioExt
                 if (aex != null && audioMuxTrack >= 0 && muxStarted && !audioEos) {
                     try {
                         while (!audioEos) {
                             val at = aex.sampleTime
                             if (aex.sampleTrackIndex < 0) { audioEos = true; break }
-                            // v15.30：音频与视频同片段——起点前音频跳过，PTS 归零到片段起点
+
                             if (at < startPtsUsEff) { aex.advance(); continue }
                             if (timeline.audioTimeUs(at) < 0L) { aex.advance(); continue }
-                            if (timeline.audioTimeUs(at) > lastPtsUs + 200_000L) break   // 超前视频 >200ms 则暂停，等视频追上
+                            if (timeline.audioTimeUs(at) > lastPtsUs + 200_000L) break
                             audioBuf.clear()
                             val n = aex.readSampleData(audioBuf, 0)
                             if (n < 0) { audioEos = true; break }
@@ -538,7 +470,6 @@ object GpuMp4Exporter {
                 }
             }
 
-            // 排空编码器剩余输出（signalEndOfInputStream 后编码器可能还有数十帧待输出）
             check(outputEos) { "视频导出超时，拒绝保存未完成视频" }
             val mmux2 = muxer
             if (mmux2 != null) {
@@ -577,10 +508,6 @@ object GpuMp4Exporter {
 
             check(encoderEos) { "编码器未完成尾帧输出" }
 
-            // v14.08：视频处理完毕后排空剩余音频（视频 EOS 后音频可能有尾巴），再 stop muxer
-            // v15.17：排空必须有上限——视频轨提前结束时无上限排空会把整段剩余音频写进容器，
-            // 容器时长被音频撑满，播放器在视频帧用尽后整段显示绿幕（用户反馈的现象）。
-            // 只补到视频末帧 +200ms，超出部分丢弃（宁可短，也不交付"绿幕视频"）。
             val aex2 = audioExt
             val amux = muxer
             val audioCapUs = lastPtsUs + 200_000L
@@ -621,13 +548,13 @@ object GpuMp4Exporter {
                 runCatching { tmpOut?.delete() }
                 return null
             }
-            // 完整性验证 1：输出文件存在且非空
+
             if (!tmpOut!!.exists() || tmpOut!!.length() < 1024) {
                 DebugLog.log("GPU", "输出文件过小 ${tmpOut!!.length()}，判定失败")
                 runCatching { tmpOut?.delete() }
                 return null
             }
-            // 完整性验证 2：用 MediaMetadataRetriever 回读 tmpOut 时长，0 秒/远短于源 = 封装失败（moov 缺失）
+
             val outDurMs = runCatching {
                 val mmr = android.media.MediaMetadataRetriever()
                 try {
@@ -636,22 +563,14 @@ object GpuMp4Exporter {
                 } finally { runCatching { mmr.release() } }
             }.getOrDefault(0L)
             val srcDurMs = durUs / 1000
-            // v15.16 定点修复：maxDurationMs>0（动态照片 5 秒截断）时，输出时长应接近
-            // min(源时长, 截断点)，而不是强行等于源时长——旧比对把"截断成功"误判为
-            // "封装失败"，误删输出并回退逐帧慢路径（截断后比源短是预期行为）
-            // v15.30：裁剪片段后预期时长 = 片段长度（起点偏移不影响），避免"截取成功"被判封装失败
+
             val expectDurMs = if (maxDurationMs > 0) maxDurationMs else srcDurMs
             if (outDurMs <= 0 || (srcDurMs > 0 && kotlin.math.abs(outDurMs - expectDurMs) > maxOf(250L, 2000L / fps.coerceAtLeast(1)))) {
                 DebugLog.log("GPU", "输出时长异常 out=${outDurMs}ms src=${srcDurMs}ms expect=${expectDurMs}ms frames=$framesEncoded，判定封装失败")
                 runCatching { tmpOut?.delete() }
                 return null
             }
-            // v15.17 关键修复（用户反馈"导出视频播一会儿变绿幕"）：
-            // 上面的时长校验读的是【容器时长】，而容器时长由【音频轨】决定——视频轨提前结束时
-            // （解码/GPU 帧管道在开头几帧后就断了），容器时长仍等于源时长，校验照样通过，
-            // 于是交付出一个"视频轨只有 0.5 秒、音频 58 秒"的文件：播放器放完开头几帧就再没有
-            // 可解码帧，剩余时长整段显示绿幕（YUV 全零）。
-            // 必须单独校验【输出视频轨】时长，视频轨明显短于预期即判定失败并回退逐帧路径。
+
             val outVideoDurMs = videoTrackDurationMs(tmpOut!!)
             if (expectDurMs > 0 && outVideoDurMs > 0 &&
                 outVideoDurMs < expectDurMs - maxOf(500L, expectDurMs / 10L)) {
@@ -660,10 +579,7 @@ object GpuMp4Exporter {
                 runCatching { tmpOut?.delete() }
                 return null
             }
-            // v15.20 关键补强：视频轨【声明时长】会被编码器按末帧 PTS 写成满值，单看它会被骗过
-            // （"开头一闪、后面绿幕"正是视频轨被截断成开头几帧、但声明时长仍≈源时长的表现）。
-            // 必须按【实际编码帧数】二次兜底：解码/帧管道在开头几帧后断流时，framesEncoded 远小于预期，
-            // 此时视频轨只有开头一闪、其余为未编码的空帧（绿幕），绝不可交付。命中即判失败、回退逐帧 CPU 路径。
+
             val expectFrames = if (expectDurMs > 0) (expectDurMs / 1000f * fps).toInt() else 0
             if (expectFrames >= 10 && framesEncoded < expectFrames / 2) {
                 DebugLog.log("GPU", "编码帧数不足 out=${framesEncoded}帧 期望≈${expectFrames}帧 " +
@@ -672,8 +588,7 @@ object GpuMp4Exporter {
                 return null
             }
             DebugLog.log("GPU", "时长校验 容器=${outDurMs}ms 视频轨=${outVideoDurMs}ms 期望=${expectDurMs}ms frames=$framesEncoded")
-            // v14.08：音频完整性验证——输入有音频而输出无音频 = EXPORT_AUDIO_LOST，判定导出失败
-            // （绝不交付"视频处理完丢了原声"的坏文件；直通失败时输出会被删除并回退逐帧路径）
+
             val inHasAudio = audioExt != null
             var outHasAudio = false
             runCatching {
@@ -692,35 +607,30 @@ object GpuMp4Exporter {
                 return null
             }
             DebugLog.log("AUDIO", "音频验证：输入=${if (inHasAudio) "有" else "无"} 输出=${if (outHasAudio) "有" else "无"} ✓")
-            // 完整性验证 3：最终输出水印验证——源帧 vs 输出帧同区域变化度对照。
-            // 水印未真实写入（GPU 渲染假成功）时抛异常 → 调用方回退逐帧路径，绝不交付无水印视频。
-            // 注意：验证器自身异常（Bitmap 越界/抽帧失败等）≠ 水印缺失，隔离后保留输出，
-            // 绝不因"验证器崩了"把一份正常渲染的视频删掉（曾导致 GPU 成功后回退逐帧→该设备逐帧不可行→导出必败）。
+
             var watermarkMissing = false
             try {
                 verifyWatermarkOnOutput(tmpOut!!, srcFile, maskBBox, encW, encH, maxDurationMs)
             } catch (e: WatermarkMissingException) {
-                // 水印确实未写入：删除坏输出，回退逐帧路径（绝不交付无水印视频）。
+
                 watermarkMissing = true
                 DebugLog.log("GPU", "水印验证失败（水印未真实写入：${e.message}）→ 删除坏输出，回退逐帧路径")
             } catch (t: Throwable) {
-                // 验证器自身内部异常（抽帧失败/越界等）≠ 水印缺失：保留输出，绝不误删正常渲染的视频。
+
                 DebugLog.log("GPU", "水印验证器异常（${t.javaClass.simpleName}: ${t.message}），跳过验证保留输出")
             }
             if (watermarkMissing) {
                 runCatching { tmpOut?.delete() }
                 return null
             }
-            // v15.13 精简：删除 !cpuWatermark 终检 bbox 验证块（cpuWatermark 恒 true 不可达）+ mb 死变量
-            // 验证全部通过 → 原子提交（part/tmp → final）；失败路径已删除 tmpOut，绝不提交未验证文件
+
             if (!tmpOut!!.renameTo(outFile)) {
                 tmpOut!!.copyTo(outFile, overwrite = true)
                 tmpOut!!.delete()
             }
             val elapsed = System.currentTimeMillis() - startTime
             DebugLog.log("GPU", "导出成功 frames=$framesEncoded 输出时长=${outDurMs}ms 源时长=${srcDurMs}ms 耗时=${elapsed}ms")
-            // v15.11 分阶段剖析报告（占导出总耗时的百分比，定位瓶颈）
-            // 【阶段一诊断·临时插桩·可回滚】整块 run{...} 为诊断输出，回滚时整块删除即可
+
             run {
                 val totalNs = (tCapture + tCpuRender + tUpload + tDraw + tSwap).coerceAtLeast(1L)
                 fun pct(v: Long) = "%.1f".format(100.0 * v / totalNs)
@@ -736,7 +646,7 @@ object GpuMp4Exporter {
                     "绘制=${tDraw / 1_000_000}(${pct(tDraw)}%) " +
                     "交换=${tSwap / 1_000_000}(${pct(tSwap)}%) " +
                     "| 总墙钟=${elapsed}ms 帧均=" + (elapsed.toDouble() / n).toInt() + "ms/帧")
-                // 【阶段一诊断·临时插桩·可回滚】每帧均耗 + 每秒帧数 + 各段占墙钟比
+
                 DebugLog.log("DIAG1",
                     "每帧均耗ms: 解码等待=${perFrame(tDecodeWait)} 读回=${perFrame(tCapture)} " +
                     "水印渲染=${perFrame(tCpuRender)} 上传=${perFrame(tUpload)} " +
@@ -753,7 +663,7 @@ object GpuMp4Exporter {
         } catch (t: Throwable) {
             DebugLog.log("GPU", "导出异常 ${t.javaClass.simpleName}: ${t.message}")
             try { t.printStackTrace() } catch (_: Throwable) {}
-            // 任何异常/取消路径都不留半成品：删除 .tmp（避免相册扫描器看到残片）
+
             runCatching { tmpOut?.delete() }
             return null
         } finally {
@@ -781,22 +691,6 @@ object GpuMp4Exporter {
         }
     }
 
-    /**
-     * 输出水印验证（源/输出帧对照）：
-     * 抽【源帧】与【输出帧】同一时间点（中点 CLOSEST_SYNC），对比水印区域与背景区域的
-     * 平均亮度差（|ΔL|）与亮度偏移（ΔL）。
-     * - 水印真实渲染：水印区变化度显著超过背景区（玻璃模糊+文字/logo 改变了原画面）
-     * - 水印未渲染：水印区变化≈背景区（仅编码/运动噪声）
-     * 判定：wmDiff >= max(bgDiff,6)*1.15+8 或 |wmDelta| >= 6 → 通过；否则删除输出抛异常回退。
-     * 相比旧"内部 std 应比外部平滑"单向判定：当水印含文字/logo 时内部 std 反而更高，
-     * 旧逻辑误杀 GPU 成功（v13.78 日志实证 33s 视频内部 std=47 外部=39 被误判失败）。
-     */
-    /**
-     * v15.17：读取 MP4 内【视频轨】自身时长（毫秒），读不到返回 0。
-     *
-     * 不能用 MediaMetadataRetriever 的 METADATA_KEY_DURATION：那是【容器/播放时长】，
-     * 由最长轨（通常是音频）决定。视频轨被截断时它仍然等于源时长，会把坏文件判成好文件。
-     */
     private fun videoTrackDurationMs(f: File): Long = runCatching {
         val ex = MediaExtractor()
         try {
@@ -830,8 +724,7 @@ object GpuMp4Exporter {
             outBmp = mmr.getFrameAtTime((outDur ?: 0L) / 2 * 1000,
                 android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: throw RuntimeException("回读输出帧失败")
-            // 源帧：同一时间点（源 duration 中点）。源帧不可用时不直接失败——降级宽松 std 判定
-            // （只排除纯黑/花屏等极端），避免源文件异常导致 GPU 成功被误杀。
+
             val srcDur = runCatching {
                 val r = android.media.MediaMetadataRetriever()
                 try {
@@ -843,25 +736,21 @@ object GpuMp4Exporter {
                 val rs = android.media.MediaMetadataRetriever()
                 try {
                 rs.setDataSource(srcFile.absolutePath)
-                // H1 修复：截断导出（动态照片 5 秒）时，输出时长 ≈ min(srcDur, maxDurationMs)，
-                // 输出中点对应源时间应为 outDur/2 而非 srcDur/2，否则源/输出抽帧内容错位 → 误判水印缺失。
+
                 val srcSeekMs = if (maxDurationMs > 0L) (outDur ?: 0L) / 2 else srcDur / 2
                 srcBmp = rs.getFrameAtTime(srcSeekMs * 1000,
                     android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 } finally { runCatching { rs.release() } }
             }
             try {
-                // bbox 基于编码尺寸 encW×encH；抽帧位图尺寸可能不同（比例缩放），按比例映射。
-                // 使用 bbox 全区域（5% inset）而非中心 60%：水印条内含文字/logo，中心可能只覆盖
-                // 平滑玻璃导致变化度被低估而误判。
+
                 val sx = outBmp.width.toFloat() / w
                 val sy = outBmp.height.toFloat() / h
                 val ix0 = (x0 + (x1 - x0) * 0.05f) * sx; val iy0 = (y0 + (y1 - y0) * 0.05f) * sy
                 val ix1 = (x1 - (x1 - x0) * 0.05f) * sx; val iy1 = (y1 - (y1 - y0) * 0.05f) * sy
-                // 背景：远离水印的左上/右下角
+
                 if (srcBmp != null) {
-                    // 源帧尺寸与输出可能不同（mmr 应用了 rotation / 源分辨率）→ 各自比例独立映射，
-                    // 但区域比例相同（水印相对画面位置一致）
+
                     val ssx = srcBmp.width.toFloat() / w
                     val ssy = srcBmp.height.toFloat() / h
                     val sIx0 = (x0 + (x1 - x0) * 0.05f) * ssx; val sIy0 = (y0 + (y1 - y0) * 0.05f) * ssy
@@ -875,25 +764,23 @@ object GpuMp4Exporter {
                             outBmp.width * 0.6f, outBmp.height * 0.7f, outBmp.width * 0.95f, outBmp.height * 0.95f,
                             srcBmp.width * 0.6f, srcBmp.height * 0.7f, srcBmp.width * 0.95f, srcBmp.height * 0.95f).first)
                     val bg = kotlin.math.max(bgDiff, 6f)
-                    // v14.16：判定 = 平均差 或 亮度偏移 或【变化像素占比>3%】（杜绝"平滑区平均差≈0"的假阴性）
+
                     val pass = wmDiff >= bg * 1.15f + 8f || kotlin.math.abs(wmDelta) >= 6f || wmFrac > 0.03f
                     DebugLog.log("GPU", "水印验证 out=${outBmp.width}x${outBmp.height} src=${srcBmp.width}x${srcBmp.height} " +
                         "wmDiff=$wmDiff bgDiff=$bgDiff wmΔL=$wmDelta wmFrac=$wmFrac bbox=[$x0,$y0,$x1,$y1] " +
                         if (pass) "通过" else "失败")
-                    // C2 修复：源/输出可对比且判定为"水印未真实写入"时，抛专有的 WatermarkMissingException，
-                    // 调用方据此删除坏输出并回退逐帧路径，绝不交付无水印视频。
+
                     if (!pass) throw WatermarkMissingException(
                         "水印变化度不足：wmDiff=$wmDiff bgDiff=$bgDiff wmΔL=$wmDelta wmFrac=$wmFrac")
                 } else {
-                    // 源帧不可用降级：宽松 std 判定——仅排除纯黑/花屏极端（std≈0），
-                    // 不再用"内部应比外部平滑"单向假设（文字/logo 会提高内部 std）
+
                     val stdIn = regionLumStd(outBmp, ix0, iy0, ix1, iy1)
                     val stdOut = kotlin.math.max(
                         regionLumStd(outBmp, 0f, 0f, outBmp.width * 0.5f, outBmp.height * 0.25f),
                         regionLumStd(outBmp, outBmp.width * 0.6f, outBmp.height * 0.7f,
                             outBmp.width * 0.95f, outBmp.height * 0.95f))
                     if (stdIn < 3f || stdOut < 3f) {
-                        // 降级 std 判定仅排除纯黑/花屏；不再删文件/抛异常（同对照分支理由）
+
                         DebugLog.log("GPU", "水印验证失败（降级 std）：内部 std=$stdIn 外部=$stdOut bbox=[$x0,$y0,$x1,$y1]（区域异常，输出保留）")
                     } else {
                         DebugLog.log("GPU", "水印验证通过（降级 std）：内部 std=$stdIn 外部=$stdOut bbox=[$x0,$y0,$x1,$y1]")
@@ -905,11 +792,6 @@ object GpuMp4Exporter {
         } finally { runCatching { mmr.release() } }
     }
 
-    /** 两帧同区域对比（v14.16 重写）：
-     * 返回 (平均亮度绝对差, 平均亮度偏移, 变化像素占比)。
-     * 旧版只看平均亮度差——对"底部平滑区+色散抵消"场景恒≈0（wmDiff=0.0 假阴性，
-     * 红条显影实验证明输出确有水印但验证器仍报 0）。新增【变化像素占比】= |Δ亮度|>20
-     * 的采样占比，任何真实水印（文字/玻璃/扭曲/染色）都会让占比显著>0，杜绝误报。 */
     private fun regionDiff(bmpA: Bitmap, bmpB: Bitmap,
                            ax0f: Float, ay0f: Float, ax1f: Float, ay1f: Float,
                            bx0f: Float, by0f: Float, bx1f: Float, by1f: Float): Triple<Float, Float, Float> {
@@ -924,7 +806,7 @@ object GpuMp4Exporter {
         for (yy in 0 until ((ay1 - ay0 + sy - 1) / sy)) {
             val ay = ay0 + yy * sy
             val by = by0 + ((ay - ay0).toLong() * (by1 - by0) / (ay1 - ay0)).toInt().coerceIn(by0, by1 - 1)
-            // 防御：单行像素读取失败（越界/复用竞态）→ 跳过该行采样，绝不因验证器抛异常杀死导出
+
             try {
                 bmpA.getPixels(rowA, 0, bmpA.width, 0, ay, bmpA.width, 1)
                 bmpB.getPixels(rowB, 0, bmpB.width, 0, by, bmpB.width, 1)
@@ -945,7 +827,6 @@ object GpuMp4Exporter {
             nChanged.toFloat() / n)
     }
 
-    /** 区域亮度标准差（抽样步长≈区域 1/40，返回 0 表示样本不足） */
     private fun regionLumStd(bmp: Bitmap, x0f: Float, y0f: Float, x1f: Float, y1f: Float): Float {
         val x0 = x0f.toInt().coerceIn(0, bmp.width - 1)
         val y0 = y0f.toInt().coerceIn(0, bmp.height - 1)
@@ -956,7 +837,7 @@ object GpuMp4Exporter {
         var sum = 0.0; var sumSq = 0.0; var n = 0
         val row = IntArray(bmp.width)
         for (yy in y0 until y1 step sy) {
-            // 防御：单行读取失败跳过该行（见 regionDiff）
+
             try {
                 bmp.getPixels(row, 0, bmp.width, 0, yy, bmp.width, 1)
             } catch (_: Throwable) { continue }
@@ -972,13 +853,13 @@ object GpuMp4Exporter {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  EGL InputSurface（编码器端）：多配置回退适配所有 GPU
+
     // ══════════════════════════════════════════════════════════════
     private class InputSurface(private val surface: Surface) {
         private var eglDisplay: EGLDisplay? = null
         private var eglContext: EGLContext? = null
         private var eglSurface: EGLSurface? = null
-        /** 探测到的 GPU 信息（GL_RENDERER / GL_VERSION），供日志诊断 */
+
         var gpuInfo: String = ""
             private set
 
@@ -1031,7 +912,7 @@ object GpuMp4Exporter {
                 throw RuntimeException("eglCreateWindowSurface 失败（EGL 错误=0x${Integer.toHexString(EGL14.eglGetError())}）")
             }
             makeCurrent()
-            // 探测 GPU 信息（makeCurrent 后才能调用 GL）
+
             gpuInfo = try {
                 val renderer = GLES20.glGetString(GLES20.GL_RENDERER) ?: "?"
                 val glVer = GLES20.glGetString(GLES20.GL_VERSION) ?: "?"
@@ -1048,8 +929,7 @@ object GpuMp4Exporter {
         fun swapBuffers(): Boolean = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
 
         fun setPresentationTime(nsecs: Long) {
-            // v15.20：旧实现静默吞错，PTS 未写入时导出的视频帧时间戳全部塌缩为 0 → 编码器只产 1 帧、
-            // 其余丢弃 → "开头一闪、后面绿幕"。改为显式告警，便于真机日志定位。
+
             try {
                 val ok = EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, nsecs)
                 if (!ok) DebugLog.log("GPU", "eglPresentationTimeANDROID=false nsecs=$nsecs（PTS 可能未生效→绿幕/快进）")
@@ -1068,7 +948,7 @@ object GpuMp4Exporter {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  OutputSurface（解码器端：SurfaceTexture + GL OES 纹理）
+
     // ══════════════════════════════════════════════════════════════
     private class OutputSurface(width: Int, height: Int) {
         private var surfaceTexture: SurfaceTexture? = null
@@ -1080,10 +960,10 @@ object GpuMp4Exporter {
         val texMatrix = FloatArray(16)
         private val frameSync = Object()
         @Volatile private var frameAvailable = false
-        /** 上一帧时间戳（纳秒）：用于验证 updateTexImage 后确实是新帧，防止旧回调被误消费导致画面静止 */
+
         private var lastTimestamp = -1L
         private var consecutiveTimeouts = 0
-        private val maxConsecutiveTimeouts = 10  // 10×2000ms = 20 秒
+        private val maxConsecutiveTimeouts = 10
         var lastAwaitOk = false
             private set
 
@@ -1102,11 +982,6 @@ object GpuMp4Exporter {
             surface = Surface(surfaceTexture)
         }
 
-        /**
-         * 等待新帧并 updateTexImage。
-         * 用 SurfaceTexture.getTimestamp() 验证确实是新帧——旧 frameAvailable 回调被误消费时
-         * timestamp 不变，此时返回 false 跳过，防止所有帧渲染成第一帧（画面静止）。
-         */
         fun awaitNewImage() {
             val got = synchronized(frameSync) {
                 if (!frameAvailable) {
@@ -1130,7 +1005,7 @@ object GpuMp4Exporter {
             st.getTransformMatrix(texMatrix)
             val ts = st.timestamp
             if (ts == lastTimestamp) {
-                // timestamp 未变：不是新帧（旧回调被误消费），跳过不渲染
+
                 lastAwaitOk = false
                 return
             }
@@ -1149,7 +1024,7 @@ object GpuMp4Exporter {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  TextureRender：视频 OES 纹理 + 水印 2D 纹理混合绘制
+
     // ══════════════════════════════════════════════════════════════
     private class TextureRender(enableLegacyShader: Boolean) {
         private var program = 0
@@ -1167,19 +1042,19 @@ object GpuMp4Exporter {
         private var tintStrLoc = 0
         private var chromaticLoc = 0
         private var opacityLoc = 0
-        private var shadowLoc = 0  // v14.09：外投影（蒙版阴影区压暗视频）
-        private var barHLoc = 0  // v14.13：水印条高度（扭曲位移缩放）
-        private var edgeWarpLoc = 0  // v14.22：派生 edgeWarp（引擎系数用）
-        private var innerWarpLoc = 0  // v14.22：派生 innerWarp（引擎系数用）
-        private var timeLoc = 0       // v14.41：流体相位
-        private var hlAngleLoc = 0     // v14.42：高光角度
-        private var falloffLoc = 0     // v14.42：高光衰减
-        private var specularLoc = 0    // v14.42：高光强度
-        private var innerShadowLoc = 0 // v14.42：内阴影
-        private var snellPxLoc = 0   // v14.64：斯涅尔位移尺度
-        private var snellKLoc = 0    // v14.64：法线强度
-        private var uniformLogged = false  // v14.11：首帧诊断日志
-        // Pass1（OES→2D 拷贝）专用 program/location
+        private var shadowLoc = 0
+        private var barHLoc = 0
+        private var edgeWarpLoc = 0
+        private var innerWarpLoc = 0
+        private var timeLoc = 0
+        private var hlAngleLoc = 0
+        private var falloffLoc = 0
+        private var specularLoc = 0
+        private var innerShadowLoc = 0
+        private var snellPxLoc = 0
+        private var snellKLoc = 0
+        private var uniformLogged = false
+
         private var copyProgram = 0
         private var copyPositionLoc = 0
         private var copyTexCoordLoc = 0
@@ -1187,18 +1062,16 @@ object GpuMp4Exporter {
         private var copyMatrixLoc = 0
         private val sourceMatrix = FloatArray(16).apply { android.opengl.Matrix.setIdentityM(this, 0) }
         fun setTextureTransform(matrix: FloatArray) { matrix.copyInto(sourceMatrix) }
-        // FBO + 2D 视频纹理（Adreno 上 OES 偏移采样不可靠 → 先拷成 2D 再模糊）
+
         private var fbo = 0
         private var video2dTex = 0
         private var video2dW = 0
         private var video2dH = 0
         private val vertexBuffer: FloatBuffer
         private val texCoordBuffer: FloatBuffer
-        // Pass1 拷贝专用 texCoord（v 不翻转）：OES 内容按原方向存入 2D 纹理（倒置存储），
-        // Pass2 用 v 翻转 texCoord 采样 → 视频正立；若 Pass1 也用 v 翻转则 2D 为正立存储，
-        // Pass2 再翻转一次 → 输出倒置（v13.84 实测视频倒置的根因）。
+
         private val copyTexCoordBuffer: FloatBuffer
-        // v14.27 混合路径：GPU 解码取帧 → CPU 引擎水印 → 直绘编码（blit 纹理/程序）
+
         private var blitTex = 0
         private var blitW = 0
         private var blitH = 0
@@ -1217,7 +1090,6 @@ object GpuMp4Exporter {
             }
         """
 
-        // Pass1：OES 视频帧 → 2D 纹理（无混合直拷）
         private val COPY_FRAGMENT_SHADER = """
             #extension GL_OES_EGL_image_external : require
             precision mediump float;
@@ -1230,7 +1102,6 @@ object GpuMp4Exporter {
             }
         """
 
-        // v14.27 混合路径：CPU 引擎水印帧（2D 纹理）直绘编码器表面
         private val BLIT_FRAGMENT_SHADER = """
             precision mediump float;
             varying vec2 vTexCoord;
@@ -1242,8 +1113,6 @@ object GpuMp4Exporter {
 
         private val FRAGMENT_SHADER = """
             precision highp float;
-            // v14.66 致命修复：GLSL 无内置 clamp01（此前 v14.42 起引用它 → shader 编译必失败 →
-            // GPU 快速模式永远静默回退 CPU = 用户"快速模式没有用"的终极根因）
             float clamp01(float x) { return clamp(x, 0.0, 1.0); }
             varying vec2 vTexCoord;
             uniform sampler2D sVideo;   // 视频帧已由 Pass1 拷入 2D 纹理（OES 偏移采样在 Adreno 不可靠）
@@ -1270,14 +1139,9 @@ object GpuMp4Exporter {
             uniform float uOpacity;    // 玻璃整体不透明度 0-100
             uniform float uShadow;     // 外投影强度 0-100（v14.09：蒙版阴影区压暗视频，对齐预览黑软影）
 
-            // 17 抽头高斯模糊（±3 环）。原 ±4 环 25 抽头在 2340x1080 全屏每帧每像素做 2×25=50 次
-            // 纹理采样，是"导出比上一版慢一倍以上"的主因。±3 环权重已覆盖高斯能量 95%+，
-            // 视觉与 25 抽头无差异；半径上限同步放宽（40→52 texel）补偿平滑度。
-            // radius 为 texel 倍数
             vec4 blur17(vec2 uv, vec2 texel, float radius) {
                 vec2 o = texel * radius;
                 vec4 sum = vec4(0.0);
-                // 外环 ±3（权重 0.036 ×8 = 0.288）
                 sum += texture2D(sVideo, uv + vec2(-3.0, -3.0) * o) * 0.036;
                 sum += texture2D(sVideo, uv + vec2( 0.0, -3.0) * o) * 0.036;
                 sum += texture2D(sVideo, uv + vec2( 3.0, -3.0) * o) * 0.036;
@@ -1286,7 +1150,6 @@ object GpuMp4Exporter {
                 sum += texture2D(sVideo, uv + vec2(-3.0,  3.0) * o) * 0.036;
                 sum += texture2D(sVideo, uv + vec2( 0.0,  3.0) * o) * 0.036;
                 sum += texture2D(sVideo, uv + vec2( 3.0,  3.0) * o) * 0.036;
-                // 外环 ±2（权重 0.06 ×8 = 0.480）
                 sum += texture2D(sVideo, uv + vec2(-2.0, -2.0) * o) * 0.06;
                 sum += texture2D(sVideo, uv + vec2( 0.0, -2.0) * o) * 0.06;
                 sum += texture2D(sVideo, uv + vec2( 2.0, -2.0) * o) * 0.06;
@@ -1295,45 +1158,33 @@ object GpuMp4Exporter {
                 sum += texture2D(sVideo, uv + vec2(-2.0,  2.0) * o) * 0.06;
                 sum += texture2D(sVideo, uv + vec2( 0.0,  2.0) * o) * 0.06;
                 sum += texture2D(sVideo, uv + vec2( 2.0,  2.0) * o) * 0.06;
-                // 近环 ±1（权重 0.044 ×4 = 0.176）
                 sum += texture2D(sVideo, uv + vec2(-1.0, -1.0) * o) * 0.044;
                 sum += texture2D(sVideo, uv + vec2( 1.0, -1.0) * o) * 0.044;
                 sum += texture2D(sVideo, uv + vec2(-1.0,  1.0) * o) * 0.044;
                 sum += texture2D(sVideo, uv + vec2( 1.0,  1.0) * o) * 0.044;
-                // 中心（0.056）；总权重 0.288+0.480+0.176+0.056 = 1.0
                 sum += texture2D(sVideo, uv) * 0.056;
                 return sum;
             }
 
             void main() {
                 vec2 texel = 1.0 / uResolution;
-                // 玻璃蒙版：a=玻璃条形状强度（1 形状内 / 阴影区渐变），r/g 通道=玻璃条局部渐变
                 vec4 mask = texture2D(sMask, vTexCoord);
                 vec4 fg = texture2D(sFg, vTexCoord);
 
-                // ── 蒙版强度兜底（关键修复）：部分 Adreno 驱动下 texImage2D 上传的 ARGB
-                //    alpha 通道读回为 0（Java 层预检 alpha>0 但 GL 里 mask.a=0）→ 玻璃区
-                //    mix(video, glass, 0) 输出原视频 = "导出成功但无水印"（wmDiff=0.0）。
-                //    用 RGB 亮度兜底：形状白色 r=g=b=1、阴影灰渐变 0.5、透明 0，必定有值。
                 float maskA = max(mask.a, max(mask.r, max(mask.g, mask.b)));
                 float body = smoothstep(0.5, 1.0, maskA);
 
-                // ── 0. 统一扭曲（v14.22：精确对齐预览引擎 LiquidGlassEngine 系数）──
-                //    v14.41：加入 uTime 流体相位——GPU 导出玻璃随流体开关流动（与 CPU 引擎一致，
-                //    不再"纯GPU=静态玻璃丢风格"）。扭曲纹样相位随时间漂移。
                 float warpN = clamp(uWarp, 0.0, 1.0);
                 float tPh = uTime;   // 流体相位（弧度；流体关闭=0）
                 vec2 vw = vTexCoord;
                 if (warpN > 0.002) {
                     float barH = clamp(uBarH, 4.0, 256.0);
-                    // 边缘带波浪（玻璃轮廓 + 阴影渐变区，比旧版更宽覆盖）
                     float band = smoothstep(0.15, 0.45, maskA) *
                                  (1.0 - smoothstep(0.50, 0.88, maskA));
                     float wob = sin(vTexCoord.x * 320.0 + 2.1 + tPh) *
                                 sin(vTexCoord.y * 220.0 + 1.3 + tPh * 0.7);
                     float edgeAmpPx = barH * 0.11 * uEdgeWarp;   // 引擎 edgeIrregAmp 同式
                     vw += vec2(wob * edgeAmpPx, wob * edgeAmpPx * 1.6) * texel * band;
-                    // 内部涟漪（形状整体内）：低频交叉水波，位移随条高（引擎 innerAmp 同式）
                     float innerM = body * smoothstep(0.02, 0.20, maskA);
                     vec2 rip = vec2(
                         sin(vTexCoord.y * 96.0 + 1.7 + tPh * 1.5) * 0.5 + sin(vTexCoord.y * 47.0 + 4.2 + tPh) * 0.5,
@@ -1342,20 +1193,12 @@ object GpuMp4Exporter {
                 }
                 vec4 video = texture2D(sVideo, vw);
 
-                // ── 1. 毛玻璃背景：单趟 17 抽头模糊（旧双半径 34 抽头视觉无差异，着色器速度 ×2）──
-                //    模糊跟随滑块全范围 0..100（原 uBlur/60 只到 53% 强度、半径上限 25 texel，
-                //    导出模糊显著弱于预览引擎——"导出没模糊/灰"根因）
                 float blurN = uBlur / 100.0;
                 float radius = 1.0 + blurN * 52.0;          // 1~53 texel（17 抽头半径放宽补偿平滑度）
                 float strength = blurN * 1.0;               // 0~1 满强度
                 vec4 blur = blur17(vw, texel, radius);
                 vec4 glassBg = mix(video, blur, strength);
 
-                // ── 1b. 液态光学折射（v14.68：真玻璃三要素，对应真机反馈）──
-                //     sDist = CPU 侧"到边缘归一化内部距离场"（0 边→1 内，灰度）
-                //     ① 边缘压缩环：位移∝距离场斜率（边缘最强）→ 穿过玻璃的线在两边折断/错位
-                //     ② 内部凸透镜放大：采样向中心收敛 → 线轻微弯曲（不再是笔直平板）
-                //     ③ 菲涅尔边缘光：紧贴边缘的亮带，受光侧更亮、背光侧仍有微弱（iOS 双缘光）
                 float insdB = clamp(texture2D(sDist, vTexCoord).r, 0.0, 1.0);
                 if (body > 0.05 && insdB > 0.012) {
                     vec2 tstep = texel * 3.0;
@@ -1376,18 +1219,12 @@ object GpuMp4Exporter {
                     float refrLum = dot(refracted.rgb, vec3(0.299, 0.587, 0.114));
                     float baseLum = dot(glassBg.rgb, vec3(0.299, 0.587, 0.114));
                     glassBg.rgb += (refrLum - baseLum) * vec3(0.85) * body;
-                    // ③ 菲涅尔边缘光：exp 衰减于边缘最强；方向门控（受光侧亮、背光侧弱）
                     float rimFres = exp(-insdB * 14.0) * body;
                     vec2 lD = vec2(cos(uHlAngle), sin(uHlAngle));
                     float lit = max(dot(normal, lD), 0.0);
                     glassBg.rgb += vec3(0.42) * rimFres * (0.45 + 0.55 * lit);
                 }
 
-                // ── 2. 色散（v14.24：移植引擎 chromaticFrac 全区域模型，替换旧"仅边缘"版）──
-                //    引擎在整块玻璃内按位置做 R/B 通道错位采样：dispInt = cf×(lx·ly)
-                //    （玻璃内部越靠下右越强），maxDisp=1.5~36px 逐通道偏移 → 暗部内容被
-                //    注入彩色（对齐证据：同帧 GIF 玻璃饱和 49.8 vs 导出 21.4，引擎色散为主因）。
-                //    lx 用条横向归一近似（mask 无局部X），ly 用 mask.g（=形状内局部Y 0..1）。
                 float cf2 = uChromatic / 100.0;
                 if (cf2 > 0.01) {
                     float ly2 = clamp(mask.g, 0.03, 1.0);
@@ -1397,20 +1234,14 @@ object GpuMp4Exporter {
                     float dpx = dispInt * maxDispPx;
                     vec4 srcR = texture2D(sVideo, vw + vec2(dpx * texel.x, 0.0));
                     vec4 srcB = texture2D(sVideo, vw - vec2(dpx * texel.x, 0.0));
-                    // R/B 通道错位（保留 G 不动）；dispInt 内同时带形状衰减（边缘不硬切）
                     glassBg.r = mix(glassBg.r, srcR.r * 1.12, dispInt);
                     glassBg.b = mix(glassBg.b, srcB.b * 1.12, dispInt);
                 }
 
-                // ── 3. 玻璃对比度：增强玻璃内画面的层次感 ──
                 glassBg.rgb = (glassBg.rgb - 0.5) * uContrast + 0.5;
 
-                // ── 4. 染色：玻璃条整体着色 ──
                 glassBg.rgb = mix(glassBg.rgb, uTint.rgb, uTintStr);
 
-                // ── 5. 高光（v14.42 对齐引擎 dirLight + pow falloff）──
-                //    引擎：dirLight=(-u·cosA - v·sinA)*0.5+0.5；vert=0.55+0.45·dirLight；
-                //    提亮 lift=pow(vert,falloff)*specular*0.18 加到 (1-rgb) 方向（光源侧亮）
                 float gy2 = clamp(mask.g, 0.0, 1.0);
                 float lyc = gy2 * 2.0 - 1.0;                                   // 局部Y -1..1（引擎 v）
                 float lux = clamp((vTexCoord.x - 0.5) * 2.0, -1.0, 1.0);        // 局部X 近似（引擎 u）
@@ -1418,12 +1249,9 @@ object GpuMp4Exporter {
                 float dirLight = clamp(-lux * hlC - lyc * hlS, -1.0, 1.0) * 0.5 + 0.5;
                 float vert2 = 0.55 + 0.45 * dirLight;
                 float fo2 = clamp(uFalloff, 0.5, 3.0);
-                // v14.51 高光不过发白：系数 0.18→0.12、限幅 0.24 提亮、整体上限 0.94（保留细节）
                 float liftV = clamp(pow(vert2, fo2) * uSpecular * 0.12, 0.0, 0.24);
                 glassBg.rgb += (1.0 - glassBg.rgb) * liftV * body;
                 glassBg.rgb = min(glassBg.rgb, vec3(0.94));
-                // ── 5b. 边缘亮环（引擎 v14.31 方向门控：step(0,dot(grad,light))·pow(|d|,falloff)）──
-                //    SDF 距离以 maskA 近似：边界=0.55 附近，内侧→1。细环=玻璃轮廓亮线（只亮受光侧）
                 float insd = clamp((maskA - 0.55) * 6.0, 0.0, 1.0);             // 0=边界 1=内侧
                 float ringW2 = uBarH * 0.022;
                 float tRing = clamp(insd * (1.0 / clamp(ringW2 * 6.0, 0.01, 60.0)), 0.0, 1.0);
@@ -1439,55 +1267,38 @@ object GpuMp4Exporter {
                 float ring2 = lensBorder * uSpecular * 0.22;   // v14.51：亮环 0.30→0.22（不刺眼）
                 glassBg.rgb += vec3(ring2);
 
-                // ── 6. 内阴影（引擎公式 m=1-innerShadow·edge·0.42，勾出液体边界）──
                 float edgeI = 1.0 - smoothstep(0.0, 0.10, insd);
                 glassBg.rgb *= (1.0 - uInnerShadow * edgeI * 0.42 * body);
 
-                // ── 7. 玻璃本体按形状 alpha 与视频混合（文字除外）──
-                //    v14.07：文字不随 opacity 衰减（修复导出文字偏暗）。
-                //    v14.09：玻璃本体只按【形状 alpha】(body) 混合——不再用 maskA
-                //    （内含阴影渐变）→ 阴影视区不再掺玻璃体（v14.03"外围发黑"根因）。
                 float shapeW = body;
                 vec4 base = mix(video, glassBg, shapeW * (uOpacity / 100.0));
 
-                // ── 8. 外部软阴影：形状外、蒙版阴影渐变区（maskA<shapeW）压暗视频 ──
-                //    mask 已由 v14.09 恢复绘制外投影：阴影 alpha 渐变编码在 maskA 的形状外区域，
-                //    强度=预览同款 shadowAlpha（随 shadow/opacity 滑块变化）。
-                //    压暗系数 (0.55+0.45*uShadow) 与预览的 setShadowLayer(黑, alpha) 数学对齐：
-                //    uShadow=100 时≈预览精确一致，默认 42 时≈20% 峰值压暗。
                 float shadowI = clamp(maskA, 0.0, 1.0) * (1.0 - shapeW);
                 base.rgb *= (1.0 - shadowI * (0.55 + 0.45 * (uShadow / 100.0)));
 
-                // ── 9. 前景元素（文字/logo/边框/棱边）：恒定全不透明叠加 ──
-                //    v14.16：恢复真实合成（v14.15 蒙版显影已验证合成链路通）
-                //    v14.17 关键修复：fg.a 在部分 Adreno 上上传后读回为 0（与蒙版同病），
-                //    导致白字/亮 logo 永远叠不上去（导出水印文字消失/无效果的全部根因）。
-                //    与蒙版兜底一致：fg 内容=不透明文字/logo（白字 rgb≈255），
-                //    用 max(r,g,b) 作为内容强度，透明像素 rgb=0 恒为 0，互不混淆。
                 float fgA = clamp(fg.a, 0.0, 1.0);
                 fgA = max(fgA, max(fg.r, max(fg.g, fg.b)));
                 gl_FragColor = mix(base, fg, clamp(fgA, 0.0, 1.0));
             }
         """
 
-        // 全屏四边形（顶点 + 纹理坐标）
         private val vertices = floatArrayOf(
-            -1f, -1f, 0f, 1f,   // 左下
-             1f, -1f, 1f, 1f,   // 右下
-            -1f,  1f, 0f, 0f,   // 左上
-             1f,  1f, 1f, 0f    // 右上
+            -1f, -1f, 0f, 1f,
+             1f, -1f, 1f, 1f,
+            -1f,  1f, 0f, 0f,
+             1f,  1f, 1f, 0f
         )
 
         init {
             vertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer()
             vertexBuffer.put(vertices).position(0)
-            // 纹理坐标单独缓冲（全屏 0-1，v 翻转：OES/SurfaceTexture 内容倒置存储，v 翻转后正立）
+
             val texCoords = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
             texCoordBuffer = ByteBuffer.allocateDirect(texCoords.size * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer()
             texCoordBuffer.put(texCoords).position(0)
-            // Pass1 拷贝缓冲：v 不翻转（2D 纹理倒置存储，Pass2 v 翻转后正立）
+
             val copyTexCoords = floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
             copyTexCoordBuffer = ByteBuffer.allocateDirect(copyTexCoords.size * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -1523,21 +1334,18 @@ object GpuMp4Exporter {
 
             }
 
-            // Pass1 拷贝 program（OES → 2D）
             copyProgram = createProgram(VERTEX_SHADER, COPY_FRAGMENT_SHADER)
             copyPositionLoc = GLES20.glGetAttribLocation(copyProgram, "aPosition")
             copyTexCoordLoc = GLES20.glGetAttribLocation(copyProgram, "aTexCoord")
             copyVideoLoc = GLES20.glGetUniformLocation(copyProgram, "sVideo")
             copyMatrixLoc = GLES20.glGetUniformLocation(copyProgram, "uTexMatrix")
 
-            // v14.27 混合路径 blit program（CPU 引擎水印帧直绘编码器表面）
             blitProgram = createProgram(VERTEX_SHADER, BLIT_FRAGMENT_SHADER)
             blitPosLoc = GLES20.glGetAttribLocation(blitProgram, "aPosition")
             blitTexCoordLoc = GLES20.glGetAttribLocation(blitProgram, "aTexCoord")
             blitTexLoc = GLES20.glGetUniformLocation(blitProgram, "sTex")
         }
 
-        // 懒创建/重建 2D 视频纹理（尺寸首次或变化时分配）
         private fun ensureVideo2d(w: Int, h: Int) {
             if (fbo == 0) {
                 val fbos = IntArray(1)
@@ -1560,11 +1368,6 @@ object GpuMp4Exporter {
             }
         }
 
-        // ── v14.27 混合路径（GPU 解码取帧 + CPU 引擎水印）──
-        // captureVideo2d：Pass1 拷贝 OES→2D 后 glReadPixels 读回原始帧位图（行序=帧顶在首行，
-        // 与 CPU 解码路径一致），供 CPU 引擎逐帧渲染水印（水印=预览，所见即所得）。
-        // v14.33 提速：跨帧复用读回缓冲（ByteBuffer/IntArray/Bitmap），消除每帧几 MB 分配→GC；
-        // 去掉 glFinish（glReadPixels 本身隐式同步管线，glFinish 是多余的全管线强制冲刷）
         private var capBuf: ByteBuffer? = null
         private var capBmp: Bitmap? = null
         fun captureVideo2d(videoTex: Int, w: Int, h: Int): Bitmap? {
@@ -1585,7 +1388,7 @@ object GpuMp4Exporter {
             GLES20.glUniformMatrix4fv(copyMatrixLoc, 1, false, sourceMatrix, 0)
             GLES20.glDisable(GLES20.GL_BLEND)
             drawQuad(copyPositionLoc, copyTexCoordLoc, copyTexCoordBuffer)
-            // v14.33：不调 glFinish——glReadPixels 会同步等待绘制完成，无需全管线强制冲刷
+
             if (capBuf == null || capBuf!!.capacity() < w * h * 4) {
                 capBuf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
             }
@@ -1604,7 +1407,6 @@ object GpuMp4Exporter {
             return capBmp
         }
 
-        // CPU 引擎水印帧上传到 blit 纹理
         fun uploadBlit(bmp: Bitmap, w: Int, h: Int) {
             ensureBlit(w, h)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blitTex)
@@ -1613,7 +1415,6 @@ object GpuMp4Exporter {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
         }
 
-        // 直绘：blit 纹理 → 编码器表面（v 翻转采样与 Pass2 一致 → 正立）
         fun drawFrameBlit(w: Int, h: Int) {
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -1645,7 +1446,6 @@ object GpuMp4Exporter {
             }
         }
 
-        // 全屏四边形绘制（用指定 program 的 attrib location 与纹理坐标缓冲）
         private fun drawQuad(posLoc: Int, texLoc: Int, texBuf: FloatBuffer) {
             vertexBuffer.position(0)
             GLES20.glEnableVertexAttribArray(posLoc)
@@ -1658,10 +1458,6 @@ object GpuMp4Exporter {
             GLES20.glDisableVertexAttribArray(texLoc)
         }
 
-        /** v14.23：GPU 路径像素旋转——按 rotation 重写 Pass1 拷贝 texcoord（内容 90/180/270 旋转）。
-         *  rotation 由 Mp4Exporter 归一化传入（源 rotation 元数据或动态照片强制旋转）。
-         *  v14.23 方向修正：v14.21 的 90/270 映射方向弄反（动图视频"倒着 90°"），已对调；
-         *  180 不受影响（反转 180 仍 180）。 */
         fun setRotation(rot: Int) {
             val r = ((rot % 360) + 360) % 360
             val tc = when (r) {
@@ -1710,8 +1506,7 @@ object GpuMp4Exporter {
                 val info = GLES20.glGetProgramInfoLog(prog)
                 DebugLog.log("GPU", "GL program link 失败: $info")
                 GLES20.glDeleteProgram(prog)
-                // 编译失败必须抛异常 → 触发 GPU 路径回退逐帧（逐帧引擎效果完整），
-                // 绝不静默输出"无水印/无效果"的视频
+
                 throw RuntimeException("GL program 编译失败: $info")
             }
             return prog
@@ -1727,7 +1522,7 @@ object GpuMp4Exporter {
                 val info = GLES20.glGetShaderInfoLog(shader)
                 DebugLog.log("GPU", "GL shader 编译失败: $info")
                 GLES20.glDeleteShader(shader)
-                // shader 编译失败同样抛异常触发回退（绝不静默输出无水印视频）
+
                 throw RuntimeException("GL shader 编译失败: $info")
             }
             return shader

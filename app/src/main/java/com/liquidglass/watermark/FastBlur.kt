@@ -2,19 +2,13 @@ package com.liquidglass.watermark
 
 import kotlin.math.roundToInt
 
-/**
- * 全版本通用的纯像素模糊：三轮滑动窗口盒模糊近似高斯模糊。
- * 只用 IntArray 算术，不依赖 RenderScript / RuntimeShader 等任何受版本限制的 API，
- * 因此 Android 8.0(API26) 到 Android 14(API34) 渲染结果完全一致，绝不失效。
- */
 object FastBlur {
     private val scratch = ThreadLocal<IntArray>()
 
-    /** 原地模糊 ARGB 像素数组 */
     fun blur(pixels: IntArray, w: Int, h: Int, radius: Int) {
         require(w >= 0 && h >= 0 && w.toLong() * h <= pixels.size)
         if (w <= 2 || h <= 2 || radius < 1) return
-        // 三轮盒模糊等价高斯，盒半径换算使视觉半径约等于 radius
+
         val box = (radius / 1.5f).roundToInt().coerceIn(1, maxOf(w, h))
         val count = w * h
         val tmp = scratch.get()?.takeIf { it.size >= count }

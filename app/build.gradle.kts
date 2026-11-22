@@ -22,8 +22,8 @@ android {
         applicationId = "com.liquidglass.watermark"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1543
-        versionName = "15.43"
+        versionCode = 1573
+        versionName = "15.73"
 
         vectorDrawables { useSupportLibrary = true }
     }
@@ -79,10 +79,7 @@ android {
     }
 
     lint {
-        // v15.34：发布包不再在 assemble 阶段跑 lint vital。
-        // 本机的 Gradle/Kotlin daemon 被限制在 1g 堆 + 320m metaspace（见 gradle.properties），
-        // lint 分析 Compose/AGSL 代码会直接 metaspace OOM（OutOfMemoryError: Metaspace），
-        // 让 assembleRelease 无法出包。lint 请单独在 CI/空闲机器上跑 `./gradlew :app:lint`。
+
         checkReleaseBuilds = false
         abortOnError = false
     }

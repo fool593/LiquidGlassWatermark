@@ -77,15 +77,6 @@ internal class InnerShadowNode(
 
     private var prevRadius = Float.NaN
 
-    /**
-     * v15.16 任务3 卡顿修复：内阴影离屏层只在输入真正变化时重录。
-     *
-     * 修复前：`shadowLayer.record { ... }` 在 `draw()` 里**每帧无条件执行**。
-     * 而且该节点整体被 `isRenderEffectSupported()`（API 31+）门控 —— 也就是说
-     * Android 10/11（API 29/30）根本不会走这段，Android 12+ 才会每帧多录一张
-     * Offscreen 层。这正是「低版本不卡、高版本卡」的一个直接来源。
-     * 层内容只由 (尺寸, 形状, 半径, 偏移, 颜色, alpha, blendMode) 决定 → 可安全缓存。
-     */
     private var recordedKey: Long = Long.MIN_VALUE
 
     override fun ContentDrawScope.draw() {
@@ -169,8 +160,7 @@ internal class InnerShadowNode(
         h = h * 31 + shadow.color.value.toLong()
         h = h * 31 + shadow.alpha.toRawBits().toLong()
         h = h * 31 + shadow.blendMode.hashCode().toLong()
-        // 用 shapeBlock 的返回值做哈希（RoundedCornerShape 等为值相等），形状切换时自动失效；
-        // 若调用方每帧新建匿名 Shape（identity hashCode 不稳定）则退化为每帧重录，不引入错误缓存。
+
         h = h * 31 + shapeProvider.innerShape.hashCode().toLong()
         return h
     }

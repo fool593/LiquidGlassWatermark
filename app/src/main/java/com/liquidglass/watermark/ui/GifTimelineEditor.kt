@@ -38,21 +38,12 @@ import com.liquidglass.watermark.darkModeState
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/**
- * v15.30 剪辑时间轴（专业剪辑软件风格）：
- * - 带时间刻度（秒刻度线 + 标签）的轨道；
- * - 选区高亮 + 轨道外侧暗化遮罩（只突出选中片段）；
- * - 左右【修整手柄】分别拖动起点/终点，拖动【选区中间】可整体平移片段；
- * - 快捷片段：5 秒 / 10 秒 / 全片 / 重置；
- * - 时间读数：起点 / 片段 / 总时长（mm:ss.d）。
- * 写回 EditorState.gifTrimStartMs / gifTrimDurationMs（gifTrimCustomized=true），[onChanged] 持久化。
- */
 @Composable
 fun GifTimelineEditor(
     durationMs: Long,
     onChanged: () -> Unit,
     modifier: Modifier = Modifier,
-    // v15.30：时间轴模式——0=GIF 剪辑（gifTrim* 字段），1=动态照片剪辑（motionTrim* 字段）
+
     mode: Int = 0,
 ) {
     val safeDur = durationMs.coerceAtLeast(1000L)
@@ -63,7 +54,6 @@ fun GifTimelineEditor(
     val accent = Color(0xFF0091FF)
     val accent2 = Color(0xFF5AC8FA)
 
-    // 按模式读取对应字段（GIF / 动态照片各自独立记忆）
     fun readStart(): Long = if (mode == 1) EditorState.motionTrimStartMs else EditorState.gifTrimStartMs
     fun readDur(): Long = if (mode == 1) EditorState.motionTrimDurationMs else EditorState.gifTrimDurationMs
     fun readCustomized(): Boolean = if (mode == 1) EditorState.motionTrimCustomized else EditorState.gifTrimCustomized
@@ -101,7 +91,7 @@ fun GifTimelineEditor(
         onChanged()
     }
     fun preset(d: Long) {
-        // 快捷片段：优先以当前起点为基准；全片=0 起点；超出尾部自动收窄
+
         val targetStart = if (d <= 0L) 0L else startMs
         commit(targetStart, if (d <= 0L) safeDur else d, customized = true)
     }
@@ -118,7 +108,7 @@ fun GifTimelineEditor(
     }
 
     Column(modifier) {
-        // 时间刻度标签（按 1/2/5/10s 自适应间隔，最多 ~8 个标签）
+
         val stepMs: Long = when {
             safeDur <= 8_000L -> 1_000L
             safeDur <= 20_000L -> 2_000L
@@ -138,7 +128,7 @@ fun GifTimelineEditor(
             }
         }
         Spacer(Modifier.height(2.dp))
-        // 轨道 + 手柄
+
         Box(
             Modifier
                 .fillMaxWidth()
@@ -176,11 +166,11 @@ fun GifTimelineEditor(
                     )
                 }
         ) {
-            // 底座 + 刻度
+
             Canvas(Modifier.fillMaxSize2()) {
                 drawRoundRect(color = trackColor, size = size,
                     cornerRadius = CornerRadius(size.height / 2f, size.height / 2f))
-                // 秒刻度短竖线（比标签密 4 倍）
+
                 val dense = stepMs / 4L
                 var t = 0L
                 while (t <= safeDur) {
@@ -191,7 +181,7 @@ fun GifTimelineEditor(
                         Offset(x, size.height * 0.5f + h / 2f), strokeWidth = if (major) 1.6f else 1f)
                     t += dense
                 }
-                // 选区外侧暗化（突出选中片段）
+
                 if (startFrac > 0.005f) {
                     drawRoundRect(color = dimColor,
                         topLeft = Offset(0f, 0f), size = Size(size.width * startFrac, size.height),
@@ -203,14 +193,14 @@ fun GifTimelineEditor(
                         size = Size(size.width * (1f - endFrac), size.height),
                         cornerRadius = CornerRadius(size.height / 2f, size.height / 2f))
                 }
-                // 选区高亮
+
                 drawRoundRect(
                     brush = Brush.horizontalGradient(listOf(accent, accent2)),
                     topLeft = Offset(size.width * startFrac, 0f),
                     size = Size((size.width * (endFrac - startFrac)).coerceAtLeast(6f), size.height),
                     cornerRadius = CornerRadius(size.height / 2f, size.height / 2f))
             }
-            // 起点手柄
+
             Canvas(Modifier.fillMaxSize2()) {
                 val cx = size.width * startFrac
                 val cy = size.height / 2f
@@ -219,7 +209,7 @@ fun GifTimelineEditor(
                 drawCircle(Color.White, hr, Offset(cx, cy))
                 drawCircle(accent, hr * 0.5f, Offset(cx, cy))
             }
-            // 终点手柄
+
             Canvas(Modifier.fillMaxSize2()) {
                 val cx = size.width * endFrac
                 val cy = size.height / 2f
@@ -238,7 +228,7 @@ fun GifTimelineEditor(
             Text("总长 ${fmt(safeDur)}", color = subColor.copy(alpha = 0.5f), fontSize = 11.sp)
         }
         Spacer(Modifier.height(6.dp))
-        // 快捷片段
+
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val presets = listOf(
                 5_000L to "5 秒", 10_000L to "10 秒", 0L to "全片"
@@ -265,7 +255,7 @@ fun GifTimelineEditor(
                     )
                 }
             }
-            // 「重置」与快捷按钮同排：回默认 5 秒（全片前 5 秒）
+
             Box(
                 Modifier
                     .weight(1.2f)
@@ -284,5 +274,4 @@ fun GifTimelineEditor(
     }
 }
 
-/** 占满轨道盒的铺满修饰（Canvas 专用） */
 private fun Modifier.fillMaxSize2(): Modifier = fillMaxWidth().height(30.dp)

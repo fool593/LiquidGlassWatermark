@@ -86,13 +86,6 @@ internal class HighlightNode(
     private var prevStyle: HighlightStyle? = null
     private var shaderUnsupported = false
 
-    /**
-     * v15.16 任务3 卡顿修复：高光离屏层只在输入真正变化时重录。
-     *
-     * 修复前：`highlightLayer.record(safeSize) { ... }` 在 `draw()` 里**每帧无条件执行**。
-     * 高光层内容只由 (尺寸, 形状, 宽度, 模糊半径, 颜色, alpha, blendMode, style) 决定，
-     * 与每帧变化的内容无关 → 可安全缓存，绘制结果逐像素一致。
-     */
     private var recordedKey: Long = Long.MIN_VALUE
 
     override fun ContentDrawScope.draw() {
@@ -166,8 +159,7 @@ internal class HighlightNode(
         h = h * 31 + highlight.alpha.toRawBits().toLong()
         h = h * 31 + highlight.style.color.value.toLong()
         h = h * 31 + highlight.style.blendMode.hashCode().toLong()
-        // 用 shapeBlock 的返回值做哈希（RoundedCornerShape 等为值相等），形状切换时自动失效；
-        // 若调用方每帧新建匿名 Shape（identity hashCode 不稳定）则退化为每帧重录，不引入错误缓存。
+
         h = h * 31 + shapeProvider.innerShape.hashCode().toLong()
         h = h * 31 + highlight.style.hashCode().toLong()
         return h
