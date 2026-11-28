@@ -727,6 +727,10 @@ object WatermarkRenderer {
             canvas.restore()
         }
 
+        // 全局开关：照片已经画完，这里直接收口，水印本体（玻璃 + 文字）一律不画。
+        // 预览 / 导出 / 动图 / 快照全部走这条路径，所以关掉后不会再冒出残影。
+        if (!p.watermarkOn) return
+
         val scaleFactor = WatermarkScale.factor(p.scalePct)
         val contentAlphaScale = WatermarkScale.opacityMultiplier(scaleFactor)
         val sUnit = unit * scaleFactor
