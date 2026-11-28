@@ -35,9 +35,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
-import kotlinx.coroutines.delay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -48,7 +51,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -80,10 +82,6 @@ import com.liquidglass.watermark.setDarkMode
 import com.liquidglass.watermark.glass.Backdrop
 import com.liquidglass.watermark.glass.backdrops.layerBackdrop
 import com.liquidglass.watermark.glass.backdrops.rememberLayerBackdrop
-import com.liquidglass.watermark.glass.drawBackdrop
-import com.liquidglass.watermark.glass.effects.blur
-import com.liquidglass.watermark.glass.effects.lens
-import com.liquidglass.watermark.glass.effects.vibrancy
 import com.liquidglass.watermark.ui.kyant0.LiquidButton
 import com.liquidglass.watermark.ui.kyant0.LiquidSlider
 import com.liquidglass.watermark.ui.kyant0.LiquidToggle
@@ -158,21 +156,21 @@ private fun GlassTextField(
 
 @Composable
 fun EditorScreen(act: MainActivity) {
+    // Recorded scene for every glass control: buttons, sliders, toggles and panels all
+    // sample this layer. The dock keeps its own dockBackdrop inside EditorContent.
     val scene = rememberLayerBackdrop()
     var sceneSize by remember { mutableStateOf(IntSize.Zero) }
     PrepareSoftwareGlassBackdrop(scene, sceneSize)
 
-    val darkMode = darkModeState
-    LaunchedEffect(scene, darkMode) {
-        scene.contentStatic = true
-        scene.invalidateStaticContent()
-    }
     CompositionLocalProvider(LocalGlassBackdrop provides scene) {
         Box(Modifier.fillMaxSize()) {
-            // Capture a real, visible source once. The former per-control backdrops
-            // were never recorded, so every button was refracting an empty texture.
-            Box(Modifier.fillMaxSize().onSizeChanged { sceneSize = it }
-                .layerBackdrop(scene).liquidBackground())
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { sceneSize = it }
+                    .layerBackdrop(scene)
+                    .liquidBackground()
+            )
             EditorContent(act)
         }
     }
@@ -186,46 +184,24 @@ private fun EditorContent(act: MainActivity) {
 
     //
 
-    val panelBackdrop = rememberLayerBackdrop()
+    // Dedicated dock scene. It records the editor body only (never the dock itself and never
+    // the panel's scroll state), so dragging the settings panel can no longer blank the
+    // texture the dock refracts.
+    val dockBackdrop = rememberLayerBackdrop()
+    var dockSceneSize by remember { mutableStateOf(IntSize.Zero) }
 
-    var panelSize by remember { mutableStateOf(IntSize.Zero) }
+    PrepareSoftwareGlassBackdrop(dockBackdrop, dockSceneSize)
 
-    var panelPressed by remember { mutableStateOf(false) }
-    var panelUpAt by remember { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
-
-    PrepareSoftwareGlassBackdropLive(
-        panelBackdrop,
-        panelSize,
-        revision = tab,
-        isIdle = {
-            !panelPressed &&
-                android.os.SystemClock.uptimeMillis() - panelUpAt > 700L
-        },
-
-        blurAmount = { EditorState.dockBlur.coerceIn(0, 100) / 100f },
-    )
-
-    //
-
-    LaunchedEffect(panelBackdrop) {
-
-        panelBackdrop.recordThrottleMs = 400L
-
-        if (!com.liquidglass.watermark.glass.isRenderEffectSupported()) {
-
-            panelBackdrop.layerScale = 0.75f
-        }
-        while (true) {
-            delay(80)
-            val idle = android.os.SystemClock.uptimeMillis() - panelUpAt
-            if (!panelPressed && idle > 300L && panelBackdrop.liveMode) {
-                panelBackdrop.liveMode = false
-            }
-
-            if (!panelPressed && idle > 700L && panelBackdrop.capturePaused) {
-                panelBackdrop.capturePaused = false
-            }
-        }
+    LaunchedEffect(dockBackdrop) {
+        dockBackdrop.contentStatic = false
+        dockBackdrop.recordThrottleMs = 32L
+        dockBackdrop.invalidateStaticContent()
+    }
+    LaunchedEffect(EditorState.dockFrost) {
+        dockBackdrop.veilStrength = EditorState.dockFrost.coerceIn(0, 100) / 100f
+    }
+    LaunchedEffect(dockBackdrop, com.liquidglass.watermark.darkModeState) {
+        dockBackdrop.invalidateStaticContent()
     }
     var dockHeightPx by remember { mutableIntStateOf(-1) }
     val dockSlot: androidx.compose.ui.unit.Dp =
@@ -233,31 +209,23 @@ private fun EditorContent(act: MainActivity) {
         if (dockHeightPx >= 0) with(density) { dockHeightPx.toDp() } + 6.dp
         else DockPillHeight + DockBottomGap + 6.dp
 
-    //
+    // Panel scales with the screen instead of a fixed 232dp: on short screens the old value
+    // left roughly one row of controls visible above the dock.
+    val panelH = (LocalConfiguration.current.screenHeightDp * 0.34f)
+        .coerceIn(240f, 340f).dp
 
     //
 
-    Box(
-        Modifier
-            .fillMaxSize()
+    //
 
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        val down = event.changes.any { it.pressed }
-                        if (down) {
-                            panelPressed = true
-                            panelBackdrop.capturePaused = true
-                        } else if (panelPressed) {
-                            panelPressed = false
-                            panelUpAt = android.os.SystemClock.uptimeMillis()
-                        }
-                    }
-                }
-            }
-    ) {
-        Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .onSizeChanged { dockSceneSize = it }
+                .layerBackdrop(dockBackdrop)
+                .liquidBackground()
+        ) {
             TopBar(act)
             MaterialRow(act)
             Box(Modifier.weight(1f)) {
@@ -277,14 +245,9 @@ private fun EditorContent(act: MainActivity) {
                                 Modifier
                                     .width(240.dp)
                                     .height(10.dp)
-                                    .drawBackdrop(
-                                        backdrop = pb,
-                                        shape = { androidx.compose.foundation.shape.RoundedCornerShape(50) },
-                                        effects = {
-                                            vibrancy()
-                                            blur(6f.dp.toPx())
-                                            lens(6f.dp.toPx(), 12f.dp.toPx(), depthEffect = true, scaleCompensation = 1f)
-                                        }
+                                    .background(
+                                        Color.White.copy(alpha = 0.18f),
+                                        androidx.compose.foundation.shape.RoundedCornerShape(50)
                                     )
                             ) {
                                 Box(
@@ -322,42 +285,8 @@ private fun EditorContent(act: MainActivity) {
                 Modifier
                     .fillMaxWidth()
                     .padding(start = 12.dp, end = 12.dp, top = 4.dp)
-
-                    .height(232.dp + dockSlot)
-                    .onSizeChanged { panelSize = it }
-
-                    //
-
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            var downPos: androidx.compose.ui.geometry.Offset? = null
-                            var slopHit = false
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Final)
-                                val change = event.changes.firstOrNull() ?: continue
-                                if (change.pressed) {
-                                    val start = downPos
-                                    if (start == null) {
-                                        downPos = change.position
-                                        slopHit = false
-                                    } else if (!slopHit &&
-                                        (change.position - start).getDistance() >
-                                        viewConfiguration.touchSlop
-                                    ) {
-                                        slopHit = true
-                                        panelBackdrop.liveMode = true
-                                    }
-                                } else {
-                                    downPos = null
-                                    slopHit = false
-                                }
-                            }
-                        }
-                    }
-
-                    .layerBackdrop(panelBackdrop)
-                    .glassSurface()
-
+                    .height(panelH + dockSlot)
+                    .glassSurface(shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(start = 10.dp, end = 10.dp, top = 8.dp)
 
@@ -390,7 +319,7 @@ private fun EditorContent(act: MainActivity) {
             Column(Modifier.fillMaxWidth()) {
                 ExportBar(act)
                 Spacer(Modifier.height(4.dp))
-                BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it }, backdrop = panelBackdrop)
+                BottomNav(tab, { tab = it }, onDockHeight = { dockHeightPx = it }, backdrop = dockBackdrop)
             }
         }
 
@@ -909,33 +838,17 @@ private fun MaterialRow(act: MainActivity) {
 private fun PreviewArea(modifier: Modifier, act: MainActivity) {
 
     EditorState.mediaRev
-
-    EditorState.canvasOrientRev
     val b = LocalGlassBackdrop.current
     val hasMedia = (EditorState.previewBitmap != null && !EditorState.isDemo) ||
         EditorState.motionUri != null || EditorState.motionMp4 != null
 
-    val canvasAspect = when (params.canvasOrient) {
-        EditorState.CANVAS_LANDSCAPE -> 16f / 9f
-        EditorState.CANVAS_PORTRAIT -> 9f / 16f
-        else -> 0f
-    }
-    Box(modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-
-        androidx.compose.foundation.layout.BoxWithConstraints(
-            Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            val availW = maxWidth
-            val availH = maxHeight
-            val cw: androidx.compose.ui.unit.Dp
-            val ch: androidx.compose.ui.unit.Dp
-            if (canvasAspect > 0f) {
-                val hFromW = availW / canvasAspect
-                if (hFromW <= availH) { cw = availW; ch = hFromW }
-                else { ch = availH; cw = availH * canvasAspect }
-            } else { cw = availW; ch = availH }
-            Box(Modifier.size(cw, ch)) {
+    // 画布取消：没有固定比例的画布框，也没有占位演示水印。
+    // 空状态只在正中留一个加号；选好图片 / 视频后直接铺满预览区显示素材本身。
+    Box(
+        modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (hasMedia) {
             AndroidView(
                 factory = { ctx ->
                     WatermarkEditorView(ctx).also { v ->
@@ -948,48 +861,43 @@ private fun PreviewArea(modifier: Modifier, act: MainActivity) {
                 },
                 modifier = Modifier.fillMaxSize()
             )
-
-            if (!hasMedia) {
-                Box(
-                    Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        LiquidButton(
-                            onClick = { act.pickMediaFromGallery() },
-                            backdrop = b,
-                            modifier = Modifier.height(50.dp).padding(horizontal = 20.dp),
-                            tint = Color(0xFF0091FF)
-                        ) {
-                            Text(
-                                stringResource(R.string.canvas_pick_media),
-                                color = tMain(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            stringResource(R.string.canvas_pick_hint),
-                            color = tSub(), fontSize = 12.sp
+        } else {
+            // 虚线方框 + 正中加号：方框就是原来画布的位置，点整块都能进相册。
+            // 虚线参数在组合期算好并 remember，避免每帧 draw 重新分配 PathEffect。
+            val dashDensity = LocalDensity.current
+            val strokePx = with(dashDensity) { 1.dp.toPx() }
+            val radiusPx = with(dashDensity) { 22.dp.toPx() }
+            val dashPx = with(dashDensity) { 9.dp.toPx() }
+            val gapPx = with(dashDensity) { 6.dp.toPx() }
+            val dashEffect = remember(strokePx, dashPx, gapPx) {
+                PathEffect.dashPathEffect(floatArrayOf(dashPx, gapPx), 0f)
+            }
+            val dashColor = tSub(0.45f)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                    .clickable { act.pickMediaFromGallery() }
+                    .drawBehind {
+                        // 描边内缩半个线宽，避免 1dp 虚线被自身边界裁掉一半
+                        val half = strokePx / 2f
+                        drawRoundRect(
+                            color = dashColor,
+                            topLeft = androidx.compose.ui.geometry.Offset(half, half),
+                            size = androidx.compose.ui.geometry.Size(
+                                (size.width - strokePx).coerceAtLeast(0f),
+                                (size.height - strokePx).coerceAtLeast(0f)
+                            ),
+                            cornerRadius = CornerRadius(radiusPx - half, radiusPx - half),
+                            style = Stroke(width = strokePx, pathEffect = dashEffect)
                         )
-
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "一次选「照片 + 视频」配对动态照片",
-                            color = Color(0xFF7EB8FF),
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .padding(vertical = 6.dp)
-                                .clickable { act.pickPairMedia() }
-                        )
-                    }
-                }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("+", color = tSub(0.7f), fontSize = 34.sp, fontWeight = FontWeight.Light)
             }
         }
     }
-}
 }
 
 @Composable
@@ -1628,24 +1536,6 @@ private fun PosTab(act: MainActivity) {
         FloatSlider(stringResource(R.string.pos_y), p.relY * 100, 0f..100f, "%.0f%%", b) { p.relY = it / 100f; act.bump() }
         Spacer(Modifier.height(8.dp))
 
-        Text(stringResource(R.string.canvas_orient), color = tSub(0.7f), fontSize = 13.sp)
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(
-                stringResource(R.string.canvas_auto) to EditorState.CANVAS_AUTO,
-                stringResource(R.string.canvas_land) to EditorState.CANVAS_LANDSCAPE,
-                stringResource(R.string.canvas_port) to EditorState.CANVAS_PORTRAIT
-            ).forEach { (label, v) ->
-                LiquidButton(onClick = {
-                    p.canvasOrient = v
-                    EditorState.canvasOrientRev++
-                    act.bump()
-                },
-                    backdrop = b, modifier = Modifier.height(34.dp).weight(1f),
-                    tint = if (p.canvasOrient == v) Color(0xFF0091FF) else Color.Unspecified)
-                { Text(label, color = tMain(), fontSize = 11.sp) }
-            }
-        }
         Text(stringResource(R.string.drag_hint_short), color = tSub(0.4f), fontSize = 12.sp)
     }
 }
@@ -1768,6 +1658,10 @@ private fun SettingsTab(act: MainActivity) {
             }
         }
         Spacer(Modifier.height(6.dp))
+        ToggleRow(stringResource(R.string.wm_glass_on), p.watermarkOn, b) {
+            p.watermarkOn = it
+            act.bump()
+        }
         ToggleRow(stringResource(R.string.software_blur), p.softwareBlur, b) {
             p.softwareBlur = it
             com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled = it
