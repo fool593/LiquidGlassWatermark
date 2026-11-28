@@ -34,6 +34,20 @@
 <h1>📜 更新日志 · Changelog</h1>
 <a class="back" href="./">← 返回首页 Back to home</a>
 
+<h2>v15.90</h2>
+<div class="entry">
+  <span class="ver">v15.90</span><span class="date">2026-11-28</span>
+  <ul>
+    <li><b>修复静止胶囊过于扁平</b>：胶囊高度从 canvas 的 60% 提升到 86%（放大 90%），乘 scaleY 后约等于 Dock 高度，上下边缘贴合 Dock，消除原先约 8dp 空隙。</li>
+    <li><b>修复放大胶囊越界覆盖相邻 tab 文字</b>：定位宽度 lensWpx 改为恒定 1.28 cellWidth，不再随按压涨到 1.75 而被 clamp 推移胶囊中心；可见宽度增量从 0.17 收紧到 0.06，放大上限 1.365 cellWidth，右缘约 1.22 cellWidth，小于相邻文字左缘约 1.32 cellWidth，留出约 6dp 间距。</li>
+    <li><b>视觉基准还原</b>：按用户截图还原 v15.80 的 Dock 基准（蓝色横线、胶囊比例、面板高度保持该版原状）；未引入 WolfDock / Kyant0 三级分层等后续开源方案改动。</li>
+    <li><b>保持不变</b>：颜色、模糊、折射、色散、高光、圆角、tab 数量与图标文字、点击/拖拽手势、面板结构均未改动。</li>
+    <li><b>构建校验</b>：versionCode 1590 / versionName 15.90；BUILD SUCCESSFUL in 3m 24s；签名 SHA-256 6e7d65de…47b。</li>
+    <li class="en">v15.90: idle capsule height raised from 60% to 86% of canvas so it hugs the dock edges; pressed capsule no longer overflows into the neighbouring tab label (locator width pinned at 1.28 cell, width growth capped at 1.365 cell); visual baseline restored to v15.80. No changes to colors, refraction, dispersion, highlights, corner radius, tab count, gestures or panel structure.</li>
+    <li>下载：<a href="https://github.com/fool593/LiquidGlassWatermark/releases/tag/v15.90" target="_blank" rel="noopener">GitHub Release <code>v15.90</code></a>（稳定版 / 测试版 / 源码 ZIP）。</li>
+  </ul>
+</div>
+
 <h2>v15.27</h2>
 <div class="entry">
   <span class="ver">v15.27</span><span class="date">2026-11-15</span>
