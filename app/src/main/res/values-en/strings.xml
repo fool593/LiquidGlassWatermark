@@ -289,4 +289,5 @@
     <string name="dock_disperse">Dispersion</string>
     <string name="dock_flow">Flow speed</string>
     <string name="dock_capsule_hint">Refraction amount = edge bend strength; height = bend band thickness; dispersion falls back to a colored rim on old devices; flow 0 = static.</string>
+    <string name="wm_glass_on">Liquid glass watermark</string>
 </resources>
