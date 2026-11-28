@@ -330,6 +330,8 @@ object EditorState {
 
         @JvmField var refractionModel: Int = 0
 
+        @JvmField var watermarkOn: Boolean = true
+
         @JvmField var fluidEnabled: Boolean = false
         @JvmField var fluidSpeed: Int = 30
 
@@ -380,6 +382,7 @@ object EditorState {
                 }
             }
             darkMode=s.darkMode; softwareBlur=s.softwareBlur; apiMode=s.apiMode
+            watermarkOn=s.watermarkOn
             relX=s.relX; relY=s.relY; autoClean=s.autoClean
 
             cropRatio=s.cropRatio; geoMode=s.geoMode; geoText=s.geoText
@@ -728,6 +731,7 @@ object EditorState {
             e.putBoolean(pk("modelCustom"), false); e.putBoolean(pk("modelCodeCustom"), false)
             if (pi == activePlan) { modelCustom = false; modelCodeCustom = false }
             e.putBoolean(pk("autoClean"), d.autoClean)
+            e.putBoolean(pk("watermarkOn"), d.watermarkOn)
             e.putBoolean(pk("fluidEnabled"), d.fluidEnabled); e.putInt(pk("fluidSpeed"), d.fluidSpeed)
             e.putInt(pk("exportMode"), d.exportMode)
 
@@ -811,6 +815,7 @@ object EditorState {
             e.putBoolean(planKey("modelCustom"), modelCustom)
             e.putBoolean(planKey("modelCodeCustom"), modelCodeCustom)
             e.putBoolean(planKey("autoClean"), p.autoClean)
+            e.putBoolean(planKey("watermarkOn"), p.watermarkOn)
             e.putBoolean(planKey("fluidEnabled"), p.fluidEnabled)
             e.putInt(planKey("fluidSpeed"), p.fluidSpeed)
             e.putBoolean(planKey("breathEnabled"), p.breathEnabled)
@@ -970,6 +975,7 @@ object EditorState {
             sp.getString(planKey("model"), null)?.let { p.model = it }
             sp.getString(planKey("modelCode"), null)?.let { p.modelCode = it }
             p.autoClean = sp.getBoolean(planKey("autoClean"), p.autoClean)
+            p.watermarkOn = sp.getBoolean(planKey("watermarkOn"), p.watermarkOn)
             p.fluidEnabled = sp.getBoolean(planKey("fluidEnabled"), p.fluidEnabled)
             p.fluidSpeed = sp.getInt(planKey("fluidSpeed"), p.fluidSpeed).coerceIn(1, 100)
             p.breathEnabled = sp.getBoolean(planKey("breathEnabled"), p.breathEnabled)
