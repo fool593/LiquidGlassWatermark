@@ -9,6 +9,11 @@ package com.liquidglass.watermark.ui.ksu
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -40,7 +45,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -88,7 +92,6 @@ import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.foundation.layout.BoxWithConstraints
 import com.liquidglass.watermark.darkModeState
 import com.liquidglass.watermark.glass.Backdrop
-import com.liquidglass.watermark.glass.backdrops.LayerBackdrop
 import com.liquidglass.watermark.glass.backdrops.layerBackdrop
 import com.liquidglass.watermark.glass.backdrops.softwareBlurEnabled
 import com.liquidglass.watermark.glass.drawBackdrop
@@ -300,13 +303,6 @@ fun KsuFloatingBottomBar(
 
     val isInDark = darkModeState
 
-    SideEffect {
-        val k = spec.frostEff
-        (backdrop as? LayerBackdrop)?.veilStrength = k
-
-        (backdrop as? LayerBackdrop)?.forceSoftwareSnapshot = true
-    }
-
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val animationScope = rememberCoroutineScope()
@@ -315,9 +311,28 @@ fun KsuFloatingBottomBar(
 
     val accentColor = if (!isInDark) Color(0xFF0088FF) else Color(0xFF0091FF)
 
-    val containerAlpha = 0.30f + 0.20f * (alphaLevel.coerceIn(0, 100) / 100f)
+    // Stable, always-legible body. The lower bound is high enough that even a momentarily
+    // empty refraction texture cannot read as "transparent".
+    val containerAlpha = 0.46f + 0.26f * (alphaLevel.coerceIn(0, 100) / 100f)
     val containerColor =
         (if (!isInDark) Color(0xFFFAFAFA) else Color(0xFF121212)).copy(alpha = containerAlpha)
+    val containerBase =
+        (if (!isInDark) Color.White else Color(0xFF0A0A0A)).copy(alpha = 0.12f)
+
+    val flow = flowLevel.coerceIn(0, 100) / 100f
+    val flowTransition = rememberInfiniteTransition(label = "dockFlow")
+    val flowPhase by flowTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = (4200 - 3000 * flow).toInt().coerceAtLeast(1100),
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dockFlowPhase"
+    )
 
     val baseHighlight = remember {
         iosIndicatorSpecular.copy(style = HighlightStyle.Default(angle = -45f, falloff = 0.8f))
@@ -421,16 +436,20 @@ fun KsuFloatingBottomBar(
                             }
 
                             ksuLens(
-                                refractionHeight = 0f,
-                                refractionAmount = 0f,
-                                chromaticAberration = 0f,
+                                refractionHeight = spec.refractHPx,
+                                refractionAmount = spec.refractAmtPx,
+                                depthEffect = true,
+                                chromaticAberration = spec.dispAmt,
                             )
                         },
 
                         highlight = {
                             baseHighlight.copy(alpha = 0.10f + 0.40f * spec.rimBase)
                         },
-                        onDrawSurface = { drawRect(containerColor) }
+                        onDrawSurface = {
+                            drawRect(containerBase)
+                            drawRect(containerColor)
+                        }
                     ) else Modifier
                         .background(containerColor, barShape)
                         .border(1.dp, Color.White.copy(alpha = 0.18f + 0.45f * spec.rimBase), barShape)
@@ -441,12 +460,23 @@ fun KsuFloatingBottomBar(
 
         val canvasW = with(density) { (tabWidthPx * 1.95f).toDp() }
         val canvasH = pillH + 14.dp
+        val lensShape = RoundedCornerShape(50)
+
+        // Selection lens. Real backdrop refraction + dispersion, no painted white slab:
+        // the old build stacked three white rects and two thick white strokes, which is
+        // exactly what read as "washed out" and "white rim" in dark mode.
         Box(
             Modifier
                 .padding(horizontal = outerPad)
                 .graphicsLayer {
                     val p = dampedDragAnimation.pressProgress
-                    val lensWpx = tabWidthPx * (1.28f + 0.47f * p)
+                    val v = (dampedDragAnimation.velocity / 10f).fastCoerceIn(-0.30f, 0.30f)
+                    // Keep the locator width constant while pressed. Letting it grow with
+                    // pressProgress pushed rawLeft past the coerceIn clamp on the first/last
+                    // tab, which shifted the capsule center inward ~0.185 cell and made the
+                    // pressed capsule overlap the neighbouring tab's label. Growth is now
+                    // expressed only by the inner lens size + scaleX/scaleY below.
+                    val lensWpx = tabWidthPx * 1.28f
                     val rawLeft = (if (isLtr) {
                         dampedDragAnimation.value * tabWidthPx
                     } else {
@@ -455,118 +485,80 @@ fun KsuFloatingBottomBar(
 
                     val lensLeft = rawLeft.coerceIn(-lensOverhangPx, dockInnerW - lensWpx + lensOverhangPx)
                     translationX = lensLeft - (size.width - lensWpx) / 2f + panelOffset
-                }
-                .drawBehind {
-                    val p = dampedDragAnimation.pressProgress
 
-                    val v = (dampedDragAnimation.velocity / 10f).fastCoerceIn(-0.25f, 0.25f)
-
-                    val w = size.width * (0.7015f + 0.1960f * p + 0.10f * abs(v))
-                    val h = size.height * (0.7249f + 0.2147f * p)
-                    val left = (size.width - w) / 2f
-                    val top = (size.height - h) / 2f
-                    val sz = Size(w, h)
-                    val tl = Offset(left, top)
-                    val cr = CornerRadius(h / 2f)
-
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = if (isInDark) 0.09f else 0.24f),
-                        topLeft = tl, size = sz, cornerRadius = cr
-                    )
-                    drawRoundRect(
-                        color = Color(0xFFDCE8FA).copy(alpha = if (isInDark) 0.05f else 0.10f),
-                        topLeft = tl, size = sz, cornerRadius = cr
-                    )
-
-                    drawRoundRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = if (isInDark) 0.08f else 0.16f),
-                            0.5f to Color.White.copy(alpha = 0.01f),
-                            1f to Color.White.copy(alpha = if (isInDark) 0.05f else 0.10f),
-                        ),
-                        topLeft = tl, size = sz, cornerRadius = cr
-                    )
-
-                    drawRoundRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = 0.62f + 0.16f * p),
-                            0.5f to Color.White.copy(alpha = 0.24f),
-                            1f to Color.White.copy(alpha = 0.52f + 0.12f * p),
-                        ),
-                        topLeft = Offset(left - 2f, top - 2f),
-                        size = Size(w + 4f, h + 4f),
-                        cornerRadius = CornerRadius((h + 4f) / 2f),
-                        style = Stroke(width = 6f + 3f * p)
-                    )
-
-                    drawRoundRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = 0.30f + 0.14f * p),
-                            0.5f to Color.White.copy(alpha = 0.12f),
-                            1f to Color.White.copy(alpha = 0.26f + 0.10f * p),
-                        ),
-                        topLeft = Offset(left + 2.5f, top + 2.5f),
-                        size = Size(w - 5f, h - 5f),
-                        cornerRadius = CornerRadius((h - 5f) / 2f),
-                        style = Stroke(width = 2.5f)
-                    )
-
-                    val disp = spec.dispAmt
-                    if (disp > 0.02f) {
-                        drawRoundRect(
-                            color = Color(0xFFFF2C55).copy(alpha = 0.75f * disp),
-                            topLeft = Offset(left - 1f, top - 1f),
-                            size = Size(w + 2f, h + 2f),
-                            cornerRadius = CornerRadius((h + 2f) / 2f),
-                            style = Stroke(width = 2.2f)
-                        )
-                        drawRoundRect(
-                            color = Color(0xFF00E5FF).copy(alpha = 0.62f * disp),
-                            topLeft = tl, size = sz, cornerRadius = cr,
-                            style = Stroke(width = 2.0f)
-                        )
-                        drawRoundRect(
-                            color = Color(0xFF3D7BFF).copy(alpha = 0.48f * disp),
-                            topLeft = Offset(left + 3f, top + 3f),
-                            size = Size(w - 6f, h - 6f),
-                            cornerRadius = CornerRadius((h - 6f) / 2f),
-                            style = Stroke(width = 1.8f)
-                        )
-                    }
-
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.50f + 0.30f * p),
-                        topLeft = tl, size = sz, cornerRadius = cr,
-                        style = Stroke(width = (1.0f + 0.6f * p).dp.toPx())
-                    )
-
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.62f + 0.28f * p),
-                        start = Offset(left + w * 0.20f, top + h * 0.10f),
-                        end = Offset(left + w * 0.80f, top + h * 0.10f),
-                        strokeWidth = 1.8f
-                    )
-
-                    val cx = left + w / 2f
-                    val cy = top + h * (0.34f - 0.06f * p)
-                    val glowR = h * 0.52f
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.14f + 0.18f * p),
-                                Color.White.copy(alpha = 0.02f + 0.05f * p),
-                                Color.Transparent
-                            ),
-                            center = Offset(cx, cy),
-                            radius = glowR
-                        ),
-                        radius = glowR,
-                        center = Offset(cx, cy)
-                    )
+                    // Liquid squash and stretch driven by drag velocity.
+                    val stretch = 1f + 0.12f * abs(v)
+                    val squash = 1f - 0.07f * abs(v)
+                    scaleX = stretch * (0.985f + 0.030f * p)
+                    scaleY = squash * (0.955f + 0.060f * p)
                 }
                 .height(canvasH)
-                .width(canvasW)
-        )
+                .width(canvasW),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                Modifier
+                    // Pressed width capped at 0.70 of canvas (= 1.365 cell). Half-width
+                    // 0.683 cell * scaleX 1.015 = 0.693 cell < neighbour label left edge
+                    // (~0.83 cell), so the enlarged lens never covers the next tab's text.
+                    .fillMaxWidth(0.6400f + 0.0600f * dampedDragAnimation.pressProgress)
+                    // Static height hugs the dock: 0.86 * (pillH+14) * scaleY(0.955) ≈ pillH,
+                    // removing the old ~8dp gap. Pressed 0.90 stays within the canvas bound.
+                    .fillMaxHeight(0.8600f + 0.0400f * dampedDragAnimation.pressProgress)
+                    .drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { lensShape },
+                        effects = {
+                            padding = maxOf(padding, 26.dp.toPx(), spec.refractAmtPx * 0.55f + 8.dp.toPx())
+                            blur((2.2f + 2.4f * dampedDragAnimation.pressProgress).dp.toPx())
+                            ksuLens(
+                                refractionHeight = spec.refractHPx * 0.60f,
+                                refractionAmount = spec.refractAmtPx * 0.52f,
+                                depthEffect = true,
+                                chromaticAberration = 0.08f + 0.42f * spec.dispAmt,
+                            )
+                        },
+                        highlight = {
+                            Highlight(
+                                width = 0.9.dp,
+                                alpha = if (isInDark) 0.30f else 0.50f,
+                                style = HighlightStyle.Default(angle = -45f, falloff = 0.9f)
+                            )
+                        },
+                        onDrawSurface = {
+                            // Dark mode: near-clear body so the refracted scene carries the look.
+                            drawRect(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = if (isInDark) 0.050f else 0.20f),
+                                        Color.White.copy(alpha = if (isInDark) 0.014f else 0.09f)
+                                    )
+                                )
+                            )
+                            if (flow > 0.01f) {
+                                val bandW = size.width * 0.42f
+                                val bx = -bandW + (size.width + bandW * 2f) * flowPhase
+                                drawRect(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.White.copy(alpha = 0.055f * flow),
+                                            Color.Transparent
+                                        ),
+                                        startX = bx,
+                                        endX = bx + bandW
+                                    )
+                                )
+                            }
+                        }
+                    )
+                    .border(
+                        0.5.dp,
+                        Color.White.copy(alpha = if (isInDark) 0.10f else 0.26f),
+                        lensShape
+                    )
+            )
+        }
 
         Row(
             Modifier
