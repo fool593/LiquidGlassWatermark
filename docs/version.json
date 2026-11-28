@@ -1,35 +1,33 @@
 {
-  "versionName": "15.73",
-  "versionCode": 1573,
-  "tag": "v15.73",
-  "date": "2026-11-22",
+  "versionName": "15.90",
+  "versionCode": 1590,
+  "tag": "v15.90",
+  "date": "2026-11-28",
   "whatsnew": [
-    "Dock 底板向左右延长：静止胶囊在首格 / 尾格时正好与底板边缘齐平，选项与镜片位置零位移",
-    "点击选项即切换：镜片自己滑到该格并吸附，不再只能靠长按拖动",
-    "长按放大：上下高出 Dock、左右贴住底板边缘，红 / 青 / 蓝色散与边缘高光保留",
-    "源码包剔除全部中文注释与说明文档（词法扫描，运行期字符串与 strings.xml 文案保留）",
-    "镜片尺寸改为 drawBehind 单次重绘，切 tab 不再整条 Dock 重组"
+    "修复静止胶囊过于扁平：高度从 canvas 的 60% 提升到 86%，贴合 Dock 上下边缘，消除约 8dp 空隙",
+    "修复放大胶囊向右越界覆盖相邻 tab 文字：定位宽度改为恒定，放大宽度上限收紧到 1.365 cell，留出约 6dp 间距",
+    "按用户截图还原 v15.80 视觉基准，保持蓝色横线原状，不引入 WolfDock / 开源方案改动"
   ],
-  "notes": "Dock 底板贴边 + 点击切 tab + 长按放大贴合 + 纯净源码包",
+  "notes": "v15.90 · 胶囊贴边 + 放大不越界（v15.80 基准）",
   "downloads": [
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.73/app-release.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.90/app-release.apk",
       "label": "Release APK",
       "sizeMB": 14.3,
       "kind": "release"
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.73/app-debug.apk",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.90/app-debug.apk",
       "label": "Debug APK",
-      "sizeMB": 19.0,
+      "sizeMB": 18.9,
       "kind": "debug"
     },
     {
-      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.73/LiquidGlassWatermark_v15.73_source.zip",
+      "url": "https://github.com/fool593/LiquidGlassWatermark/releases/download/v15.90/LiquidGlassWatermark_v15.90_source.zip",
       "label": "源码包",
-      "sizeMB": 3.2,
+      "sizeMB": 5.8,
       "kind": "source"
     }
   ],
-  "generatedAt": "2026-11-22T20:28:23+08:00"
+  "generatedAt": "2026-11-28T20:48:00+08:00"
 }
