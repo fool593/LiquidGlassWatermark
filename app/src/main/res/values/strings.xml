@@ -342,4 +342,5 @@
     <string name="dock_disperse">色散</string>
     <string name="dock_flow">流动动画速度</string>
     <string name="dock_capsule_hint">折射扭曲 = 边缘弯折强度；折射高度 = 弯折带厚度；色散低版本用彩色描边近似；流动 0 = 静止。默认档接近 iOS。</string>
+    <string name="wm_glass_on">液态玻璃水印</string>
 </resources>
