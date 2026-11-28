@@ -46,7 +46,7 @@ fun BackdropEffectScope.lens(
     val amount = refractionAmount * comp
 
     // Low tier or no AGSL: keep refraction as a software transform (never plain alpha).
-    if (GlassQuality.isLow() || lensUnsupported || !isRuntimeShaderSupported()) {
+    if (GlassQuality.isLow() || lensInCooldown || !isRuntimeShaderSupported()) {
         softwareLens = SoftwareLens(
             heightPx = height,
             amountPx = amount,
@@ -93,7 +93,7 @@ fun BackdropEffectScope.lens(
         effect(effect)
     } catch (_: Throwable) {
 
-        lensUnsupported = true
+        markLensUnsupported()
         softwareLens = SoftwareLens(
             heightPx = height,
             amountPx = amount,
@@ -102,7 +102,14 @@ fun BackdropEffectScope.lens(
     }
 }
 
-private var lensUnsupported = false
+private var lensRetryAtMs = 0L
+
+private val lensInCooldown: Boolean
+    get() = android.os.SystemClock.elapsedRealtime() < lensRetryAtMs
+
+private fun markLensUnsupported() {
+    lensRetryAtMs = android.os.SystemClock.elapsedRealtime() + 5_000L
+}
 
 private val BackdropEffectScope.cornerRadii: FloatArray?
     get() = when (val shape = shape) {
